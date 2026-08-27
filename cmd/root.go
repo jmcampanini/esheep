@@ -1,0 +1,83 @@
+package cmd
+
+import (
+	"errors"
+	"fmt"
+	"os"
+
+	"github.com/jmcampanini/esheep/internal/config"
+	"github.com/spf13/cobra"
+)
+
+// Version is replaced by the build with the repository revision.
+var Version = "dev"
+
+type configLoader func(config.LoadOptions) (config.LoadResult, error)
+
+type applicationError struct {
+	err error
+}
+
+func (e applicationError) Error() string {
+	return e.err.Error()
+}
+
+func (e applicationError) Unwrap() error {
+	return e.err
+}
+
+// Execute runs esheep with the process arguments and streams.
+func Execute() int {
+	return execute(newRootCommand(config.Load), os.Args[1:])
+}
+
+func execute(root *cobra.Command, args []string) int {
+	root.SetArgs(args)
+	if err := root.Execute(); err != nil {
+		_, _ = fmt.Fprintf(root.ErrOrStderr(), "Error: %v\n", err)
+		var application applicationError
+		if errors.As(err, &application) {
+			return 1
+		}
+		return 2
+	}
+	return 0
+}
+
+func newRootCommand(load configLoader) *cobra.Command {
+	root := &cobra.Command{
+		Use:           "esheep",
+		Short:         "Manage agent skills across coding harnesses",
+		Version:       Version,
+		SilenceErrors: true,
+		SilenceUsage:  true,
+		Args:          cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			return command.Help()
+		},
+	}
+	if err := config.RegisterFlags(root.PersistentFlags()); err != nil {
+		panic(fmt.Sprintf("register configuration flags: %v", err))
+	}
+	root.AddCommand(
+		newCompletionCommand(root),
+		newConfigCommand(load),
+		newRepoCommand(load),
+	)
+	return root
+}
+
+func loadConfiguration(command *cobra.Command, load configLoader) (config.LoadResult, error) {
+	loaded, err := load(config.LoadOptions{Flags: command.Root().PersistentFlags()})
+	if err != nil {
+		return config.LoadResult{}, applicationError{err: err}
+	}
+	return loaded, nil
+}
+
+func appError(err error) error {
+	if err == nil {
+		return nil
+	}
+	return applicationError{err: err}
+}
