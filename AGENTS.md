@@ -11,7 +11,8 @@
 - Keep the root executable entrypoint in `main.go`.
 - Keep Cobra command wiring in `cmd/`, with one command per file where practical.
 - Keep application-specific implementation under `internal/`.
-- Shell out to the system `git` binary for repository operations.
+- Support macOS and Linux only.
+- Treat configured source directories as human-managed, read-only inputs; never access the network or create, update, or delete source directories.
 - Treat `PLAN.md` as the milestone implementation authority and keep its settled behavior aligned with the CLI.
 
 ## CLI behavior
@@ -24,6 +25,12 @@
 ## Skill synchronization
 
 - Never modify an unmarked skill directory during install or prune operations.
-- Install managed skills atomically and record ownership in `.esheep.toml` markers.
+- Install managed skills atomically and record `source`, `skill`, and `target` ownership in `.esheep.toml` markers.
 - Leave disabled targets untouched during synchronization and pruning.
-- Preserve supporting files when rendering skills for each enabled target.
+- Preserve supporting files as non-executable data and reject escaping, absolute, cyclic, or directory symlinks.
+- Reject command hooks, `allowed-tools`, and policy fields that grant or broaden execution permissions.
+
+## Breaking changes
+
+- Use clean-break mode for every breaking change until this instruction is removed from this file.
+- Old forms may remain only in Git history and change records. Do not add compatibility guards, aliases, migration errors, tests, comments, or documentation that retain them.

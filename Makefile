@@ -5,7 +5,7 @@ BINARY := $(BUILD_DIR)/esheep
 VERSION := $(shell git describe --tags --dirty --always 2>/dev/null || printf 'unknown')
 LDFLAGS := -ldflags "-X github.com/jmcampanini/esheep/cmd.Version=$(VERSION)"
 
-.PHONY: help build install test fmt fmt-check tidy tidy-check lint version-check vuln check clean
+.PHONY: help build test fmt fmt-check tidy tidy-check lint version-check vuln check clean
 
 help: ## Show available targets.
 	@printf 'Usage: make <target>\n\nTargets:\n'
@@ -14,9 +14,6 @@ help: ## Show available targets.
 build: ## Build build/esheep with git-derived version metadata.
 	@mkdir -p $(BUILD_DIR)
 	go build -trimpath -buildvcs=false $(LDFLAGS) -o $(BINARY) .
-
-install: ## Install the CLI.
-	go install .
 
 test: ## Run all tests uncached with the race detector.
 	go test -count=1 -race ./...

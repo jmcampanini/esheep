@@ -15,7 +15,7 @@ func TestMetadataCommandsDoNotLoadConfiguration(t *testing.T) {
 		args []string
 		want string
 	}{
-		{name: "help", args: []string{"--config", "missing.toml", "--help"}, want: "Usage:"},
+		{name: "help", args: []string{"--config", "missing.toml", "--help"}, want: "human-maintained local source directories"},
 		{name: "version", args: []string{"--config", "missing.toml", "--version"}, want: "esheep version dev\n"},
 		{name: "completion", args: []string{"--config", "missing.toml", "completion", "bash"}, want: "bash completion"},
 	}
@@ -44,14 +44,7 @@ func TestMetadataCommandsDoNotLoadConfiguration(t *testing.T) {
 }
 
 func TestInvalidOperandsDoNotLoadConfiguration(t *testing.T) {
-	tests := [][]string{
-		{"config", "extra"},
-		{"repo", "extra"},
-		{"repo", "add", "source", "extra"},
-		{"repo", "list", "extra"},
-		{"repo", "remove", "name", "extra"},
-	}
-	for _, args := range tests {
+	for _, args := range [][]string{{"config", "extra"}, {"completion"}, {"completion", "bash", "extra"}} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			calls := 0
 			load := func(config.LoadOptions) (config.LoadResult, error) {
@@ -72,38 +65,11 @@ func TestInvalidOperandsDoNotLoadConfiguration(t *testing.T) {
 	}
 }
 
-func TestInvalidRepositoryIdentityDoesNotLoadConfiguration(t *testing.T) {
-	tests := [][]string{
-		{"repo", "add", " bad"},
-		{"repo", "add", "local", "--name", "../bad"},
-		{"repo", "remove", "../bad"},
-	}
-	for _, args := range tests {
-		t.Run(strings.Join(args, " "), func(t *testing.T) {
-			calls := 0
-			load := func(config.LoadOptions) (config.LoadResult, error) {
-				calls++
-				return config.LoadResult{}, errors.New("configuration was loaded")
-			}
-			code, stdout, _ := runCommand(t, load, args...)
-			if code != 1 {
-				t.Fatalf("exit code = %d, want 1", code)
-			}
-			if stdout != "" {
-				t.Fatalf("stdout = %q, want empty", stdout)
-			}
-			if calls != 0 {
-				t.Fatalf("configuration loads = %d, want 0", calls)
-			}
-		})
-	}
-}
-
 func TestConfigurationFailureIsAnApplicationError(t *testing.T) {
 	load := func(config.LoadOptions) (config.LoadResult, error) {
 		return config.LoadResult{}, errors.New("cannot load settings")
 	}
-	code, stdout, stderr := runCommand(t, load, "repo", "list")
+	code, stdout, stderr := runCommand(t, load, "config")
 	if code != 1 {
 		t.Fatalf("exit code = %d, want 1", code)
 	}
@@ -112,6 +78,15 @@ func TestConfigurationFailureIsAnApplicationError(t *testing.T) {
 	}
 	if stderr != "Error: cannot load settings\n" {
 		t.Fatalf("stderr = %q", stderr)
+	}
+}
+
+func TestEffectiveVersionUsesInjectedValue(t *testing.T) {
+	prior := Version
+	Version = "v1-test"
+	t.Cleanup(func() { Version = prior })
+	if got := effectiveVersion(); got != "v1-test" {
+		t.Fatalf("effectiveVersion = %q", got)
 	}
 }
 

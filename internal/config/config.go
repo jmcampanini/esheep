@@ -1,11 +1,13 @@
-// Package config loads esheep's human-owned settings and derived filesystem locations.
+// Package config loads esheep's human-owned settings and resolves filesystem boundaries.
 package config
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -22,6 +24,12 @@ const (
 	envPrefix  = "esheep"
 	configHelp = "path to the configuration file (replaces discovered files)"
 )
+
+// Source configures one human-managed directory containing skills.
+type Source struct {
+	Name string `toml:"name"`
+	Path string `toml:"path"`
+}
 
 // ClaudeTarget configures the Claude Code skill target.
 type ClaudeTarget struct {
@@ -57,25 +65,27 @@ type Targets struct {
 
 // Config is the complete human-owned esheep configuration.
 type Config struct {
-	Targets Targets `toml:"targets"`
+	Sources []Source `toml:"sources"`
+	Targets Targets  `toml:"targets"`
 }
 
-// Locations are machine-derived paths. They are not configuration-file keys.
-// Relative XDG_* values are made absolute from the current working directory,
-// matching go-config-loader's current behavior.
+// Locations contains the discovered or explicit settings path.
 type Locations struct {
 	ConfigFile string
-	Registry   string
-	CloneRoot  string
 }
 
 // LoadOptions controls configuration loading. A nil Env uses the process
-// environment. Flags may be nil when only defaults, files, and environment
-// variables are needed.
+// environment. A non-nil Env is hermetic.
 type LoadOptions struct {
 	ConfigPath string
 	Env        map[string]string
 	Flags      *pflag.FlagSet
+}
+
+// ResolvedSource is a source identity with an absolute canonical path.
+type ResolvedSource struct {
+	Name string
+	Path string
 }
 
 // ResolvedTargets contains absolute target paths for runtime operations.
@@ -86,16 +96,16 @@ type ResolvedTargets struct {
 	Agents string
 }
 
-// LoadResult is an effective configuration together with provenance and paths.
+// LoadResult is an effective configuration together with provenance and resolved paths.
 type LoadResult struct {
 	Config          Config
 	Locations       Locations
+	ResolvedSources []ResolvedSource
 	ResolvedTargets ResolvedTargets
 	Report          configloader.LoadReport
 }
 
-// RegisterFlags registers the config file flag and all configuration-backed
-// flags. It must be called before the flag set is parsed.
+// RegisterFlags registers the config file flag and configuration-backed target flags.
 func RegisterFlags(flags *pflag.FlagSet) error {
 	if flags == nil {
 		return fmt.Errorf("config: flag set is nil")
@@ -108,18 +118,23 @@ func RegisterFlags(flags *pflag.FlagSet) error {
 }
 
 // Load applies defaults, discovered or explicit TOML, ESHEEP_* variables, and
-// parsed flags in that order. An explicit ConfigPath is required and replaces
-// all discovered files.
+// parsed flags in that order. Sources are configured only by TOML.
 func Load(options LoadOptions) (LoadResult, error) {
 	env := options.Env
 	if env == nil {
 		env = configloader.OSEnv()
 	}
-	locations := locationsFromEnv(env)
+	home, err := homeFromEnv(env)
+	if err != nil {
+		return LoadResult{}, err
+	}
+	locations, err := locationsFromEnv(env, home)
+	if err != nil {
+		return LoadResult{}, err
+	}
 	defaults := defaults()
 
 	var fileLoader configloader.ConfigLoader[flagConfig]
-	var err error
 	explicitConfig := options.ConfigPath != ""
 	if !explicitConfig && options.Flags != nil {
 		if flag := options.Flags.Lookup(configFlag); flag != nil && flag.Changed {
@@ -128,7 +143,7 @@ func Load(options LoadOptions) (LoadResult, error) {
 		}
 	}
 	if explicitConfig {
-		normalizedPath, pathErr := expandPath(options.ConfigPath, homeFromEnv(env))
+		normalizedPath, pathErr := expandConfigPath(options.ConfigPath, home)
 		if pathErr != nil {
 			return LoadResult{}, pathErr
 		}
@@ -160,11 +175,17 @@ func Load(options LoadOptions) (LoadResult, error) {
 		return LoadResult{}, err
 	}
 	cfg := Config(loaded)
-	resolved, err := resolveTargets(cfg, homeFromEnv(env))
+	resolvedSources, resolvedTargets, err := resolvePaths(cfg, home)
 	if err != nil {
 		return LoadResult{}, err
 	}
-	return LoadResult{Config: cfg, Locations: locations, ResolvedTargets: resolved, Report: report}, nil
+	return LoadResult{
+		Config:          cfg,
+		Locations:       locations,
+		ResolvedSources: resolvedSources,
+		ResolvedTargets: resolvedTargets,
+		Report:          report,
+	}, nil
 }
 
 // ReportOptions controls effective TOML rendering.
@@ -173,14 +194,12 @@ type ReportOptions struct {
 	Redact     func(LoadResult) LoadResult
 }
 
-// Render returns valid, redirectable TOML followed by derived values as
-// comments. Provenance is also emitted as comments when requested.
+// Render returns valid, redirectable TOML followed by resolved paths as comments.
 func Render(result LoadResult, options ReportOptions) ([]byte, error) {
 	if options.Redact != nil {
 		result = options.Redact(result)
 	}
-	cfg := result.Config
-	reporter := configreporter.New(flagConfig(cfg), result.Report)
+	reporter := configreporter.New(flagConfig(result.Config), result.Report)
 	text, err := reporter.TOML()
 	if err != nil {
 		return nil, err
@@ -190,21 +209,22 @@ func Render(result LoadResult, options ReportOptions) ([]byte, error) {
 	if len(text) == 0 || text[len(text)-1] != '\n' {
 		b.WriteByte('\n')
 	}
-	b.WriteString("\n# Derived values (application-computed; not configuration)\n")
-	writeDerived := func(name, value string) {
+	b.WriteString("\n# Resolved paths (application-computed; not configuration)\n")
+	writeResolved := func(name, value string) {
 		b.WriteString("# ")
 		b.WriteString(sanitizeCommentValue(name))
 		b.WriteString(" = ")
 		b.WriteString(strconv.Quote(sanitizeCommentValue(value)))
 		b.WriteByte('\n')
 	}
-	writeDerived("config_file", result.Locations.ConfigFile)
-	writeDerived("registry", result.Locations.Registry)
-	writeDerived("clone_root", result.Locations.CloneRoot)
-	writeDerived("targets.claude.path", result.ResolvedTargets.Claude)
-	writeDerived("targets.pi.path", result.ResolvedTargets.Pi)
-	writeDerived("targets.codex.path", result.ResolvedTargets.Codex)
-	writeDerived("targets.agents.path", result.ResolvedTargets.Agents)
+	writeResolved("config_file", result.Locations.ConfigFile)
+	for _, source := range result.ResolvedSources {
+		writeResolved("sources."+source.Name+".path", source.Path)
+	}
+	writeResolved("targets.claude.path", result.ResolvedTargets.Claude)
+	writeResolved("targets.pi.path", result.ResolvedTargets.Pi)
+	writeResolved("targets.codex.path", result.ResolvedTargets.Codex)
+	writeResolved("targets.agents.path", result.ResolvedTargets.Agents)
 	if options.Provenance {
 		b.WriteString("\n# Provenance\n")
 		for _, row := range reporter.ProvenanceRows() {
@@ -244,92 +264,223 @@ func defaults() flagConfig {
 	}}
 }
 
-func locationsFromEnv(env map[string]string) Locations {
-	home := homeFromEnv(env)
-	configHome := xdgHome(env, "XDG_CONFIG_HOME", filepath.Join(home, ".config"))
-	stateHome := xdgHome(env, "XDG_STATE_HOME", filepath.Join(home, ".local", "state"))
-	dataHome := xdgHome(env, "XDG_DATA_HOME", filepath.Join(home, ".local", "share"))
-	return Locations{
-		ConfigFile: filepath.Join(configHome, appName, configName),
-		Registry:   filepath.Join(stateHome, appName, "repos.toml"),
-		CloneRoot:  filepath.Join(dataHome, appName, "repos"),
+func homeFromEnv(env map[string]string) (string, error) {
+	home := env["HOME"]
+	if home == "" {
+		return "", fmt.Errorf("config: HOME must be set")
 	}
-}
-
-func homeFromEnv(env map[string]string) string {
-	if home := env["HOME"]; home != "" {
-		return absoluteClean(home)
+	if !filepath.IsAbs(home) {
+		return "", fmt.Errorf("config: HOME must be absolute")
 	}
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
-		return ""
-	}
-	return absoluteClean(home)
-}
-
-func xdgHome(env map[string]string, key, fallback string) string {
-	if value := env[key]; value != "" {
-		return absoluteClean(value)
-	}
-	return absoluteClean(fallback)
-}
-
-func absoluteClean(path string) string {
-	abs, err := filepath.Abs(path)
+	resolved, err := canonicalPath(home)
 	if err != nil {
-		return filepath.Clean(path)
-	}
-	return filepath.Clean(abs)
-}
-
-func resolveTargets(cfg Config, home string) (ResolvedTargets, error) {
-	claude, err := resolveTargetPath("claude", cfg.Targets.Claude.Path, home)
-	if err != nil {
-		return ResolvedTargets{}, err
-	}
-	pi, err := resolveTargetPath("pi", cfg.Targets.Pi.Path, home)
-	if err != nil {
-		return ResolvedTargets{}, err
-	}
-	codex, err := resolveTargetPath("codex", cfg.Targets.Codex.Path, home)
-	if err != nil {
-		return ResolvedTargets{}, err
-	}
-	agents, err := resolveTargetPath("agents", cfg.Targets.Agents.Path, home)
-	if err != nil {
-		return ResolvedTargets{}, err
-	}
-	return ResolvedTargets{Claude: claude, Pi: pi, Codex: codex, Agents: agents}, nil
-}
-
-func resolveTargetPath(name, path, home string) (string, error) {
-	resolved, err := expandPath(path, home)
-	if err != nil {
-		return "", fmt.Errorf("config: targets.%s.path: %w", name, err)
-	}
-	if resolved == "" {
-		return "", fmt.Errorf("config: targets.%s.path must not be empty", name)
+		return "", fmt.Errorf("config: resolve HOME: %w", err)
 	}
 	return resolved, nil
 }
 
-func sanitizeCommentValue(value string) string {
-	return strings.NewReplacer("\r", "", "\n", "").Replace(value)
+func locationsFromEnv(env map[string]string, home string) (Locations, error) {
+	configHome := env["XDG_CONFIG_HOME"]
+	if configHome == "" {
+		configHome = filepath.Join(home, ".config")
+	} else if !filepath.IsAbs(configHome) {
+		return Locations{}, fmt.Errorf("config: XDG_CONFIG_HOME must be absolute")
+	}
+	return Locations{ConfigFile: filepath.Join(filepath.Clean(configHome), appName, configName)}, nil
 }
 
-func expandPath(path, home string) (string, error) {
-	if path == "" {
-		return "", nil
+func resolvePaths(cfg Config, home string) ([]ResolvedSource, ResolvedTargets, error) {
+	sources, err := resolveSources(cfg.Sources, home)
+	if err != nil {
+		return nil, ResolvedTargets{}, err
 	}
-	if path == "~" {
-		path = home
-	} else if strings.HasPrefix(path, "~/") || strings.HasPrefix(path, `~\`) {
-		if home == "" {
-			return "", fmt.Errorf("cannot expand %q without a home directory", path)
+	targets, enabled, err := resolveTargets(cfg.Targets, home)
+	if err != nil {
+		return nil, ResolvedTargets{}, err
+	}
+	for _, source := range sources {
+		for _, target := range enabled {
+			if pathsOverlap(source.Path, target.path) {
+				return nil, ResolvedTargets{}, fmt.Errorf("config: source %q overlaps enabled target %q", source.Name, target.name)
+			}
 		}
-		path = filepath.Join(home, path[2:])
-	} else if strings.HasPrefix(path, "~") {
+	}
+	return sources, targets, nil
+}
+
+var sourceNamePart = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+
+func validateSourceName(name string) error {
+	if name == "" || len(name) > 255 || strings.HasPrefix(name, "/") || strings.HasSuffix(name, "/") || strings.Contains(name, "\\") {
+		return fmt.Errorf("config: invalid source name %q", name)
+	}
+	for _, part := range strings.Split(name, "/") {
+		if part == "." || part == ".." || !sourceNamePart.MatchString(part) {
+			return fmt.Errorf("config: invalid source name %q", name)
+		}
+	}
+	return nil
+}
+
+func resolveSources(configured []Source, home string) ([]ResolvedSource, error) {
+	resolved := make([]ResolvedSource, 0, len(configured))
+	for _, source := range configured {
+		if err := validateSourceName(source.Name); err != nil {
+			return nil, err
+		}
+		path, err := resolveManagedPath("source "+strconv.Quote(source.Name), source.Path, home)
+		if err != nil {
+			return nil, err
+		}
+		for _, prior := range resolved {
+			if strings.EqualFold(prior.Name, source.Name) {
+				return nil, fmt.Errorf("config: duplicate source name %q", source.Name)
+			}
+			if pathsOverlap(prior.Path, path) {
+				return nil, fmt.Errorf("config: source %q overlaps source %q", source.Name, prior.Name)
+			}
+		}
+		resolved = append(resolved, ResolvedSource{Name: source.Name, Path: path})
+	}
+	return resolved, nil
+}
+
+type resolvedTarget struct {
+	name string
+	path string
+}
+
+func resolveTargets(cfg Targets, home string) (ResolvedTargets, []resolvedTarget, error) {
+	configured := []struct {
+		name    string
+		enabled bool
+		path    string
+	}{
+		{name: "claude", enabled: cfg.Claude.Enabled, path: cfg.Claude.Path},
+		{name: "pi", enabled: cfg.Pi.Enabled, path: cfg.Pi.Path},
+		{name: "codex", enabled: cfg.Codex.Enabled, path: cfg.Codex.Path},
+		{name: "agents", enabled: cfg.Agents.Enabled, path: cfg.Agents.Path},
+	}
+	paths := make(map[string]string, len(configured))
+	var enabled []resolvedTarget
+	for _, target := range configured {
+		path, err := resolveManagedPath("targets."+target.name+".path", target.path, home)
+		if err != nil {
+			return ResolvedTargets{}, nil, err
+		}
+		paths[target.name] = path
+		if !target.enabled {
+			continue
+		}
+		expanded, err := expandHome(target.path, home)
+		if err != nil {
+			return ResolvedTargets{}, nil, err
+		}
+		if info, statErr := os.Lstat(filepath.Clean(expanded)); statErr == nil && info.Mode()&os.ModeSymlink != 0 {
+			return ResolvedTargets{}, nil, fmt.Errorf("config: targets.%s.path must not be a symlink", target.name)
+		}
+		if path == string(filepath.Separator) || samePath(path, home) {
+			return ResolvedTargets{}, nil, fmt.Errorf("config: targets.%s.path is too broad", target.name)
+		}
+		for _, prior := range enabled {
+			if pathsOverlap(prior.path, path) {
+				return ResolvedTargets{}, nil, fmt.Errorf("config: enabled target %q overlaps enabled target %q", target.name, prior.name)
+			}
+		}
+		enabled = append(enabled, resolvedTarget{name: target.name, path: path})
+	}
+	return ResolvedTargets{
+		Claude: paths["claude"],
+		Pi:     paths["pi"],
+		Codex:  paths["codex"],
+		Agents: paths["agents"],
+	}, enabled, nil
+}
+
+func resolveManagedPath(name, path, home string) (string, error) {
+	if path == "" {
+		return "", fmt.Errorf("config: %s must not be empty", name)
+	}
+	expanded, err := expandHome(path, home)
+	if err != nil {
+		return "", fmt.Errorf("config: %s: %w", name, err)
+	}
+	if !filepath.IsAbs(expanded) {
+		return "", fmt.Errorf("config: %s must be absolute or start with ~/", name)
+	}
+	resolved, err := canonicalPath(expanded)
+	if err != nil {
+		return "", fmt.Errorf("config: %s: %w", name, err)
+	}
+	return resolved, nil
+}
+
+func expandConfigPath(path, home string) (string, error) {
+	if path == "" {
+		return "", fmt.Errorf("config: file path is empty")
+	}
+	expanded, err := expandHome(path, home)
+	if err != nil {
+		return "", err
+	}
+	if absolute, absErr := filepath.Abs(expanded); absErr == nil {
+		return filepath.Clean(absolute), nil
+	}
+	return "", fmt.Errorf("config: resolve file path %q", path)
+}
+
+func expandHome(path, home string) (string, error) {
+	if path == "~" {
+		return home, nil
+	}
+	if strings.HasPrefix(path, "~/") {
+		return filepath.Join(home, path[2:]), nil
+	}
+	if strings.HasPrefix(path, "~") {
 		return "", fmt.Errorf("unsupported user-home path %q", path)
 	}
-	return absoluteClean(path), nil
+	return path, nil
+}
+
+func canonicalPath(path string) (string, error) {
+	clean := filepath.Clean(path)
+	current := clean
+	var missing []string
+	for {
+		resolved, err := filepath.EvalSymlinks(current)
+		if err == nil {
+			for i := len(missing) - 1; i >= 0; i-- {
+				resolved = filepath.Join(resolved, missing[i])
+			}
+			return filepath.Clean(resolved), nil
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return "", fmt.Errorf("resolve path %q: %w", clean, err)
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return "", fmt.Errorf("resolve path %q: %w", clean, err)
+		}
+		missing = append(missing, filepath.Base(current))
+		current = parent
+	}
+}
+
+func pathsOverlap(left, right string) bool {
+	return pathContains(left, right) || pathContains(right, left)
+}
+
+func pathContains(parent, child string) bool {
+	parent = strings.ToLower(filepath.Clean(parent))
+	child = strings.ToLower(filepath.Clean(child))
+	rel, err := filepath.Rel(parent, child)
+	return err == nil && (rel == "." || rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
+}
+
+func samePath(left, right string) bool {
+	return strings.EqualFold(filepath.Clean(left), filepath.Clean(right))
+}
+
+func sanitizeCommentValue(value string) string {
+	return strings.NewReplacer("\r", "", "\n", "").Replace(value)
 }

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"runtime/debug"
 
 	"github.com/jmcampanini/esheep/internal/config"
 	"github.com/spf13/cobra"
@@ -11,6 +12,16 @@ import (
 
 // Version is replaced by the build with the repository revision.
 var Version = "dev"
+
+func effectiveVersion() string {
+	if Version != "" && Version != "dev" {
+		return Version
+	}
+	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
+		return info.Main.Version
+	}
+	return "dev"
+}
 
 type configLoader func(config.LoadOptions) (config.LoadResult, error)
 
@@ -46,9 +57,11 @@ func execute(root *cobra.Command, args []string) int {
 
 func newRootCommand(load configLoader) *cobra.Command {
 	root := &cobra.Command{
-		Use:           "esheep",
-		Short:         "Manage agent skills across coding harnesses",
-		Version:       Version,
+		Use:   "esheep",
+		Short: "Manage local Agent Skills across coding harnesses",
+		Long: "Manage Agent Skills from human-maintained local source directories.\n" +
+			"esheep never updates source directories or accesses the network.",
+		Version:       effectiveVersion(),
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		Args:          cobra.NoArgs,
@@ -62,7 +75,6 @@ func newRootCommand(load configLoader) *cobra.Command {
 	root.AddCommand(
 		newCompletionCommand(root),
 		newConfigCommand(load),
-		newRepoCommand(load),
 	)
 	return root
 }

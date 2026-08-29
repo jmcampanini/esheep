@@ -1,16 +1,18 @@
 # esheep
 
-esheep manages Agent Skills from multiple Git repositories and renders them for Claude Code, Pi, Codex, and the shared Agent Skills directory.
+esheep manages Agent Skills from human-maintained source directories and renders them for Claude Code, Pi, Codex, and the shared Agent Skills directory. It never accesses the network and never creates, updates, or deletes source directories.
 
-Milestone 1 is being delivered incrementally. The current command surface manages configuration and the repository registry; synchronization arrives in the next chunk.
+Milestone 1 is delivered incrementally. The current command surface provides versioning, completion, and read-only effective-configuration reporting. Discovery, rendering, installation, inspection, and linting arrive in later chunks.
+
+## Platform support
+
+esheep supports macOS and Linux.
 
 ## Install or upgrade from HEAD
 
 ```sh
 go install github.com/jmcampanini/esheep@main
 ```
-
-The installed binary requires `git` for repository synchronization. Repository registration itself does not contact the network.
 
 ## Commands
 
@@ -19,26 +21,30 @@ esheep --version
 esheep completion zsh
 esheep config
 esheep config --provenance
-esheep repo add git@github.com:jmcampanini/skills.git
-esheep repo add ../work-skills --name work/skills
-esheep repo list
-esheep repo remove work/skills
 ```
 
-Commands never prompt. Payloads are written to stdout; diagnostics are written to stderr. Success exits zero and errors exit nonzero. Concurrent mutating esheep commands are unsupported in Milestone 1; run repository and synchronization mutations one at a time.
+Commands never prompt. Payloads are written to stdout and diagnostics are written to stderr. Exit status `0` means success, `1` means a valid command failed because of application state or input, and `2` means invalid command usage or command wiring failure.
 
 ## Configuration
 
 esheep loads settings in this order, with later sources taking precedence:
 
-1. built-in defaults;
-2. `$XDG_CONFIG_HOME/esheep/esheep.toml`, or `~/.config/esheep/esheep.toml`;
-3. `ESHEEP_*` environment variables;
-4. command-line flags.
+1. built-in target defaults;
+2. `$XDG_CONFIG_HOME/esheep/esheep.toml`, or `$HOME/.config/esheep/esheep.toml`;
+3. `ESHEEP_*` target variables;
+4. target flags.
 
-`--config PATH` replaces automatic discovery and requires a loadable file. A relative `XDG_CONFIG_HOME` follows go-config-loader's current behavior and resolves from the process working directory.
+`--config PATH` replaces automatic discovery and requires a loadable file. `HOME` and an explicitly supplied `XDG_CONFIG_HOME` must be absolute. Source directories are configured only in the human-owned TOML file.
 
 ```toml
+[[sources]]
+name = "personal"
+path = "~/Code/skills"
+
+[[sources]]
+name = "work"
+path = "~/Code/work-skills"
+
 [targets.claude]
 enabled = true
 path = "~/.claude/skills"
@@ -56,13 +62,14 @@ enabled = false
 path = "~/.agents/skills"
 ```
 
-Each target has matching flags such as `--claude-enabled=false` and `--claude-path PATH`, and environment variables such as `ESHEEP_CLAUDE_ENABLED` and `ESHEEP_CLAUDE_PATH`. Leading `~/` uses `HOME`; other relative target paths resolve from the process working directory.
+Each target has matching flags such as `--claude-enabled=false` and `--claude-path PATH`, and environment variables such as `ESHEEP_CLAUDE_ENABLED` and `ESHEEP_CLAUDE_PATH`.
 
-`esheep config` emits redirectable TOML and comments showing resolved target, registry, and clone paths. `--provenance` adds the source of each setting. Milestone 1 has no sensitive settings; configuration rendering still passes through the redaction boundary used for future sensitive fields.
+Source and target paths must be absolute, exactly `~`, or begin with `~/`; boundary rules still reject the home directory itself as a target. Source roots must be distinct and non-nested. Enabled target roots must also be distinct and non-nested, may not overlap a source root, and may not be `/` or the home directory. Esheep never creates, updates, or deletes source directories; users choose how those directories are maintained.
 
-## Filesystem behavior
+`esheep config` emits redirectable TOML followed by comments showing resolved configuration, source, and target paths. `--provenance` adds the source of each setting. The command reads but never creates or modifies `esheep.toml`.
 
-- Settings are human-owned. esheep reads but never creates or modifies `esheep.toml`.
-- The machine-owned repository registry is `$XDG_STATE_HOME/esheep/repos.toml`, or `~/.local/state/esheep/repos.toml`. Only `repo add` and `repo remove` edit it. Relative local repository sources are resolved and stored as absolute paths when added.
-- Repository clones live under `$XDG_DATA_HOME/esheep/repos/`, or `~/.local/share/esheep/repos/`.
-- `repo remove` deletes only the registered repository's derived clone directory. Skill-install ownership and pruning arrive with the synchronization lifecycle chunk.
+## Synchronization safety
+
+Later Milestone 1 chunks install only declarative skill metadata. Command hooks, `allowed-tools`, and policies that grant or broaden execution permissions are rejected. Supporting files are copied as non-executable data.
+
+Every managed installation is marked with its source, skill, and target identity. Synchronization never modifies an unmarked or mismatched directory, stages replacements on the target filesystem, rolls back failed swaps, detects collisions case-insensitively, and prunes only validly marked stale output. Disabled targets remain untouched.

@@ -8,15 +8,15 @@ temporary executable implementation plan. Both are retired at consolidation.
 
 | # | Milestone | Capability | Status |
 |---|---|---|---|
-| 1 | [Skill management](MILESTONE_1.md) | Manage repositories and synchronize rendered skills across configured harnesses | Active |
+| 1 | [Skill management](MILESTONE_1.md) | Synchronize declarative skills from local source directories across configured harnesses | Active |
 
 ## Milestone 1
 
 Milestone 1 establishes the complete local skill-management loop: a Go CLI
-scaffold and build/release/security baseline; XDG settings and machine-owned
-repository registry; local and remote git repository registration; skill
-discovery, Agent Skills validation, per-harness rendering, atomic installation,
-ownership-safe pruning, drift inspection, and linting. Its acceptance boundary
+scaffold and build/release baseline; human-owned local source and target
+configuration; skill discovery, declarative Agent Skills validation, per-harness
+rendering, atomic installation, ownership-safe pruning, drift inspection, and
+linting. Its acceptance boundary
 is defined in [`MILESTONE_1.md`](MILESTONE_1.md), with implementation and
 verification in the temporary root [`PLAN.md`](../PLAN.md).
 

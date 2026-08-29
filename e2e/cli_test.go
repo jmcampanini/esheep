@@ -12,13 +12,13 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
-	"github.com/jmcampanini/esheep/internal/registry"
 )
 
+const expectedVersion = "e2e-test"
+
 var (
-	binaryPath      string
-	expectedVersion string
-	workDir         string
+	binaryPath string
+	workDir    string
 )
 
 func TestMain(m *testing.M) {
@@ -41,12 +41,9 @@ func runTests(m *testing.M) int {
 		fmt.Fprintf(os.Stderr, "create e2e directory: %v\n", err)
 		return 1
 	}
-	defer func() {
-		_ = os.RemoveAll(workDir)
-	}()
+	defer func() { _ = os.RemoveAll(workDir) }()
 
-	expectedVersion = gitVersion(repositoryRoot)
-	build := exec.Command("make", "BUILD_DIR="+workDir, "build")
+	build := exec.Command("make", "VERSION="+expectedVersion, "BUILD_DIR="+workDir, "build")
 	build.Dir = repositoryRoot
 	build.Stdout = os.Stderr
 	build.Stderr = os.Stderr
@@ -58,41 +55,20 @@ func runTests(m *testing.M) int {
 	return m.Run()
 }
 
-func TestFoundationRepositoryWorkflow(t *testing.T) {
-	root, err := os.MkdirTemp(workDir, "foundation-")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		_ = os.RemoveAll(root)
-	})
+func TestFoundationConfigurationWorkflow(t *testing.T) {
+	root := filepath.Join(workDir, "foundation")
 	home := filepath.Join(root, "home")
 	configHome := filepath.Join(root, "config")
-	stateHome := filepath.Join(root, "state")
-	dataHome := filepath.Join(root, "data")
-	for _, directory := range []string{home, configHome, stateHome, dataHome} {
+	personal := filepath.Join(root, "personal-skills")
+	work := filepath.Join(root, "work-skills")
+	for _, directory := range []string{home, configHome, personal, work} {
 		if err := os.MkdirAll(directory, 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
-
-	repoA := createGitRepository(t, root, "repo-a")
-	repoB := createGitRepository(t, root, "repo-b")
-	guardBin := filepath.Join(root, "guard-bin")
-	if err := os.Mkdir(guardBin, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	gitUsed := filepath.Join(root, "git-used")
-	guard := "#!/bin/sh\nprintf invoked >> " + shellQuote(gitUsed) + "\nexit 99\n"
-	if err := os.WriteFile(filepath.Join(guardBin, "git"), []byte(guard), 0o755); err != nil {
-		t.Fatal(err)
-	}
 	environment := map[string]string{
 		"HOME":              home,
 		"XDG_CONFIG_HOME":   configHome,
-		"XDG_STATE_HOME":    stateHome,
-		"XDG_DATA_HOME":     dataHome,
-		"PATH":              guardBin + string(os.PathListSeparator) + os.Getenv("PATH"),
 		"ESHEEP_PI_ENABLED": "false",
 	}
 	settingsPath := filepath.Join(configHome, "esheep", "esheep.toml")
@@ -105,40 +81,28 @@ func TestFoundationRepositoryWorkflow(t *testing.T) {
 
 	configuration := runEsheep(t, environment, "--claude-enabled=true", "config", "--provenance")
 	assertSuccess(t, configuration)
-	var decoded struct {
-		Targets struct {
-			Claude struct {
-				Enabled bool   `toml:"enabled"`
-				Path    string `toml:"path"`
-			} `toml:"claude"`
-			Pi struct {
-				Enabled bool `toml:"enabled"`
-			} `toml:"pi"`
-		} `toml:"targets"`
-	}
-	if _, err := toml.Decode(configuration.stdout, &decoded); err != nil {
-		t.Fatalf("config output is not TOML: %v\n%s", err, configuration.stdout)
-	}
-	if !decoded.Targets.Claude.Enabled || decoded.Targets.Pi.Enabled {
-		t.Fatalf("effective targets = %#v", decoded.Targets)
-	}
-	if decoded.Targets.Claude.Path != "~/.claude/skills" {
-		t.Fatalf("Claude path = %q", decoded.Targets.Claude.Path)
-	}
-	for _, content := range []string{"# Derived values", filepath.Join(stateHome, "esheep", "repos.toml"), filepath.Join(home, ".claude", "skills"), "# Provenance"} {
-		if !strings.Contains(configuration.stdout, content) {
-			t.Fatalf("config output missing %q:\n%s", content, configuration.stdout)
-		}
+	if !strings.Contains(configuration.stdout, "# Resolved paths") || !strings.Contains(configuration.stdout, filepath.Join(home, ".claude", "skills")) || !strings.Contains(configuration.stdout, "# Provenance") {
+		t.Fatalf("config output = %s", configuration.stdout)
 	}
 	missingConfig := runEsheep(t, environment, "--config", filepath.Join(root, "missing.toml"), "config")
-	if missingConfig.exitCode != 1 || missingConfig.stdout != "" || !strings.Contains(missingConfig.stderr, "required config file") {
+	if missingConfig.exitCode != 1 || missingConfig.stdout != "" || missingConfig.stderr == "" {
 		t.Fatalf("missing explicit config result = %#v", missingConfig)
 	}
 	if _, err := os.Stat(settingsPath); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("absent settings file was created: %v", err)
 	}
 
-	settings := []byte("[targets.agents]\nenabled = true\n")
+	settings := []byte(fmt.Sprintf(`[[sources]]
+name = "personal"
+path = %q
+
+[[sources]]
+name = "work"
+path = %q
+
+[targets.agents]
+enabled = true
+`, personal, work))
 	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -153,63 +117,39 @@ func TestFoundationRepositoryWorkflow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	discoveredConfig := runEsheep(t, environment, "config")
-	assertSuccess(t, discoveredConfig)
-	if !strings.Contains(discoveredConfig.stdout, "[targets.agents]\nenabled = true") {
-		t.Fatalf("discovered config output = %s", discoveredConfig.stdout)
-	}
 
-	addA := runEsheep(t, environment, "repo", "add", repoA)
-	assertSuccess(t, addA)
-	if addA.stdout != "Added repo-a\n" {
-		t.Fatalf("repo add stdout = %q", addA.stdout)
+	discovered := runEsheep(t, environment, "config", "--provenance")
+	assertSuccess(t, discovered)
+	var decoded struct {
+		Sources []struct {
+			Name string `toml:"name"`
+			Path string `toml:"path"`
+		} `toml:"sources"`
+		Targets struct {
+			Claude struct {
+				Enabled bool `toml:"enabled"`
+			} `toml:"claude"`
+			Pi struct {
+				Enabled bool `toml:"enabled"`
+			} `toml:"pi"`
+			Agents struct {
+				Enabled bool `toml:"enabled"`
+			} `toml:"agents"`
+		} `toml:"targets"`
 	}
-	addB := runEsheep(t, environment, "repo", "add", repoB, "--name", "work/repo-b")
-	assertSuccess(t, addB)
-	remoteURL := "git@example.invalid:org/repo.git"
-	addRemote := runEsheep(t, environment, "repo", "add", remoteURL)
-	assertSuccess(t, addRemote)
-
-	listed := runEsheep(t, environment, "repo", "list")
-	assertSuccess(t, listed)
-	for _, content := range []string{"NAME", "URL", "repo-a", repoA, "work/repo-b", repoB, "example.invalid/org/repo", remoteURL} {
-		if !strings.Contains(listed.stdout, content) {
-			t.Fatalf("repo list missing %q:\n%s", content, listed.stdout)
+	if _, err := toml.Decode(discovered.stdout, &decoded); err != nil {
+		t.Fatalf("config output is not TOML: %v\n%s", err, discovered.stdout)
+	}
+	if len(decoded.Sources) != 2 || decoded.Sources[0].Name != "personal" || decoded.Sources[1].Path != work {
+		t.Fatalf("sources = %#v", decoded.Sources)
+	}
+	if !decoded.Targets.Claude.Enabled || decoded.Targets.Pi.Enabled || !decoded.Targets.Agents.Enabled {
+		t.Fatalf("targets = %#v", decoded.Targets)
+	}
+	for _, content := range []string{personal, work, "# sources.personal.path", "# sources.work.path"} {
+		if !strings.Contains(discovered.stdout, content) {
+			t.Fatalf("config output missing %q:\n%s", content, discovered.stdout)
 		}
-	}
-
-	registryPath := filepath.Join(stateHome, "esheep", "repos.toml")
-	registered, err := registry.Load(registryPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(registered.Repos) != 3 || registered.Repos[0].Name != "repo-a" || registered.Repos[1].Name != "work/repo-b" || registered.Repos[2].Name != "example.invalid/org/repo" {
-		t.Fatalf("registry = %#v", registered)
-	}
-	beforeInvalid, err := os.ReadFile(registryPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	invalid := runEsheep(t, environment, "repo", "add", repoA, "extra")
-	if invalid.exitCode != 2 || invalid.stdout != "" {
-		t.Fatalf("invalid result = %#v", invalid)
-	}
-	afterInvalid, err := os.ReadFile(registryPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(beforeInvalid, afterInvalid) {
-		t.Fatal("invalid operands changed the registry")
-	}
-
-	clone := filepath.Join(dataHome, "esheep", "repos", "work-repo-b")
-	if err := os.MkdirAll(clone, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	removed := runEsheep(t, environment, "repo", "remove", "work/repo-b")
-	assertSuccess(t, removed)
-	if _, err := os.Stat(clone); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("removed clone stat error = %v", err)
 	}
 
 	settingsAfter, err := os.Stat(settingsPath)
@@ -223,8 +163,19 @@ func TestFoundationRepositoryWorkflow(t *testing.T) {
 	if !bytes.Equal(settingsContents, settings) || settingsAfter.Mode() != settingsBefore.Mode() || !settingsAfter.ModTime().Equal(settingsBefore.ModTime()) {
 		t.Fatalf("human-owned settings changed: before=%#v after=%#v contents=%q", settingsBefore, settingsAfter, settingsContents)
 	}
-	if _, err := os.Stat(gitUsed); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("repo registration invoked git: %v", err)
+
+	withoutHome := map[string]string{"XDG_CONFIG_HOME": configHome}
+	noHome := runEsheep(t, withoutHome, "config")
+	if noHome.exitCode != 1 || noHome.stdout != "" || noHome.stderr == "" {
+		t.Fatalf("missing HOME result = %#v", noHome)
+	}
+	relativeXDG := runEsheep(t, map[string]string{"HOME": home, "XDG_CONFIG_HOME": "relative"}, "config")
+	if relativeXDG.exitCode != 1 || relativeXDG.stdout != "" || relativeXDG.stderr == "" {
+		t.Fatalf("relative XDG result = %#v", relativeXDG)
+	}
+	invalid := runEsheep(t, environment, "config", "extra")
+	if invalid.exitCode != 2 || invalid.stdout != "" {
+		t.Fatalf("invalid operands result = %#v", invalid)
 	}
 }
 
@@ -262,7 +213,7 @@ func assertSuccess(t *testing.T, result processResult) {
 
 func processEnvironment(overrides map[string]string) []string {
 	blocked := map[string]struct{}{
-		"HOME": {}, "XDG_CONFIG_HOME": {}, "XDG_STATE_HOME": {}, "XDG_DATA_HOME": {},
+		"HOME": {}, "XDG_CONFIG_HOME": {},
 	}
 	var environment []string
 	for _, entry := range os.Environ() {
@@ -278,28 +229,4 @@ func processEnvironment(overrides map[string]string) []string {
 		environment = append(environment, key+"="+value)
 	}
 	return environment
-}
-
-func createGitRepository(t *testing.T, parent, name string) string {
-	t.Helper()
-	path := filepath.Join(parent, name)
-	git := exec.Command("git", "init", "-q", path)
-	if output, err := git.CombinedOutput(); err != nil {
-		t.Fatalf("git init: %v: %s", err, output)
-	}
-	return path
-}
-
-func gitVersion(repositoryRoot string) string {
-	command := exec.Command("git", "describe", "--tags", "--dirty", "--always")
-	command.Dir = repositoryRoot
-	output, err := command.Output()
-	if err != nil {
-		return "unknown"
-	}
-	return strings.TrimSpace(string(output))
-}
-
-func shellQuote(value string) string {
-	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }
