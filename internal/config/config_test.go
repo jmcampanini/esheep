@@ -211,6 +211,10 @@ func TestManagedPathsMustBeDisjointAndAbsolute(t *testing.T) {
 		{name: "source target overlap", mutate: func(cfg *Config) {
 			cfg.Sources = []Source{{Name: "one", Path: filepath.Join(home, ".claude")}}
 		}},
+		{name: "unicode-equivalent source target overlap", mutate: func(cfg *Config) {
+			cfg.Sources = []Source{{Name: "one", Path: filepath.Join(root, "caf\u00e9")}}
+			cfg.Targets.Claude.Path = filepath.Join(root, "cafe\u0301")
+		}},
 		{name: "home target", mutate: func(cfg *Config) { cfg.Targets.Claude.Path = home }},
 		{name: "root target", mutate: func(cfg *Config) { cfg.Targets.Claude.Path = string(filepath.Separator) }},
 	}

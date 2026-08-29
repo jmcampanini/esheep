@@ -44,7 +44,7 @@ func TestMetadataCommandsDoNotLoadConfiguration(t *testing.T) {
 }
 
 func TestInvalidOperandsDoNotLoadConfiguration(t *testing.T) {
-	for _, args := range [][]string{{"config", "extra"}, {"completion"}, {"completion", "bash", "extra"}} {
+	for _, args := range [][]string{{"config", "extra"}, {"completion"}, {"completion", "elvish"}, {"completion", "bash", "extra"}} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			calls := 0
 			load := func(config.LoadOptions) (config.LoadResult, error) {

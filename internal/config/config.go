@@ -15,6 +15,7 @@ import (
 	"github.com/jmcampanini/go-config-loader/configreporter"
 	"github.com/jmcampanini/go-config-loader/pflagloader"
 	"github.com/spf13/pflag"
+	"golang.org/x/text/unicode/norm"
 )
 
 const (
@@ -471,14 +472,18 @@ func pathsOverlap(left, right string) bool {
 }
 
 func pathContains(parent, child string) bool {
-	parent = strings.ToLower(filepath.Clean(parent))
-	child = strings.ToLower(filepath.Clean(child))
+	parent = strings.ToLower(normalizePath(parent))
+	child = strings.ToLower(normalizePath(child))
 	rel, err := filepath.Rel(parent, child)
 	return err == nil && (rel == "." || rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
 }
 
 func samePath(left, right string) bool {
-	return strings.EqualFold(filepath.Clean(left), filepath.Clean(right))
+	return strings.EqualFold(normalizePath(left), normalizePath(right))
+}
+
+func normalizePath(path string) string {
+	return norm.NFC.String(filepath.Clean(path))
 }
 
 func sanitizeCommentValue(value string) string {

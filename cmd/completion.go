@@ -10,7 +10,7 @@ func newCompletionCommand(root *cobra.Command) *cobra.Command {
 	return &cobra.Command{
 		Use:       "completion [bash|zsh|fish|powershell]",
 		Short:     "Generate a shell completion script",
-		Args:      cobra.ExactArgs(1),
+		Args:      cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
 		ValidArgs: []string{"bash", "zsh", "fish", "powershell"},
 		RunE: func(command *cobra.Command, args []string) error {
 			var err error
