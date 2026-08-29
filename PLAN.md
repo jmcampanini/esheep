@@ -3,7 +3,7 @@
 ## Progress
 
 - [x] Chunk 1 — Foundation and local source configuration
-- [ ] Chunk 2 — Discovery, validation, and rendering
+- [x] Chunk 2 — Discovery, validation, and rendering
 - [ ] Chunk 3 — Ownership-safe synchronization and inspection
 - [ ] Chunk 4 — Linting, documentation, and milestone verification
 
@@ -64,9 +64,9 @@ Source names are case-insensitively unique safe slash-separated identifiers. Sou
 
 ### Skill discovery
 
-Each configured source root is a read-only discovery boundary. A directory containing exactly `SKILL.md` is a skill. Search at most six levels below each source root, skip dot-directories and `node_modules`, and never follow directory symlinks.
+Each configured source root is a read-only collection of skill directories. Discovery inspects only immediate non-symlink child directories containing `SKILL.md`; the source root and grouping directories are not skills. Dot-directories and `node_modules` are skipped.
 
-A supporting-file symlink is valid only when it is relative, acyclic, and resolves within that skill root. Absolute, escaping, cyclic, and directory symlinks are errors. Supporting files are installed as non-executable data.
+Once a skill is recognized, its contents are traversed to validate supporting files. Supporting paths must be unique under case-insensitive Unicode-normalized comparison. A supporting-file symlink is valid only when it is relative, acyclic, and resolves within that skill root. Absolute, escaping, cyclic, and directory symlinks are errors. Supporting files are installed as non-executable data.
 
 Missing, unreadable, or non-directory source roots are command errors for commands that consume skills. Metadata commands and configuration reporting do not require source roots to exist.
 
@@ -82,14 +82,14 @@ A source skill contains YAML frontmatter and a Markdown body. Supported common f
 
 Command hooks, `allowed-tools`, and policy fields that grant or broaden execution permissions are validation errors. Unknown fields fail loudly. Esheep never silently strips an unsupported field and never executes source content.
 
-Optional per-target blocks are `claude`, `pi`, `codex`, and `agents`. Every block may contain `disabled: true`. Claude and Pi may contain inert presentation metadata such as `argument-hint`. Codex may contain inert interface display metadata. Executable hooks and permission policy are invalid in every block.
+Optional per-target blocks are `claude`, `pi`, `codex`, and `agents`. Every block may contain `disabled: true`. Claude and Pi may additionally contain the inert `argument-hint` field. Codex and agents have no additional metadata fields in Milestone 1. Executable hooks and permission policy are invalid in every block.
 
 The Markdown body is preserved byte-for-byte. Rendering is deterministic:
 
-- Claude and Pi receive supported common fields plus supported inert native fields.
-- Codex receives the supported common fields and inert interface metadata in `agents/openai.yaml` when present.
-- The shared target receives supported common fields plus the inert Codex interface file when present.
-- `.esheep.toml` and generated target metadata paths are reserved output names and invalid in a source skill.
+- Claude and Pi receive supported common fields plus `argument-hint` when present.
+- Codex and the shared target receive only supported common fields.
+- Supporting files are rendered as non-executable data.
+- Root `.esheep.toml` is reserved for ownership metadata and invalid in a source skill.
 
 ### Collisions
 
@@ -188,19 +188,19 @@ Agent verification: run the command/config unit tests, the real built-binary e2e
 
 Implementation:
 
-- Add bounded source discovery with directory-symlink exclusion.
+- Discover immediate non-symlink skill directories in each configured source.
 - Parse and validate the declarative skill subset and supporting-file symlinks.
-- Reject command-enabling metadata and reserved output paths.
+- Reject command-enabling metadata and `.esheep.toml` output collisions.
 - Detect case-insensitive cross-source collisions.
 - Render deterministic Claude, Pi, Codex, and shared output with non-executable support files.
 
 Primary tests:
 
 - Parser/validator unit tests own frontmatter and declarative-subset rules.
-- Filesystem integration tests own discovery bounds and symlink behavior.
+- Filesystem integration tests own top-level discovery and symlink behavior.
 - Renderer goldens own exact target output.
 
-Human proof: create two plain local fixture directories containing valid, invalid, disabled, and colliding skills; run focused discovery/render tests and inspect rendered trees under `.sandbox/`.
+Human proof: create two plain local fixture sources containing top-level valid, invalid, disabled, and colliding skill directories; run focused discovery/render tests and inspect rendered trees under `.sandbox/`.
 
 Agent verification: run parser, discovery, symlink, collision, and renderer tests; execute the fixture proof without reading or writing outside `.sandbox/`; then run `make check`.
 

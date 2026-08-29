@@ -2,7 +2,7 @@
 
 esheep manages Agent Skills from human-maintained source directories and renders them for Claude Code, Pi, Codex, and the shared Agent Skills directory. It never accesses the network and never creates, updates, or deletes source directories.
 
-Milestone 1 is delivered incrementally. The current command surface provides versioning, completion, and read-only effective-configuration reporting. Discovery, rendering, installation, inspection, and linting arrive in later chunks.
+Milestone 1 is delivered incrementally. The current command surface provides versioning, completion, and read-only effective-configuration reporting. Internal discovery, validation, and deterministic rendering are implemented and inspectable through tests; synchronization, CLI inspection, and linting arrive in later chunks.
 
 ## Platform support
 
@@ -68,8 +68,14 @@ Source and target paths must be absolute, exactly `~`, or begin with `~/`; bound
 
 `esheep config` emits redirectable TOML followed by comments showing resolved configuration, source, and target paths. `--provenance` adds the source of each setting. The command reads but never creates or modifies `esheep.toml`.
 
+## Skill discovery and rendering
+
+Each source is a collection of top-level skill directories. Discovery inspects only immediate non-symlink child directories containing `SKILL.md`; the source root and grouping directories are not skills. Dot-directories and `node_modules` are skipped. Recognized skill contents are traversed to validate supporting files. Supporting paths must be unique under case-insensitive Unicode-normalized comparison, and absolute, escaping, cyclic, and directory symlinks are rejected.
+
+Skills use declarative YAML frontmatter and a Markdown body. Command hooks, `allowed-tools`, and policies that grant or broaden execution permissions are rejected. Every `claude`, `pi`, `codex`, or `agents` target block may disable that render. Claude and Pi also support the inert `argument-hint` field; Codex and agents support no additional metadata in Milestone 1.
+
+Rendering is deterministic. Claude and Pi receive common fields and `argument-hint` when present; Codex and the shared target receive common fields only. Supporting files are rendered as non-executable data, and root `.esheep.toml` is reserved for ownership metadata. This capability is currently internal; the `sync`, `skills list`, and `lint` commands arrive in later chunks.
+
 ## Synchronization safety
 
-Later Milestone 1 chunks install only declarative skill metadata. Command hooks, `allowed-tools`, and policies that grant or broaden execution permissions are rejected. Supporting files are copied as non-executable data.
-
-Every managed installation is marked with its source, skill, and target identity. Synchronization never modifies an unmarked or mismatched directory, stages replacements on the target filesystem, rolls back failed swaps, detects collisions case-insensitively, and prunes only validly marked stale output. Disabled targets remain untouched.
+When synchronization is added, every managed installation will be marked with its source, skill, and target identity. Synchronization never modifies an unmarked or mismatched directory, stages replacements on the target filesystem, rolls back failed swaps, detects collisions case-insensitively, and prunes only validly marked stale output. Disabled targets remain untouched.
