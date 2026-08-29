@@ -229,6 +229,19 @@ func TestManagedPathsMustBeDisjointAndAbsolute(t *testing.T) {
 	}
 }
 
+func TestManagedPathComparisonUsesUnicodeCaseFolding(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	sigma := filepath.Join(root, "σ")
+	finalSigma := filepath.Join(root, "ς")
+	if !samePath(sigma, finalSigma) {
+		t.Fatalf("samePath(%q, %q) = false", sigma, finalSigma)
+	}
+	if !pathContains(sigma, filepath.Join(finalSigma, "target")) {
+		t.Fatalf("pathContains(%q, %q) = false", sigma, filepath.Join(finalSigma, "target"))
+	}
+}
+
 func TestMissingPathResolvesExistingSymlinkedParent(t *testing.T) {
 	root := t.TempDir()
 	home := filepath.Join(root, "home")
