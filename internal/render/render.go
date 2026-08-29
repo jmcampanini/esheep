@@ -38,8 +38,8 @@ func Render(staging string, source skill.Package, target Target) (bool, error) {
 		return false, nil
 	}
 	staging = filepath.Clean(staging)
-	if err := validateTree(source); err != nil {
-		return false, err
+	if diagnostics := skill.ValidateTree(source); len(diagnostics) != 0 {
+		return false, fmt.Errorf("render tree: %w", &skill.ValidationError{Diagnostics: diagnostics})
 	}
 	if err := validateStaging(staging); err != nil {
 		return false, err
@@ -55,16 +55,15 @@ func Render(staging string, source skill.Package, target Target) (bool, error) {
 	return true, nil
 }
 
-func renderTree(staging string, source skill.Package, manifest []byte) error {
+func renderTree(staging string, source skill.Package, manifest []byte) (renderErr error) {
 	sourceRoot, err := source.OpenSourceRoot()
 	if err != nil {
 		return fmt.Errorf("render source: %w", err)
 	}
-	renderErr := renderFromRoot(sourceRoot, staging, source, manifest)
-	return errors.Join(renderErr, sourceRoot.Close())
-}
+	defer func() {
+		renderErr = errors.Join(renderErr, sourceRoot.Close())
+	}()
 
-func renderFromRoot(sourceRoot *os.Root, staging string, source skill.Package, manifest []byte) error {
 	if err := os.Chmod(staging, 0o755); err != nil {
 		return err
 	}
@@ -169,14 +168,6 @@ func validateStaging(staging string) error {
 		return fmt.Errorf("render staging: directory is not empty")
 	}
 	return nil
-}
-
-func validateTree(source skill.Package) error {
-	diagnostics := skill.ValidateTree(source)
-	if len(diagnostics) == 0 {
-		return nil
-	}
-	return fmt.Errorf("render tree: %w", &skill.ValidationError{Diagnostics: diagnostics})
 }
 
 func makeDirectory(staging, relative string) error {
