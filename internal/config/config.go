@@ -312,7 +312,8 @@ func resolvePaths(cfg Config, home string) ([]ResolvedSource, ResolvedTargets, e
 
 var sourceNamePart = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
-func validateSourceName(name string) error {
+// ValidateSourceName validates a configured source identity.
+func ValidateSourceName(name string) error {
 	if name == "" || len(name) > 255 || strings.HasPrefix(name, "/") || strings.HasSuffix(name, "/") || strings.Contains(name, "\\") {
 		return fmt.Errorf("config: invalid source name %q", name)
 	}
@@ -327,7 +328,7 @@ func validateSourceName(name string) error {
 func resolveSources(configured []Source, home string) ([]ResolvedSource, error) {
 	resolved := make([]ResolvedSource, 0, len(configured))
 	for _, source := range configured {
-		if err := validateSourceName(source.Name); err != nil {
+		if err := ValidateSourceName(source.Name); err != nil {
 			return nil, err
 		}
 		path, err := resolveManagedPath("source "+strconv.Quote(source.Name), source.Path, home)

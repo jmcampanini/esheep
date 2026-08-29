@@ -4,7 +4,7 @@
 
 - [x] Chunk 1 — Foundation and local source configuration
 - [x] Chunk 2 — Discovery, validation, and rendering
-- [ ] Chunk 3 — Ownership-safe synchronization and inspection
+- [x] Chunk 3 — Ownership-safe synchronization and inspection
 - [ ] Chunk 4 — Linting, documentation, and milestone verification
 
 ## Goal
@@ -17,8 +17,9 @@ Representative workflow:
 
 ```text
 esheep config
-esheep sync
 esheep skills list
+esheep sync
+esheep skills status
 esheep lint
 ```
 
@@ -125,14 +126,19 @@ Commands are:
 
 - `esheep config [--provenance]`;
 - `esheep sync`;
-- `esheep skills list`;
+- `esheep skills list [--json]`;
+- `esheep skills status [--json]`;
 - `esheep lint`;
 - `esheep completion <bash|zsh|fish|powershell>`;
 - `esheep --version`.
 
 `sync` discovers all sources, validates and renders skills, reports collisions while continuing unrelated work, installs enabled targets atomically, prunes stale owned output, summarizes results, and exits nonzero when any skill fails.
 
-`skills list` reports source and each target's `synced`, `drifted`, `missing`, or `disabled` state. `lint` reports compiler-style diagnostics; errors exit nonzero and warnings exit zero.
+`skills list` inventories every discovered source skill with `ready`, `invalid`, or `collision` readiness. It is observational and exits nonzero only when configuration or filesystem failures prevent complete discovery.
+
+`skills status` reports source readiness and each target's `synced`, `drifted`, `missing`, `disabled`, or `blocked` state. Invalid and colliding source skills have no target state. It exits nonzero unless every source skill is ready and every target is synced or disabled. An occupied unowned, mismatched, symlinked, or case-colliding destination, or a target that cannot be inspected safely, is blocked. `--json` emits one complete uncolored document with structured diagnostics for either inspection command.
+
+`lint` reports compiler-style diagnostics; errors exit nonzero and warnings exit zero.
 
 ### Build and distribution
 
@@ -206,14 +212,14 @@ Agent verification: run parser, discovery, symlink, collision, and renderer test
 
 ## Chunk 3 — Ownership-safe synchronization and inspection
 
-**Human outcome:** `sync` installs and repairs only esheep-owned skills, while `skills list` reports actual state and disabled targets remain untouched.
+**Human outcome:** `skills list` inventories known source skills, `sync` installs and repairs only esheep-owned skills, `skills status` reports deployment health, and disabled targets remain untouched.
 
 Implementation:
 
 - Add strict marker parsing for source, skill, and target.
 - Add same-filesystem staging, rollback-capable swaps, and cleanup.
 - Add drift comparison, exact marked pruning, and unowned-directory refusal.
-- Wire `sync` and `skills list` with deterministic output and aggregate failures.
+- Wire `sync`, source-only `skills list`, and deployment-focused `skills status` with deterministic human output, JSON inspection, and aggregate failures.
 
 Primary tests:
 
@@ -221,7 +227,7 @@ Primary tests:
 - Command tests own output streams and aggregate exit status.
 - Built-binary e2e owns complete wiring across real local source and target directories.
 
-Human proof: synchronize two local fixture sources into isolated Claude, Pi, and Codex targets; edit an installed file, add an unmarked directory, remove a source skill, disable a target, rerun sync, and verify repair, preservation, pruning, and disabled-target immutability.
+Human proof: inventory and synchronize two local fixture sources into isolated Claude, Pi, and Codex targets; inspect healthy status; edit an installed file and inspect unhealthy status; add an unmarked directory, remove a source skill, disable a target, rerun sync, and verify repair, preservation, pruning, disabled-target immutability, and restored health.
 
 Agent verification: run installation and command tests; execute the complete isolated real-binary lifecycle proof; inspect every target and marker; then run `make check`.
 
@@ -239,7 +245,7 @@ Primary tests:
 
 - Linter tests own diagnostic semantics and exit behavior.
 - Documentation/link checks own command and path consistency.
-- Durable e2e owns the representative `config → sync → skills list → lint` workflow.
+- Durable e2e owns the representative `config → skills list → sync → skills status → lint` workflow.
 
 Human proof: run lint against fixtures containing each error category, repair them, rerun the complete lifecycle, and confirm all commands succeed.
 

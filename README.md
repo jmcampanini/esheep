@@ -2,7 +2,7 @@
 
 esheep manages Agent Skills from human-maintained source directories and renders them for Claude Code, Pi, Codex, and the shared Agent Skills directory. It never accesses the network and never creates, updates, or deletes source directories.
 
-Milestone 1 is delivered incrementally. The current command surface provides versioning, completion, and read-only effective-configuration reporting. Internal discovery, validation, and deterministic rendering are implemented and inspectable through tests; synchronization, CLI inspection, and linting arrive in later chunks.
+Milestone 1 is delivered incrementally. The current command surface provides versioning, completion, effective-configuration reporting, source inventory, ownership-safe synchronization, and deployment health inspection. Linting arrives in the final chunk.
 
 ## Platform support
 
@@ -21,9 +21,14 @@ esheep --version
 esheep completion zsh
 esheep config
 esheep config --provenance
+esheep skills list
+esheep skills list --json
+esheep sync
+esheep skills status
+esheep skills status --json
 ```
 
-Commands never prompt. Payloads are written to stdout and diagnostics are written to stderr. Exit status `0` means success, `1` means a valid command failed because of application state or input, and `2` means invalid command usage or command wiring failure.
+Commands never prompt. Payloads are written to stdout and diagnostics are written to stderr. Exit status `0` means success, `1` means a valid command failed because of application state or input, and `2` means invalid command usage or command wiring failure. Human inspection and synchronization output use color only on terminals and honor `NO_COLOR`; redirected and JSON output contains no terminal escapes.
 
 ## Configuration
 
@@ -74,8 +79,22 @@ Each source is a collection of top-level skill directories. Discovery inspects o
 
 Skills use declarative YAML frontmatter and a Markdown body. Command hooks, `allowed-tools`, and policies that grant or broaden execution permissions are rejected. Every `claude`, `pi`, `codex`, or `agents` target block may disable that render. Claude and Pi also support the inert `argument-hint` field; Codex and agents support no additional metadata in Milestone 1.
 
-Rendering is deterministic. Claude and Pi receive common fields and `argument-hint` when present; Codex and the shared target receive common fields only. Supporting files are rendered as non-executable data, and root `.esheep.toml` is reserved for ownership metadata. This capability is currently internal; the `sync`, `skills list`, and `lint` commands arrive in later chunks.
+Rendering is deterministic. Claude and Pi receive common fields and `argument-hint` when present; Codex and the shared target receive common fields only. Supporting files are rendered as non-executable data, and root `.esheep.toml` is reserved for ownership metadata.
 
-## Synchronization safety
+`esheep skills list` inventories every discovered source skill. Readiness is `ready`, `invalid`, or `collision`; validation and collision diagnostics do not hide known entries. The command exits nonzero only when configuration or filesystem failures prevent complete discovery.
 
-When synchronization is added, every managed installation will be marked with its source, skill, and target identity. Synchronization never modifies an unmarked or mismatched directory, stages replacements on the target filesystem, rolls back failed swaps, detects collisions case-insensitively, and prunes only validly marked stale output. Disabled targets remain untouched.
+## Synchronization and status
+
+`esheep sync` processes unrelated skills after individual failures and prints deterministic action rows followed by a summary. Every managed installation contains a strict marker:
+
+```toml
+source = "personal"
+skill = "review-pr"
+target = "claude"
+```
+
+Synchronization never modifies an unmarked, mismatched, or symlinked destination. It stages replacements on the target filesystem, restores the prior directory when a swap fails before commit, detects skill and destination collisions case-insensitively, and prunes only validly marked stale output. Invalid, colliding, or unavailable configured source skills protect existing output because that output is not proven stale. Disabled targets remain entirely untouched.
+
+`esheep skills status` reports each ready skill as `synced`, `drifted`, `missing`, `disabled`, or `blocked` for every target. Invalid and colliding source skills have no target state. `blocked` means a destination or target cannot be inspected or managed safely. Status is a health check: it exits `0` only when every source skill is ready and every target is synced or disabled.
+
+`--json` on `skills list` and `skills status` emits one complete document with structured diagnostics. JSON status still uses the process exit status to report health.

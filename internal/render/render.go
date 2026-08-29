@@ -27,6 +27,15 @@ const (
 	TargetAgents Target = "agents"
 )
 
+// Disabled reports whether a skill disables a target.
+func Disabled(source skill.Package, target Target) (bool, error) {
+	options, err := targetOptions(source.Document.Targets, target)
+	if err != nil {
+		return false, err
+	}
+	return options.Disabled, nil
+}
+
 // Render writes a skill into an existing empty staging directory. A false
 // result means the skill disabled this target and the directory was untouched.
 func Render(staging string, source skill.Package, target Target) (bool, error) {
