@@ -70,7 +70,7 @@ Source and target paths must be absolute, exactly `~`, or begin with `~/`; bound
 
 ## Skill discovery and rendering
 
-Each source is a collection of top-level skill directories. Discovery inspects only immediate non-symlink child directories containing `SKILL.md`; the source root and grouping directories are not skills. Dot-directories and `node_modules` are skipped. Recognized skill contents are traversed to validate supporting files, including rejection of absolute, escaping, cyclic, and directory symlinks.
+Each source is a collection of top-level skill directories. Discovery inspects only immediate non-symlink child directories containing `SKILL.md`; the source root and grouping directories are not skills. Dot-directories and `node_modules` are skipped. Recognized skill contents are traversed to validate supporting files. Supporting paths must be unique under case-insensitive Unicode-normalized comparison, and absolute, escaping, cyclic, and directory symlinks are rejected.
 
 Skills use declarative YAML frontmatter and a Markdown body. Command hooks, `allowed-tools`, and policies that grant or broaden execution permissions are rejected. Every `claude`, `pi`, `codex`, or `agents` target block may disable that render. Claude and Pi also support the inert `argument-hint` field; Codex and agents support no additional metadata in Milestone 1.
 

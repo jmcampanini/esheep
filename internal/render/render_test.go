@@ -6,27 +6,39 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/jmcampanini/esheep/internal/skill"
 )
 
 func TestRenderExactTargetTrees(t *testing.T) {
 	t.Parallel()
-	source := skill.Package{
-		Document: skill.Document{
-			Name:          "demo",
-			Description:   "A demo",
-			License:       stringPointer("MIT"),
-			Compatibility: stringPointer("macOS and Linux"),
-			Metadata:      map[string]string{"z": "last", "a": "first"},
-			Targets: skill.Targets{
-				Claude: skill.TargetOptions{ArgumentHint: stringPointer("CLAUDE-ARG")},
-				Pi:     skill.TargetOptions{ArgumentHint: stringPointer("PI-ARG")},
-			},
-			Body: []byte("# Body\r\nexact\x00"),
+	root := filepath.Join(t.TempDir(), "demo")
+	if err := os.MkdirAll(filepath.Join(root, "nested"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(root, "empty"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeSkillManifest(t, root)
+	if err := os.WriteFile(filepath.Join(root, "nested", "data"), []byte{0, 1, 2}, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	source, err := skill.Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source.Document = skill.Document{
+		Name:          "demo",
+		Description:   "A demo",
+		License:       stringPointer("MIT"),
+		Compatibility: stringPointer("macOS and Linux"),
+		Metadata:      map[string]string{"z": "last", "a": "first"},
+		Targets: skill.Targets{
+			Claude: skill.TargetOptions{ArgumentHint: stringPointer("CLAUDE-ARG")},
+			Pi:     skill.TargetOptions{ArgumentHint: stringPointer("PI-ARG")},
 		},
-		Directories: []string{"empty", "nested"},
-		Files:       []skill.File{{Path: "nested/data", Data: []byte{0, 1, 2}}},
+		Body: []byte("# Body\r\nexact\x00"),
 	}
 	tests := []struct {
 		target Target
@@ -65,14 +77,15 @@ func TestRenderExactTargetTrees(t *testing.T) {
 
 func TestRenderPreservesEmptyOptionalFields(t *testing.T) {
 	t.Parallel()
-	source := skill.Package{Document: skill.Document{
+	source := loadManifestOnlyPackage(t)
+	source.Document = skill.Document{
 		Name:          "demo",
 		Description:   "ok",
 		License:       stringPointer(""),
 		Compatibility: stringPointer(""),
 		Metadata:      map[string]string{},
 		Targets:       skill.Targets{Claude: skill.TargetOptions{ArgumentHint: stringPointer("")}},
-	}}
+	}
 	claude := t.TempDir()
 	if _, err := Render(claude, source, TargetClaude); err != nil {
 		t.Fatal(err)
@@ -168,9 +181,17 @@ func TestRenderRejectsInvalidConstructedTrees(t *testing.T) {
 func TestRenderAllowsNestedReservedName(t *testing.T) {
 	t.Parallel()
 	staging := t.TempDir()
-	source := skill.Package{
-		Document: skill.Document{Name: "demo", Description: "ok"},
-		Files:    []skill.File{{Path: "support/.ESHEEP.TOML", Data: []byte("allowed")}},
+	root := filepath.Join(t.TempDir(), "demo")
+	if err := os.MkdirAll(filepath.Join(root, "support"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "support", ".ESHEEP.TOML"), []byte("allowed"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	writeSkillManifest(t, root)
+	source, err := skill.Load(root)
+	if err != nil {
+		t.Fatal(err)
 	}
 	if _, err := Render(staging, source, TargetClaude); err != nil {
 		t.Fatal(err)
@@ -207,10 +228,20 @@ func TestRenderCleansStagingAndNormalizesModesDespiteUmask(t *testing.T) {
 	if err := os.Mkdir(staging, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	source := skill.Package{
-		Document:    skill.Document{Name: "demo", Description: "ok"},
-		Directories: []string{"explicit"},
-		Files:       []skill.File{{Path: "implicit/data", Data: []byte("payload")}},
+	sourceRoot := filepath.Join(t.TempDir(), "demo")
+	if err := os.MkdirAll(filepath.Join(sourceRoot, "implicit"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sourceRoot, "implicit", "data"), []byte("payload"), 0o711); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(sourceRoot, "explicit"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeSkillManifest(t, sourceRoot)
+	source, err := skill.Load(sourceRoot)
+	if err != nil {
+		t.Fatal(err)
 	}
 	if _, err := Render(staging+string(filepath.Separator), source, TargetClaude); err != nil {
 		t.Fatal(err)
@@ -221,6 +252,253 @@ func TestRenderCleansStagingAndNormalizesModesDespiteUmask(t *testing.T) {
 	assertMode(t, filepath.Join(staging, "implicit"), 0o755)
 	assertMode(t, filepath.Join(staging, "SKILL.md"), 0o644)
 	assertMode(t, filepath.Join(staging, "implicit", "data"), 0o644)
+}
+
+func TestRenderStreamsCurrentRegularAndWithinRootSymlinkData(t *testing.T) {
+	t.Parallel()
+	parent := t.TempDir()
+	root := filepath.Join(parent, "demo")
+	if err := os.Mkdir(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeSkillManifest(t, root)
+	dataPath := filepath.Join(root, "data")
+	if err := os.WriteFile(dataPath, []byte("validated"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("data", filepath.Join(root, "alias")); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := skill.Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dataPath, []byte("rendered"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	staging := t.TempDir()
+	if _, err := Render(staging, loaded, TargetClaude); err != nil {
+		t.Fatal(err)
+	}
+	for _, relative := range []string{"data", "alias"} {
+		got, err := os.ReadFile(filepath.Join(staging, relative))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != "rendered" {
+			t.Fatalf("%s = %q, want current source data", relative, got)
+		}
+		assertMode(t, filepath.Join(staging, relative), 0o644)
+	}
+}
+
+func TestRenderRejectsSupportFileReplacedByDirectory(t *testing.T) {
+	t.Parallel()
+	root, loaded := loadRenderSkill(t)
+	path := filepath.Join(root, "data")
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Render(t.TempDir(), loaded, TargetClaude); err == nil {
+		t.Fatal("Render accepted a support file replaced by a directory")
+	}
+}
+
+func TestRenderRejectsSupportFileReplacedByFIFOWithoutBlocking(t *testing.T) {
+	t.Parallel()
+	root, loaded := loadRenderSkill(t)
+	path := filepath.Join(root, "data")
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Mkfifo(path, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	staging := t.TempDir()
+	result := make(chan error, 1)
+	go func() {
+		_, err := Render(staging, loaded, TargetClaude)
+		result <- err
+	}()
+	select {
+	case err := <-result:
+		if err == nil {
+			t.Fatal("Render accepted a support file replaced by a FIFO")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Render blocked opening a support FIFO")
+	}
+}
+
+func TestRenderRejectsSupportSymlinkChangedToEscape(t *testing.T) {
+	t.Parallel()
+	parent := t.TempDir()
+	root := filepath.Join(parent, "demo")
+	if err := os.Mkdir(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeSkillManifest(t, root)
+	if err := os.WriteFile(filepath.Join(root, "data"), []byte("inside"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "alias")
+	if err := os.Symlink("data", link); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := skill.Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(parent, "outside")
+	if err := os.WriteFile(outside, []byte("outside"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(link); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("../outside", link); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Render(t.TempDir(), loaded, TargetClaude); err == nil {
+		t.Fatal("Render followed an escaping support symlink")
+	}
+}
+
+func TestRenderRejectsReplacedSkillOrSourceDirectoryBeforeStagingMutation(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		replace func(*testing.T, string, string)
+	}{
+		{
+			name: "outside symlink",
+			replace: func(t *testing.T, source, root string) {
+				t.Helper()
+				if err := os.Rename(root, root+"-original"); err != nil {
+					t.Fatal(err)
+				}
+				outside := filepath.Join(filepath.Dir(source), "outside")
+				if err := os.Mkdir(outside, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(outside, "data"), []byte("outside"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(outside, root); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "different in-source directory",
+			replace: func(t *testing.T, _ string, root string) {
+				t.Helper()
+				if err := os.Rename(root, root+"-original"); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Mkdir(root, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(root, "data"), []byte("replacement"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "replaced source parent",
+			replace: func(t *testing.T, source, _ string) {
+				t.Helper()
+				if err := os.Rename(source, source+"-original"); err != nil {
+					t.Fatal(err)
+				}
+				root := filepath.Join(source, "demo")
+				if err := os.MkdirAll(root, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(root, "data"), []byte("replacement"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			parent := t.TempDir()
+			source := filepath.Join(parent, "source")
+			root := filepath.Join(source, "demo")
+			if err := os.MkdirAll(root, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			writeSkillManifest(t, root)
+			if err := os.WriteFile(filepath.Join(root, "data"), []byte("original"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			loaded, err := skill.Load(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			test.replace(t, source, root)
+
+			staging := t.TempDir()
+			if err := os.Chmod(staging, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Render(staging, loaded, TargetClaude); err == nil {
+				t.Fatal("Render accepted a replaced source identity")
+			}
+			entries, err := os.ReadDir(staging)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(entries) != 0 {
+				t.Fatalf("staging entries = %#v", entries)
+			}
+			assertMode(t, staging, 0o700)
+		})
+	}
+}
+
+func loadManifestOnlyPackage(t *testing.T) skill.Package {
+	t.Helper()
+	root := filepath.Join(t.TempDir(), "demo")
+	if err := os.Mkdir(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeSkillManifest(t, root)
+	loaded, err := skill.Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return loaded
+}
+
+func loadRenderSkill(t *testing.T) (string, skill.Package) {
+	t.Helper()
+	root := filepath.Join(t.TempDir(), "demo")
+	if err := os.Mkdir(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeSkillManifest(t, root)
+	if err := os.WriteFile(filepath.Join(root, "data"), []byte("payload"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := skill.Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return root, loaded
+}
+
+func writeSkillManifest(t *testing.T, root string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(root, "SKILL.md"), []byte("---\nname: demo\ndescription: ok\n---\nbody\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func assertMode(t *testing.T, path string, want os.FileMode) {

@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"os"
 	"regexp"
 	"strings"
 	"unicode/utf8"
@@ -28,12 +29,12 @@ const (
 	CodeFrontmatter     Code = "frontmatter"
 	CodeYAML            Code = "yaml"
 	CodeUnknownField    Code = "unknown-field"
-	CodeForbiddenField  Code = "forbidden-field"
 	CodeRequiredField   Code = "required-field"
 	CodeInvalidName     Code = "invalid-name"
 	CodeNameMismatch    Code = "name-mismatch"
 	CodeInvalidValue    Code = "invalid-value"
 	CodeReservedPath    Code = "reserved-path"
+	CodePathCollision   Code = "path-collision"
 	CodeUnsupportedFile Code = "unsupported-file"
 	CodeInvalidSymlink  Code = "invalid-symlink"
 	CodeUnreadable      Code = "unreadable"
@@ -100,14 +101,18 @@ type Document struct {
 // File is a regular supporting file. Path always uses slash separators.
 type File struct {
 	Path string
-	Data []byte
 }
 
 // Package is a validated skill tree ready for rendering.
 type Package struct {
-	Document    Document
-	Directories []string
-	Files       []File
+	Root             string
+	Document         Document
+	Directories      []string
+	Files            []File
+	sourceParentPath string
+	sourceName       string
+	sourceParentInfo os.FileInfo
+	sourceInfo       os.FileInfo
 }
 
 type rawDocument struct {
@@ -330,20 +335,9 @@ func validateMapping(mapping *yaml.Node, allowed map[string]struct{}, prefix str
 		if _, ok := allowed[keyNode.Value]; ok {
 			continue
 		}
-		code := CodeUnknownField
-		if forbiddenField(keyNode.Value) {
-			code = CodeForbiddenField
-		}
-		diagnostics = append(diagnostics, Diagnostic{Code: code, Path: "SKILL.md", Field: field})
+		diagnostics = append(diagnostics, Diagnostic{Code: CodeUnknownField, Path: "SKILL.md", Field: field})
 	}
 	return diagnostics
-}
-
-func forbiddenField(field string) bool {
-	normalized := strings.ReplaceAll(strings.ToLower(field), "_", "-")
-	return normalized == "allowed-tools" || strings.Contains(normalized, "hook") ||
-		strings.Contains(normalized, "command") || strings.Contains(normalized, "policy") ||
-		strings.Contains(normalized, "execution")
 }
 
 func validateValues(document Document, directoryName string) []Diagnostic {

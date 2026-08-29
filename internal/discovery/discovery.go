@@ -46,7 +46,7 @@ type Diagnostic struct {
 	Collisions []Location
 }
 
-// Candidate is one immediate child containing a regular SKILL.md.
+// Candidate is one immediate child with a present SKILL.md entry.
 type Candidate struct {
 	Location    Location
 	Package     skill.Package
@@ -124,8 +124,8 @@ func discoverSource(source Source, catalog *Catalog) {
 			continue
 		}
 		candidateRoot := filepath.Join(source.Path, name)
-		manifestInfo, statErr := os.Lstat(filepath.Join(candidateRoot, "SKILL.md"))
-		if statErr != nil || !manifestInfo.Mode().IsRegular() {
+		_, statErr := os.Lstat(filepath.Join(candidateRoot, "SKILL.md"))
+		if statErr != nil && os.IsNotExist(statErr) {
 			continue
 		}
 		loaded, loadErr := skill.Load(candidateRoot)

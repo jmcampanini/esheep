@@ -22,13 +22,6 @@ func TestDiscoverUsesSourceThenLexicalChildOrderWithoutDescending(t *testing.T) 
 	writeSkill(t, filepath.Join(first, "node_modules"), "node_modules", "ignored")
 	writeSkill(t, filepath.Join(second, "b-second-source"), "b-second-source", "valid")
 	writeManifest(t, filepath.Join(first, "SKILL.md"), "root", "root is not a skill")
-	manifestLink := filepath.Join(first, "manifest-link")
-	if err := os.Mkdir(manifestLink, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(filepath.Join(first, "a-first", "SKILL.md"), filepath.Join(manifestLink, "SKILL.md")); err != nil {
-		t.Fatal(err)
-	}
 	if err := os.Symlink(filepath.Join(first, "a-first"), filepath.Join(first, "directory-link")); err != nil {
 		t.Fatal(err)
 	}
@@ -97,9 +90,12 @@ func TestDiscoverValidatesSupportingFilesAndSymlinks(t *testing.T) {
 	if !validCandidate.Valid() {
 		t.Fatalf("valid candidate diagnostics = %#v", validCandidate.Diagnostics)
 	}
-	for _, path := range []string{"copy.txt", "chain.txt"} {
-		if got := supportingBytes(validCandidate.Package.Files, path); string(got) != "payload" {
-			t.Fatalf("%s dereferenced bytes = %q", path, got)
+	if validCandidate.Package.Root != valid {
+		t.Fatalf("package root = %q, want %q", validCandidate.Package.Root, valid)
+	}
+	for _, path := range []string{"data.txt", "copy.txt", "chain.txt"} {
+		if !hasSupportingPath(validCandidate.Package.Files, path) {
+			t.Fatalf("support path %q missing from %#v", path, validCandidate.Package.Files)
 		}
 	}
 	if invalidCandidate.Valid() || countSkillCode(invalidCandidate.Diagnostics, skill.CodeInvalidSymlink) != len(links) {
@@ -114,6 +110,31 @@ func TestDiscoverValidatesSupportingFilesAndSymlinks(t *testing.T) {
 		}
 	}
 	t.Fatal("discovery did not preserve supporting-file diagnostic path")
+}
+
+func TestDiscoverRejectsCaseCollidingSupportPathsWhenFilesystemRepresentsThem(t *testing.T) {
+	t.Parallel()
+	source := t.TempDir()
+	root := filepath.Join(source, "demo")
+	writeSkill(t, root, "demo", "valid")
+	if err := os.WriteFile(filepath.Join(root, "Guide"), []byte("first"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	second, err := os.OpenFile(filepath.Join(root, "guide"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if os.IsExist(err) {
+		t.Skip("filesystem cannot represent case-colliding fixture")
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := second.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	catalog := Discover([]Source{{Name: "source", Path: source}})
+	if len(catalog.Candidates) != 1 || catalog.Candidates[0].Valid() || countSkillCode(catalog.Candidates[0].Diagnostics, skill.CodePathCollision) != 1 {
+		t.Fatalf("catalog = %#v", catalog)
+	}
 }
 
 func TestDiscoverRejectsCaseInsensitiveRootReservedNameOnly(t *testing.T) {
@@ -137,8 +158,8 @@ func TestDiscoverRejectsCaseInsensitiveRootReservedNameOnly(t *testing.T) {
 	if len(catalog.ValidCandidates()) != 1 || catalog.ValidCandidates()[0].Package.Document.Name != "nested" {
 		t.Fatalf("valid candidates = %#v", catalog.ValidCandidates())
 	}
-	if got := supportingBytes(catalog.ValidCandidates()[0].Package.Files, "support/.EsHeEp.ToMl"); string(got) != "allowed" {
-		t.Fatalf("nested reserved-name bytes = %q", got)
+	if !hasSupportingPath(catalog.ValidCandidates()[0].Package.Files, "support/.EsHeEp.ToMl") {
+		t.Fatalf("nested support paths = %#v", catalog.ValidCandidates()[0].Package.Files)
 	}
 	for _, diagnostic := range catalog.Diagnostics {
 		if diagnostic.SkillCode == skill.CodeReservedPath && diagnostic.Path == ".ESHEEP.TOML" {
@@ -174,6 +195,56 @@ func TestDiscoverCollidesValidIdentitiesDespiteOtherValidationErrors(t *testing.
 		}
 	}
 	t.Fatal("collision diagnostic missing")
+}
+
+func TestDiscoverReportsPresentInvalidManifests(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	directoryManifest := filepath.Join(root, "directory-manifest")
+	if err := os.MkdirAll(filepath.Join(directoryManifest, "SKILL.md"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fifoManifest := filepath.Join(root, "fifo-manifest")
+	if err := os.Mkdir(fifoManifest, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Mkfifo(filepath.Join(fifoManifest, "SKILL.md"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	symlinkManifest := filepath.Join(root, "symlink-manifest")
+	if err := os.Mkdir(symlinkManifest, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("missing", filepath.Join(symlinkManifest, "SKILL.md")); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]skill.Code{
+		"directory-manifest": skill.CodeUnsupportedFile,
+		"fifo-manifest":      skill.CodeUnsupportedFile,
+		"symlink-manifest":   skill.CodeInvalidSymlink,
+	}
+	if os.Geteuid() != 0 {
+		unreadableManifest := filepath.Join(root, "unreadable-manifest")
+		if err := os.Mkdir(unreadableManifest, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		writeManifest(t, filepath.Join(unreadableManifest, "SKILL.md"), "unreadable-manifest", "valid")
+		if err := os.Chmod(filepath.Join(unreadableManifest, "SKILL.md"), 0); err != nil {
+			t.Fatal(err)
+		}
+		want["unreadable-manifest"] = skill.CodeUnreadable
+	}
+
+	catalog := Discover([]Source{{Name: "source", Path: root}})
+	if len(catalog.Candidates) != len(want) || len(catalog.Diagnostics) != len(want) {
+		t.Fatalf("candidates = %#v, diagnostics = %#v", catalog.Candidates, catalog.Diagnostics)
+	}
+	for _, candidate := range catalog.Candidates {
+		code, exists := want[candidate.Location.RelativePath]
+		if !exists || countSkillCode(candidate.Diagnostics, code) != 1 {
+			t.Fatalf("candidate = %#v, want diagnostic %q", candidate, code)
+		}
+	}
 }
 
 func TestDiscoverReportsMissingAndNonDirectorySourcesInInputOrder(t *testing.T) {
@@ -225,13 +296,13 @@ func writeManifest(t *testing.T, path, name, description string) {
 	}
 }
 
-func supportingBytes(files []skill.File, path string) []byte {
+func hasSupportingPath(files []skill.File, path string) bool {
 	for _, file := range files {
 		if file.Path == path {
-			return file.Data
+			return true
 		}
 	}
-	return nil
+	return false
 }
 
 func countSkillCode(diagnostics []skill.Diagnostic, code skill.Code) int {

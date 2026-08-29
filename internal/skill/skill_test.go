@@ -2,8 +2,13 @@ package skill
 
 import (
 	"errors"
+	"net"
+	"os"
+	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 )
 
 func TestParsePreservesCRLFBodyAndOptionalPresence(t *testing.T) {
@@ -54,8 +59,10 @@ func TestParseRejectsInvalidDeclarativeFormat(t *testing.T) {
 		{name: "duplicate common key", dir: "demo", yaml: "name: demo\nname: demo\ndescription: ok\n", code: CodeYAML},
 		{name: "duplicate target key", dir: "demo", yaml: "name: demo\ndescription: ok\nclaude:\n  disabled: true\n  disabled: false\n", code: CodeYAML},
 		{name: "unknown common field", dir: "demo", yaml: "name: demo\ndescription: ok\nextra: true\n", code: CodeUnknownField},
-		{name: "forbidden tools", dir: "demo", yaml: "name: demo\ndescription: ok\nallowed-tools: Bash\n", code: CodeForbiddenField},
-		{name: "forbidden target hook", dir: "demo", yaml: "name: demo\ndescription: ok\nclaude:\n  hooks: run\n", code: CodeForbiddenField},
+		{name: "unsupported tools", dir: "demo", yaml: "name: demo\ndescription: ok\nallowed-tools: Bash\n", code: CodeUnknownField},
+		{name: "unsupported target hook", dir: "demo", yaml: "name: demo\ndescription: ok\nclaude:\n  hooks: run\n", code: CodeUnknownField},
+		{name: "unsupported policy", dir: "demo", yaml: "name: demo\ndescription: ok\nexecution-policy: strict\n", code: CodeUnknownField},
+		{name: "unsupported command", dir: "demo", yaml: "name: demo\ndescription: ok\ncommand: run\n", code: CodeUnknownField},
 		{name: "codex hint", dir: "demo", yaml: "name: demo\ndescription: ok\ncodex:\n  argument-hint: no\n", code: CodeUnknownField},
 		{name: "name is map", dir: "demo", yaml: "name: {}\ndescription: ok\n", code: CodeInvalidValue},
 		{name: "license is boolean", dir: "demo", yaml: "name: demo\ndescription: ok\nlicense: true\n", code: CodeInvalidValue},
@@ -91,6 +98,131 @@ func TestParseRejectsInvalidDeclarativeFormat(t *testing.T) {
 				}
 			}
 			t.Fatalf("diagnostics = %#v, want code %q", validationErr.Diagnostics, test.code)
+		})
+	}
+}
+
+func TestLoadRejectsManifestSymlinkWithoutReadingThroughIt(t *testing.T) {
+	t.Parallel()
+	root := filepath.Join(t.TempDir(), "demo")
+	if err := os.Mkdir(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(root, "manifest-target")
+	if err := os.WriteFile(target, []byte("---\nname: demo\ndescription: ok\n---\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("manifest-target", filepath.Join(root, "SKILL.md")); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, err := Load(root)
+	if err == nil {
+		t.Fatal("Load accepted a manifest symlink")
+	}
+	if loaded.Root != root {
+		t.Fatalf("package root = %q, want %q", loaded.Root, root)
+	}
+	diagnostics := ErrorDiagnostics(err)
+	if len(diagnostics) != 1 || diagnostics[0].Code != CodeInvalidSymlink || diagnostics[0].Path != "SKILL.md" {
+		t.Fatalf("diagnostics = %#v", diagnostics)
+	}
+}
+
+func TestLoadRejectsManifestFIFOWithoutBlocking(t *testing.T) {
+	t.Parallel()
+	root := filepath.Join(t.TempDir(), "demo")
+	if err := os.Mkdir(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Mkfifo(filepath.Join(root, "SKILL.md"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result := make(chan error, 1)
+	go func() {
+		_, err := Load(root)
+		result <- err
+	}()
+	select {
+	case err := <-result:
+		diagnostics := ErrorDiagnostics(err)
+		if len(diagnostics) != 1 || diagnostics[0].Code != CodeUnsupportedFile || diagnostics[0].Path != "SKILL.md" {
+			t.Fatalf("diagnostics = %#v", diagnostics)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Load blocked opening a manifest FIFO")
+	}
+}
+
+func TestLoadRejectsManifestUnixSocket(t *testing.T) {
+	t.Parallel()
+	parent, err := os.MkdirTemp("", "esheep-socket-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(parent) })
+	root := filepath.Join(parent, "demo")
+	if err := os.Mkdir(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	listener, err := net.Listen("unix", filepath.Join(root, "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+
+	_, err = Load(root)
+	diagnostics := ErrorDiagnostics(err)
+	if len(diagnostics) != 1 || diagnostics[0].Code != CodeUnsupportedFile || diagnostics[0].Path != "SKILL.md" {
+		t.Fatalf("diagnostics = %#v", diagnostics)
+	}
+}
+
+func TestValidateReadableRegularRejectsFIFOWithoutBlocking(t *testing.T) {
+	t.Parallel()
+	rootPath := t.TempDir()
+	if err := syscall.Mkfifo(filepath.Join(rootPath, "support"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	root, err := os.OpenRoot(rootPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
+	result := make(chan error, 1)
+	go func() {
+		result <- validateReadableRegular(root, "support")
+	}()
+	select {
+	case err := <-result:
+		if err == nil {
+			t.Fatal("validateReadableRegular accepted a FIFO")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("validateReadableRegular blocked opening a FIFO")
+	}
+}
+
+func TestValidateTreeRejectsPortablePathCollisionsAndTopology(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		directories []string
+		files       []File
+	}{
+		{name: "case collision", files: []File{{Path: "Docs/Guide"}, {Path: "docs/guide"}}},
+		{name: "NFC collision", files: []File{{Path: "café"}, {Path: "cafe\u0301"}}},
+		{name: "generated manifest collision", files: []File{{Path: "skill.md"}}},
+		{name: "file contains directory", directories: []string{"parent/child"}, files: []File{{Path: "PARENT"}}},
+		{name: "path descends through file", files: []File{{Path: "parent"}, {Path: "PARENT/child"}}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			diagnostics := ValidateTree(Package{Directories: test.directories, Files: test.files})
+			if len(diagnostics) != 1 || diagnostics[0].Code != CodePathCollision {
+				t.Fatalf("diagnostics = %#v", diagnostics)
+			}
 		})
 	}
 }

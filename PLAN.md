@@ -66,7 +66,7 @@ Source names are case-insensitively unique safe slash-separated identifiers. Sou
 
 Each configured source root is a read-only collection of skill directories. Discovery inspects only immediate non-symlink child directories containing `SKILL.md`; the source root and grouping directories are not skills. Dot-directories and `node_modules` are skipped.
 
-Once a skill is recognized, its contents are traversed to validate supporting files. A supporting-file symlink is valid only when it is relative, acyclic, and resolves within that skill root. Absolute, escaping, cyclic, and directory symlinks are errors. Supporting files are installed as non-executable data.
+Once a skill is recognized, its contents are traversed to validate supporting files. Supporting paths must be unique under case-insensitive Unicode-normalized comparison. A supporting-file symlink is valid only when it is relative, acyclic, and resolves within that skill root. Absolute, escaping, cyclic, and directory symlinks are errors. Supporting files are installed as non-executable data.
 
 Missing, unreadable, or non-directory source roots are command errors for commands that consume skills. Metadata commands and configuration reporting do not require source roots to exist.
 

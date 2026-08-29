@@ -3,17 +3,17 @@ package render
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
+	"io"
 	"os"
-	"path"
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 
 	"github.com/jmcampanini/esheep/internal/skill"
 	"go.yaml.in/yaml/v3"
-	"golang.org/x/text/cases"
-	"golang.org/x/text/unicode/norm"
 )
 
 // Target identifies a supported output schema.
@@ -49,23 +49,39 @@ func Render(staging string, source skill.Package, target Target) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if err := os.Chmod(staging, 0o755); err != nil {
+	if err := renderTree(staging, source, manifest); err != nil {
 		return false, err
+	}
+	return true, nil
+}
+
+func renderTree(staging string, source skill.Package, manifest []byte) error {
+	sourceRoot, err := source.OpenSourceRoot()
+	if err != nil {
+		return fmt.Errorf("render source: %w", err)
+	}
+	renderErr := renderFromRoot(sourceRoot, staging, source, manifest)
+	return errors.Join(renderErr, sourceRoot.Close())
+}
+
+func renderFromRoot(sourceRoot *os.Root, staging string, source skill.Package, manifest []byte) error {
+	if err := os.Chmod(staging, 0o755); err != nil {
+		return err
 	}
 	for _, directory := range source.Directories {
 		if err := makeDirectory(staging, directory); err != nil {
-			return false, err
+			return err
 		}
 	}
-	if err := writeRegular(staging, "SKILL.md", manifest); err != nil {
-		return false, err
+	if err := writeRegular(staging, "SKILL.md", bytes.NewReader(manifest)); err != nil {
+		return err
 	}
 	for _, file := range source.Files {
-		if err := writeRegular(staging, file.Path, file.Data); err != nil {
-			return false, err
+		if err := copySupportFile(sourceRoot, staging, file.Path); err != nil {
+			return err
 		}
 	}
-	return true, nil
+	return nil
 }
 
 func targetOptions(targets skill.Targets, target Target) (skill.TargetOptions, error) {
@@ -156,56 +172,11 @@ func validateStaging(staging string) error {
 }
 
 func validateTree(source skill.Package) error {
-	entries := map[string]bool{canonicalPathKey("SKILL.md"): false}
-	for _, directory := range source.Directories {
-		if err := addTreeEntry(entries, directory, true); err != nil {
-			return err
-		}
+	diagnostics := skill.ValidateTree(source)
+	if len(diagnostics) == 0 {
+		return nil
 	}
-	for _, file := range source.Files {
-		if err := addTreeEntry(entries, file.Path, false); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func addTreeEntry(entries map[string]bool, relative string, directory bool) error {
-	if !validRelativePath(relative) {
-		return fmt.Errorf("render path %q is unsafe", relative)
-	}
-	key := canonicalPathKey(relative)
-	if !strings.ContainsRune(key, '/') && key == ".esheep.toml" {
-		return fmt.Errorf("render path %q is reserved", relative)
-	}
-	if _, duplicate := entries[key]; duplicate {
-		return fmt.Errorf("render path %q is duplicated", relative)
-	}
-	for parent := path.Dir(key); parent != "."; parent = path.Dir(parent) {
-		if parentDirectory, exists := entries[parent]; exists && !parentDirectory {
-			return fmt.Errorf("render path %q descends through a file", relative)
-		}
-	}
-	if !directory {
-		prefix := key + "/"
-		for existing := range entries {
-			if strings.HasPrefix(existing, prefix) {
-				return fmt.Errorf("render file %q contains another path", relative)
-			}
-		}
-	}
-	entries[key] = directory
-	return nil
-}
-
-func canonicalPathKey(relative string) string {
-	return norm.NFC.String(cases.Fold().String(norm.NFC.String(relative)))
-}
-
-func validRelativePath(relative string) bool {
-	return relative != "" && relative != "." && !strings.ContainsRune(relative, '\\') &&
-		!path.IsAbs(relative) && path.Clean(relative) == relative &&
-		relative != ".." && !strings.HasPrefix(relative, "../")
+	return fmt.Errorf("render tree: %w", &skill.ValidationError{Diagnostics: diagnostics})
 }
 
 func makeDirectory(staging, relative string) error {
@@ -216,18 +187,58 @@ func makeDirectory(staging, relative string) error {
 	return os.Chmod(destination, 0o755)
 }
 
-func writeRegular(staging, relative string, data []byte) error {
+func copySupportFile(sourceRoot *os.Root, staging, relative string) error {
+	source, err := sourceRoot.OpenFile(relative, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return fmt.Errorf("render source %q: %w", relative, err)
+	}
+	info, err := source.Stat()
+	if err != nil {
+		return closeFiles(err, source)
+	}
+	if !info.Mode().IsRegular() {
+		return closeFiles(fmt.Errorf("render source %q is not a regular file", relative), source)
+	}
+	destination, err := createRegular(staging, relative)
+	if err != nil {
+		return closeFiles(err, source)
+	}
+	_, copyErr := io.Copy(destination, source)
+	if err := closeFiles(copyErr, destination, source); err != nil {
+		return err
+	}
+	return os.Chmod(filepath.Join(staging, filepath.FromSlash(relative)), 0o644)
+}
+
+func writeRegular(staging, relative string, source io.Reader) error {
+	destination, err := createRegular(staging, relative)
+	if err != nil {
+		return err
+	}
+	_, copyErr := io.Copy(destination, source)
+	if err := closeFiles(copyErr, destination); err != nil {
+		return err
+	}
+	return os.Chmod(filepath.Join(staging, filepath.FromSlash(relative)), 0o644)
+}
+
+func createRegular(staging, relative string) (*os.File, error) {
 	destination := filepath.Join(staging, filepath.FromSlash(relative))
 	if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
-		return err
+		return nil, err
 	}
 	if err := chmodParents(staging, filepath.Dir(destination)); err != nil {
-		return err
+		return nil, err
 	}
-	if err := os.WriteFile(destination, data, 0o644); err != nil {
-		return err
+	return os.OpenFile(destination, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+}
+
+func closeFiles(primary error, files ...*os.File) error {
+	errs := []error{primary}
+	for _, file := range files {
+		errs = append(errs, file.Close())
 	}
-	return os.Chmod(destination, 0o644)
+	return errors.Join(errs...)
 }
 
 func chmodParents(root, directory string) error {
