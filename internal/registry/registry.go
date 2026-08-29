@@ -52,7 +52,10 @@ func ParseSource(raw string) (Source, error) {
 	if raw == "" || strings.TrimSpace(raw) != raw || strings.IndexFunc(raw, func(r rune) bool { return r < 0x20 || r == 0x7f }) >= 0 {
 		return Source{}, fmt.Errorf("%w: source must be a non-empty path or URL", ErrInvalidSource)
 	}
-	if m := scpSource.FindStringSubmatch(raw); m != nil && !filepath.IsAbs(raw) && !strings.Contains(raw, "://") {
+	if filepath.IsAbs(raw) || filepath.VolumeName(raw) != "" {
+		return localSource(raw)
+	}
+	if m := scpSource.FindStringSubmatch(raw); m != nil && !strings.Contains(raw, "://") {
 		path := strings.Trim(m[2], "/")
 		path = strings.TrimSuffix(path, ".git")
 		if path == "" {
