@@ -63,6 +63,6 @@ Each target has matching flags such as `--claude-enabled=false` and `--claude-pa
 ## Filesystem behavior
 
 - Settings are human-owned. esheep reads but never creates or modifies `esheep.toml`.
-- The machine-owned repository registry is `$XDG_STATE_HOME/esheep/repos.toml`, or `~/.local/state/esheep/repos.toml`. Only `repo add` and `repo remove` edit it.
+- The machine-owned repository registry is `$XDG_STATE_HOME/esheep/repos.toml`, or `~/.local/state/esheep/repos.toml`. Only `repo add` and `repo remove` edit it. Relative local repository sources are resolved and stored as absolute paths when added.
 - Repository clones live under `$XDG_DATA_HOME/esheep/repos/`, or `~/.local/share/esheep/repos/`.
 - `repo remove` deletes only the registered repository's derived clone directory. Skill-install ownership and pruning arrive with the synchronization lifecycle chunk.

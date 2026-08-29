@@ -66,6 +66,59 @@ func TestAddPreservesOrderAndRejectsIdentityConflicts(t *testing.T) {
 	}
 }
 
+func TestRelativeLocalSourceRemainsStableAcrossWorkingDirectories(t *testing.T) {
+	root := t.TempDir()
+	source := filepath.Join(root, "sources", "repo")
+	addFrom := filepath.Join(root, "add-from")
+	useFrom := filepath.Join(root, "use-from")
+	for _, path := range []string{source, addFrom, useFrom} {
+		if err := os.MkdirAll(path, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	originalWorkingDirectory, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(originalWorkingDirectory); err != nil {
+			t.Errorf("restore working directory: %v", err)
+		}
+	})
+	if err := os.Chdir(addFrom); err != nil {
+		t.Fatal(err)
+	}
+	registryPath := filepath.Join(root, "state", "repos.toml")
+	relativeSource, err := filepath.Rel(addFrom, source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := ParseSource(relativeSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Add(registryPath, relativeSource); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(useFrom); err != nil {
+		t.Fatal(err)
+	}
+	repositories, err := List(registryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(repositories) != 1 || repositories[0].URL != parsed.Stored || !filepath.IsAbs(repositories[0].URL) {
+		t.Fatalf("repositories = %#v", repositories)
+	}
+	relativeSource, err = filepath.Rel(useFrom, source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Add(registryPath, relativeSource, "other/repo"); !errors.Is(err, ErrDuplicateURL) {
+		t.Fatalf("duplicate relative source error = %v", err)
+	}
+}
+
 func TestAbsentRegistryIsEmpty(t *testing.T) {
 	got, err := Load(filepath.Join(t.TempDir(), "missing.toml"))
 	if err != nil || len(got.Repos) != 0 {

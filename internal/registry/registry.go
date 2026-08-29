@@ -26,7 +26,7 @@ var (
 	ErrNotFound        = errors.New("repository not found")
 )
 
-// Repo is one entry in repos.toml. URL is retained exactly as supplied.
+// Repo is one entry in repos.toml. Relative filesystem URLs are stored as absolute paths.
 type Repo struct {
 	Name string `toml:"name"`
 	URL  string `toml:"url"`
@@ -40,6 +40,7 @@ type Registry struct {
 // Source describes the parts of a git source useful to the registry.
 type Source struct {
 	Canonical string
+	Stored    string
 	Name      string
 }
 
@@ -59,7 +60,7 @@ func ParseSource(raw string) (Source, error) {
 		}
 		host := strings.ToLower(m[1])
 		name := host + "/" + path
-		return Source{Canonical: "ssh://" + host + "/" + path, Name: name}, nil
+		return Source{Canonical: "ssh://" + host + "/" + path, Stored: raw, Name: name}, nil
 	}
 
 	u, err := url.Parse(raw)
@@ -87,7 +88,7 @@ func ParseSource(raw string) (Source, error) {
 			}
 			name := strings.ToLower(u.Hostname()) + "/" + path
 			canonical := strings.ToLower(u.Scheme) + "://" + strings.ToLower(u.Host) + "/" + path
-			return Source{Canonical: canonical, Name: name}, nil
+			return Source{Canonical: canonical, Stored: raw, Name: name}, nil
 		case "file":
 			if u.Host != "" && u.Host != "localhost" {
 				return Source{}, fmt.Errorf("%w: file URL host is unsupported", ErrInvalidSource)
@@ -96,7 +97,12 @@ func ParseSource(raw string) (Source, error) {
 			if path == "" {
 				return Source{}, fmt.Errorf("%w: file URL has no path", ErrInvalidSource)
 			}
-			return localSource(path)
+			source, err := localSource(path)
+			if err != nil {
+				return Source{}, err
+			}
+			source.Stored = raw
+			return source, nil
 		default:
 			return Source{}, fmt.Errorf("%w: unsupported URL scheme %q", ErrInvalidSource, u.Scheme)
 		}
@@ -121,7 +127,7 @@ func localSource(path string) (Source, error) {
 	if err != nil {
 		return Source{}, fmt.Errorf("%w: %w", ErrInvalidSource, err)
 	}
-	return Source{Canonical: "file://" + filepath.ToSlash(abs), Name: base}, nil
+	return Source{Canonical: "file://" + filepath.ToSlash(abs), Stored: abs, Name: base}, nil
 }
 
 // ValidateName validates a logical identifier and its slash-separated components.
@@ -252,7 +258,7 @@ func Add(path, source string, logicalName ...string) error {
 	if err := ValidateName(name); err != nil {
 		return err
 	}
-	registry.Repos = append(registry.Repos, Repo{Name: name, URL: source})
+	registry.Repos = append(registry.Repos, Repo{Name: name, URL: parsed.Stored})
 	return save(path, registry)
 }
 
