@@ -73,7 +73,7 @@ func newRootCommand(load configLoader) *cobra.Command {
 		panic(fmt.Sprintf("register configuration flags: %v", err))
 	}
 	root.AddCommand(
-		newCompletionCommand(root),
+		newCompletionCommand(),
 		newConfigCommand(load),
 	)
 	return root

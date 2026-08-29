@@ -352,24 +352,25 @@ type resolvedTarget struct {
 }
 
 func resolveTargets(cfg Targets, home string) (ResolvedTargets, []resolvedTarget, error) {
+	resolved := ResolvedTargets{}
 	configured := []struct {
-		name    string
-		enabled bool
-		path    string
+		name     string
+		enabled  bool
+		path     string
+		resolved *string
 	}{
-		{name: "claude", enabled: cfg.Claude.Enabled, path: cfg.Claude.Path},
-		{name: "pi", enabled: cfg.Pi.Enabled, path: cfg.Pi.Path},
-		{name: "codex", enabled: cfg.Codex.Enabled, path: cfg.Codex.Path},
-		{name: "agents", enabled: cfg.Agents.Enabled, path: cfg.Agents.Path},
+		{name: "claude", enabled: cfg.Claude.Enabled, path: cfg.Claude.Path, resolved: &resolved.Claude},
+		{name: "pi", enabled: cfg.Pi.Enabled, path: cfg.Pi.Path, resolved: &resolved.Pi},
+		{name: "codex", enabled: cfg.Codex.Enabled, path: cfg.Codex.Path, resolved: &resolved.Codex},
+		{name: "agents", enabled: cfg.Agents.Enabled, path: cfg.Agents.Path, resolved: &resolved.Agents},
 	}
-	paths := make(map[string]string, len(configured))
 	var enabled []resolvedTarget
 	for _, target := range configured {
 		path, err := resolveManagedPath("targets."+target.name+".path", target.path, home)
 		if err != nil {
 			return ResolvedTargets{}, nil, err
 		}
-		paths[target.name] = path
+		*target.resolved = path
 		if !target.enabled {
 			continue
 		}
@@ -390,12 +391,7 @@ func resolveTargets(cfg Targets, home string) (ResolvedTargets, []resolvedTarget
 		}
 		enabled = append(enabled, resolvedTarget{name: target.name, path: path})
 	}
-	return ResolvedTargets{
-		Claude: paths["claude"],
-		Pi:     paths["pi"],
-		Codex:  paths["codex"],
-		Agents: paths["agents"],
-	}, enabled, nil
+	return resolved, enabled, nil
 }
 
 func resolveManagedPath(name, path, home string) (string, error) {
