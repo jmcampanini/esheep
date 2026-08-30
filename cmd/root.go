@@ -28,9 +28,10 @@ func effectiveVersion() string {
 type configLoader func(config.LoadOptions) (config.LoadResult, error)
 
 type commandOperations struct {
-	list   func(context.Context, config.LoadResult) manage.ListReport
-	status func(context.Context, config.LoadResult) manage.StatusReport
-	sync   func(context.Context, config.LoadResult) manage.SyncReport
+	list     func(context.Context, config.LoadResult) manage.ListReport
+	profiles func(context.Context, config.LoadResult) manage.ProfilesReport
+	status   func(context.Context, config.LoadResult) manage.StatusReport
+	sync     func(context.Context, config.LoadResult) manage.SyncReport
 }
 
 type applicationError struct {
@@ -74,7 +75,12 @@ func execute(root *cobra.Command, args []string) int {
 }
 
 func newRootCommand(load configLoader) *cobra.Command {
-	return newRootCommandWithOperations(load, commandOperations{list: manage.List, status: manage.Status, sync: manage.Sync})
+	return newRootCommandWithOperations(load, commandOperations{
+		list:     manage.List,
+		profiles: manage.Profiles,
+		status:   manage.Status,
+		sync:     manage.Sync,
+	})
 }
 
 func newRootCommandWithOperations(load configLoader, operations commandOperations) *cobra.Command {
@@ -106,6 +112,7 @@ paths, 'esheep help skill-format' for the authoring format, and
 		newCompletionCommand(),
 		newConfigCommand(load),
 		newExitCodesTopic(),
+		newProfilesCommand(load, operations.profiles),
 		newSkillFormatTopic(),
 		newSkillsCommand(load, operations),
 		newSyncCommand(load, operations.sync),

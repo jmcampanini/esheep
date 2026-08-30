@@ -19,6 +19,7 @@ const (
 	StateBlocked  State = "blocked"
 	StateDisabled State = "disabled"
 	StateDrifted  State = "drifted"
+	StateInactive State = "inactive"
 	StateMissing  State = "missing"
 	StateSynced   State = "synced"
 )
@@ -31,6 +32,7 @@ const (
 	ActionBlocked   Action = "blocked"
 	ActionDisabled  Action = "disabled"
 	ActionFailed    Action = "failed"
+	ActionInactive  Action = "inactive"
 	ActionInstalled Action = "installed"
 	ActionPruned    Action = "pruned"
 	ActionRepaired  Action = "repaired"
@@ -44,8 +46,10 @@ type Identity struct {
 	Target render.Target
 }
 
-// Request contains one target reconciliation request.
+// Request contains one target reconciliation request. Document is the
+// manifest selected for the active profiles.
 type Request struct {
+	Document skill.Document
 	Identity Identity
 	Package  skill.Package
 	Root     string
@@ -133,7 +137,7 @@ func Inspect(ctx context.Context, request Request) (state State, resultErr error
 		return "", err
 	}
 
-	disabled, err := render.Disabled(request.Package, request.Identity.Target)
+	disabled, err := render.Disabled(request.Document, request.Identity.Target)
 	if err != nil {
 		return "", err
 	}
@@ -200,7 +204,7 @@ func reconcile(ctx context.Context, request Request, fsys filesystem) (result Re
 		return result, err
 	}
 
-	disabled, err := render.Disabled(request.Package, request.Identity.Target)
+	disabled, err := render.Disabled(request.Document, request.Identity.Target)
 	if err != nil {
 		result.Action = ActionFailed
 		return result, err
@@ -326,8 +330,8 @@ func validateRequest(request Request) error {
 		request.Identity.Skill == "" || !validTarget(request.Identity.Target) {
 		return fmt.Errorf("install: invalid request")
 	}
-	if request.Package.Document.Name != request.Identity.Skill {
-		return fmt.Errorf("install: package skill %q does not match identity %q", request.Package.Document.Name, request.Identity.Skill)
+	if request.Document.Name != request.Identity.Skill {
+		return fmt.Errorf("install: manifest skill %q does not match identity %q", request.Document.Name, request.Identity.Skill)
 	}
 	return nil
 }
@@ -354,7 +358,7 @@ func renderInTransaction(transaction string, request Request) (string, error) {
 	if err := os.Mkdir(staging, 0o700); err != nil {
 		return "", fmt.Errorf("create render staging: %w", err)
 	}
-	rendered, err := render.Render(staging, request.Package, request.Identity.Target)
+	rendered, err := render.Render(staging, request.Package, request.Document, request.Identity.Target)
 	if err != nil {
 		return "", fmt.Errorf("render target skill: %w", err)
 	}

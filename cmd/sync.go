@@ -25,7 +25,9 @@ recording its source, skill, and target. Synchronization never modifies an
 unmarked, mismatched, or symlinked destination, prunes only validly marked
 stale output, and leaves disabled targets entirely untouched. Replacements
 are staged on the target filesystem and committed atomically; invalid,
-colliding, or unavailable configured source skills protect existing output.
+colliding, conflicting, or unavailable configured source skills protect
+existing output. Skills whose profiles are not active are reported
+inactive and their previously installed output is pruned.
 
 Serialize invocations: concurrent mutating esheep commands against the
 same targets are unsupported.

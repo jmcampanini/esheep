@@ -13,6 +13,23 @@ import (
 
 var sourceNamePart = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
+var profileNamePattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
+
+const maxProfileNameLength = 64
+
+// ValidateProfileName validates a profile identity. Profile names share the
+// skill-name grammar so they can appear as manifest filename segments, and the
+// base and local names are reserved for cross-tool layer semantics.
+func ValidateProfileName(name string) error {
+	if name == "" || len(name) > maxProfileNameLength || !profileNamePattern.MatchString(name) {
+		return fmt.Errorf("invalid profile name %q", name)
+	}
+	if name == "base" || name == "local" {
+		return fmt.Errorf("profile name %q is reserved", name)
+	}
+	return nil
+}
+
 // ValidateSourceName validates a configured source identity.
 func ValidateSourceName(name string) error {
 	if name == "" || len(name) > 255 || strings.HasPrefix(name, "/") || strings.HasSuffix(name, "/") || strings.Contains(name, "\\") {

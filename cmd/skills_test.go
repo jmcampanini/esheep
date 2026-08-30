@@ -23,8 +23,8 @@ func TestSkillsListReportsAllKnownSkillsWithoutFailingOnValidation(t *testing.T)
 				Path: "/source/broken/SKILL.md", Skill: "broken", Source: "local",
 			}},
 			Skills: []manage.KnownSkill{
-				{Description: "Ready skill", Directory: "ready", Path: "/source/ready", Readiness: manage.ReadinessReady, Source: "local"},
-				{Directory: "broken", Path: "/source/broken", Readiness: manage.ReadinessInvalid, Source: "local"},
+				{Description: "Ready skill", Directory: "ready", HasManifest: true, Path: "/source/ready", Readiness: manage.ReadinessReady, Source: "local"},
+				{Directory: "broken", HasManifest: true, Path: "/source/broken", Readiness: manage.ReadinessInvalid, Source: "local"},
 			},
 		}
 	}
@@ -79,7 +79,7 @@ func TestSkillsStatusIsAHealthCheckInHumanAndJSONModes(t *testing.T) {
 		return manage.StatusReport{
 			Healthy: false,
 			Skills: []manage.SkillStatus{{
-				Directory: "demo", Path: "/source/demo", Readiness: manage.ReadinessReady, Source: "local",
+				Directory: "demo", HasManifest: true, Path: "/source/demo", Readiness: manage.ReadinessReady, Source: "local",
 				Targets: map[string]install.State{
 					"agents": install.StateDisabled,
 					"claude": install.StateSynced,
@@ -139,6 +139,50 @@ func TestSyncPrintsAggregateActionsAndReturnsApplicationFailure(t *testing.T) {
 	}
 }
 
+func TestProfilesReportsEffectiveAndReferencedInHumanAndJSONModes(t *testing.T) {
+	t.Parallel()
+	operations := stubOperations()
+	operations.profiles = func(context.Context, config.LoadResult) manage.ProfilesReport {
+		return manage.ProfilesReport{Complete: true, Effective: []string{"work"}, Referenced: []string{"client", "work"}}
+	}
+
+	code, stdout, stderr := runCommandWithOperations(t, successfulLoad, operations, "profiles")
+	if code != 0 || stderr != "" {
+		t.Fatalf("human result: code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	if stdout != "Effective: work\nReferenced: client, work\n" {
+		t.Fatalf("stdout = %q", stdout)
+	}
+
+	code, stdout, stderr = runCommandWithOperations(t, successfulLoad, operations, "profiles", "--json")
+	if code != 0 || stderr != "" {
+		t.Fatalf("JSON result: code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	var document manage.ProfilesReport
+	if err := json.Unmarshal([]byte(stdout), &document); err != nil {
+		t.Fatalf("stdout is not JSON: %v", err)
+	}
+	if !document.Complete || len(document.Effective) != 1 || len(document.Referenced) != 2 {
+		t.Fatalf("document = %#v", document)
+	}
+}
+
+func TestProfilesExitsNonzeroWhenDiscoveryIsIncomplete(t *testing.T) {
+	t.Parallel()
+	operations := stubOperations()
+	operations.profiles = func(context.Context, config.LoadResult) manage.ProfilesReport {
+		return manage.ProfilesReport{Diagnostics: []manage.Diagnostic{{Code: "source-unavailable", Message: "not found", Path: "/source", Source: "local"}}}
+	}
+
+	code, stdout, stderr := runCommandWithOperations(t, successfulLoad, operations, "profiles")
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1: stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	if !strings.Contains(stderr, "source-unavailable") || !strings.Contains(stderr, "Error: profiles inventory is incomplete") {
+		t.Fatalf("stderr = %q", stderr)
+	}
+}
+
 func successfulLoad(config.LoadOptions) (config.LoadResult, error) {
 	return config.LoadResult{}, nil
 }
@@ -147,6 +191,9 @@ func stubOperations() commandOperations {
 	return commandOperations{
 		list: func(context.Context, config.LoadResult) manage.ListReport {
 			return manage.ListReport{Complete: true}
+		},
+		profiles: func(context.Context, config.LoadResult) manage.ProfilesReport {
+			return manage.ProfilesReport{Complete: true}
 		},
 		status: func(context.Context, config.LoadResult) manage.StatusReport {
 			return manage.StatusReport{Healthy: true}

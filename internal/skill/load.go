@@ -11,9 +11,29 @@ import (
 	"sort"
 	"strings"
 	"syscall"
+
+	"github.com/jmcampanini/esheep/internal/naming"
 )
 
 const manifestName = "SKILL.md"
+
+// ParseManifestName classifies a skill-root filename. It reports the profile
+// named by a variant manifest ("" for SKILL.md), whether the name is a
+// manifest at all, and an error when the name sits in the reserved
+// SKILL.<profile>.md namespace with an invalid profile segment.
+func ParseManifestName(name string) (string, bool, error) {
+	if name == manifestName {
+		return "", true, nil
+	}
+	parts := strings.Split(name, ".")
+	if len(parts) != 3 || parts[0] != "SKILL" || parts[2] != "md" {
+		return "", false, nil
+	}
+	if err := naming.ValidateProfileName(parts[1]); err != nil {
+		return "", false, err
+	}
+	return parts[1], true, nil
+}
 
 // Load reads and validates one recognized skill directory without modifying it.
 func Load(root string) (Package, error) {
@@ -22,17 +42,11 @@ func Load(root string) (Package, error) {
 	if openErr != nil {
 		return result, validationError(CodeUnreadable, ".", openErr)
 	}
-	manifest, manifestErr := readManifest(sourceRoot)
-	if closeErr := sourceRoot.Close(); closeErr != nil && manifestErr == nil {
-		manifestErr = validationError(CodeUnreadable, manifestName, closeErr)
+	manifests, diagnostics := loadManifests(sourceRoot, filepath.Base(root))
+	result.Manifests = manifests
+	if closeErr := sourceRoot.Close(); closeErr != nil {
+		diagnostics = append(diagnostics, Diagnostic{Code: CodeUnreadable, Path: ".", Err: closeErr})
 	}
-	if manifestErr != nil {
-		return result, manifestErr
-	}
-
-	document, parseErr := Parse(manifest, filepath.Base(root))
-	result.Document = document
-	diagnostics := ErrorDiagnostics(parseErr)
 
 	sourceRoot, openErr = result.OpenSourceRoot()
 	if openErr != nil {
@@ -115,64 +129,104 @@ func (source *Package) captureSourceRoot() (*os.Root, error) {
 	return skillRoot, nil
 }
 
-func readManifest(root *os.Root) ([]byte, error) {
-	expected, err := preclassifyManifest(root)
+func loadManifests(root *os.Root, directoryName string) ([]Manifest, []Diagnostic) {
+	entries, err := fs.ReadDir(root.FS(), ".")
+	if err != nil {
+		return nil, []Diagnostic{{Code: CodeUnreadable, Path: ".", Err: err}}
+	}
+
+	var manifests []Manifest
+	var diagnostics []Diagnostic
+	for _, entry := range entries {
+		name := entry.Name()
+		profile, ok, nameErr := ParseManifestName(name)
+		if nameErr != nil {
+			diagnostics = append(diagnostics, Diagnostic{Code: CodeInvalidProfile, Path: name, Err: nameErr})
+			continue
+		}
+		if !ok {
+			continue
+		}
+		data, readErr := readManifest(root, name)
+		if readErr != nil {
+			diagnostics = append(diagnostics, ErrorDiagnostics(readErr)...)
+			continue
+		}
+		document, parseErr := Parse(data, directoryName, name)
+		diagnostics = append(diagnostics, ErrorDiagnostics(parseErr)...)
+		manifests = append(manifests, Manifest{FileName: name, Profile: profile, Document: document})
+	}
+	if len(manifests) == 0 && len(diagnostics) == 0 {
+		diagnostics = append(diagnostics, Diagnostic{Code: CodeUnreadable, Path: manifestName, Err: fs.ErrNotExist})
+	}
+
+	sort.Slice(manifests, func(left, right int) bool {
+		if (manifests[left].Profile == "") != (manifests[right].Profile == "") {
+			return manifests[left].Profile == ""
+		}
+		return manifests[left].Profile < manifests[right].Profile
+	})
+	return manifests, diagnostics
+}
+
+func readManifest(root *os.Root, name string) ([]byte, error) {
+	expected, err := preclassifyManifest(root, name)
 	if err != nil {
 		return nil, err
 	}
 
-	manifest, openErr := root.OpenFile(manifestName, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	manifest, openErr := root.OpenFile(name, os.O_RDONLY|syscall.O_NONBLOCK, 0)
 	if openErr != nil {
-		return nil, classifyManifestOpenError(root, openErr)
+		return nil, classifyManifestOpenError(root, name, openErr)
 	}
 	info, statErr := manifest.Stat()
 	if statErr != nil {
-		return nil, validationError(CodeUnreadable, manifestName, closeFile(manifest, statErr))
+		return nil, validationError(CodeUnreadable, name, closeFile(manifest, statErr))
 	}
 	if !info.Mode().IsRegular() {
-		return nil, validationError(CodeUnsupportedFile, manifestName, closeFile(manifest, nil))
+		return nil, validationError(CodeUnsupportedFile, name, closeFile(manifest, nil))
 	}
 	// Root.OpenFile follows in-root symlinks even with O_NOFOLLOW, so the
 	// identity comparison is what pins the open to the Lstat-classified file.
 	if !os.SameFile(expected, info) {
-		return nil, validationError(CodeUnreadable, manifestName, closeFile(manifest, fmt.Errorf("manifest was replaced")))
+		return nil, validationError(CodeUnreadable, name, closeFile(manifest, fmt.Errorf("manifest was replaced")))
 	}
 
 	data, readErr := io.ReadAll(manifest)
 	if err := closeFile(manifest, readErr); err != nil {
-		return nil, validationError(CodeUnreadable, manifestName, err)
+		return nil, validationError(CodeUnreadable, name, err)
 	}
 	return data, nil
 }
 
-func preclassifyManifest(root *os.Root) (os.FileInfo, error) {
-	info, err := root.Lstat(manifestName)
+func preclassifyManifest(root *os.Root, name string) (os.FileInfo, error) {
+	info, err := root.Lstat(name)
 	if err != nil {
-		return nil, validationError(CodeUnreadable, manifestName, err)
+		return nil, validationError(CodeUnreadable, name, err)
 	}
 	if info.Mode()&os.ModeSymlink != 0 {
-		return nil, validationError(CodeInvalidSymlink, manifestName, nil)
+		return nil, validationError(CodeInvalidSymlink, name, nil)
 	}
 	if !info.Mode().IsRegular() {
-		return nil, validationError(CodeUnsupportedFile, manifestName, nil)
+		return nil, validationError(CodeUnsupportedFile, name, nil)
 	}
 	return info, nil
 }
 
-func classifyManifestOpenError(root *os.Root, openErr error) error {
-	info, statErr := root.Lstat(manifestName)
+func classifyManifestOpenError(root *os.Root, name string, openErr error) error {
+	info, statErr := root.Lstat(name)
 	if statErr == nil {
 		if info.Mode()&os.ModeSymlink != 0 {
-			return validationError(CodeInvalidSymlink, manifestName, openErr)
+			return validationError(CodeInvalidSymlink, name, openErr)
 		}
 		if !info.Mode().IsRegular() {
-			return validationError(CodeUnsupportedFile, manifestName, openErr)
+			return validationError(CodeUnsupportedFile, name, openErr)
 		}
 	}
 	if errors.Is(openErr, syscall.ELOOP) {
-		return validationError(CodeInvalidSymlink, manifestName, errors.Join(openErr, statErr))
+		return validationError(CodeInvalidSymlink, name, errors.Join(openErr, statErr))
 	}
-	return validationError(CodeUnreadable, manifestName, errors.Join(openErr, statErr))
+	return validationError(CodeUnreadable, name, errors.Join(openErr, statErr))
 }
 
 func validationError(code Code, diagnosticPath string, err error) error {
@@ -194,8 +248,13 @@ func loadTree(root *os.Root) ([]string, []File, []Diagnostic) {
 		if relative == "." {
 			return nil
 		}
-		if relative == manifestName {
-			return nil
+		if !strings.Contains(relative, "/") {
+			if _, manifest, nameErr := ParseManifestName(relative); manifest || nameErr != nil {
+				if entry.IsDir() {
+					return fs.SkipDir
+				}
+				return nil
+			}
 		}
 		if strings.EqualFold(relative, ".esheep.toml") {
 			diagnostics = append(diagnostics, Diagnostic{Code: CodeReservedPath, Path: relative})

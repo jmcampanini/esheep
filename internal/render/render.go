@@ -27,23 +27,31 @@ const (
 	TargetAgents Target = "agents"
 )
 
-// Disabled reports whether a skill disables a target.
-func Disabled(source skill.Package, target Target) (bool, error) {
-	options, err := targetOptions(source.Document.Targets, target)
-	if err != nil {
-		return false, err
+// Disabled reports whether a manifest disables a target.
+func Disabled(document skill.Document, target Target) (bool, error) {
+	switch target {
+	case TargetClaude:
+		return document.Targets.Claude.Disabled, nil
+	case TargetPi:
+		return document.Targets.Pi.Disabled, nil
+	case TargetCodex:
+		return document.Targets.Codex.Disabled, nil
+	case TargetAgents:
+		return document.Targets.Agents.Disabled, nil
+	default:
+		return false, fmt.Errorf("render: unsupported target %q", target)
 	}
-	return options.Disabled, nil
 }
 
-// Render writes a skill into an existing empty staging directory. A false
-// result means the skill disabled this target and the directory was untouched.
-func Render(staging string, source skill.Package, target Target) (bool, error) {
-	options, err := targetOptions(source.Document.Targets, target)
+// Render writes a skill into an existing empty staging directory using the
+// selected manifest document. A false result means the document disabled this
+// target and the directory was untouched.
+func Render(staging string, source skill.Package, document skill.Document, target Target) (bool, error) {
+	disabled, err := Disabled(document, target)
 	if err != nil {
 		return false, err
 	}
-	if options.Disabled {
+	if disabled {
 		return false, nil
 	}
 	staging = filepath.Clean(staging)
@@ -54,11 +62,11 @@ func Render(staging string, source skill.Package, target Target) (bool, error) {
 		return false, err
 	}
 
-	manifest, err := renderManifest(source.Document, options.ArgumentHint, target)
+	manifest, err := renderManifest(document)
 	if err != nil {
 		return false, err
 	}
-	if err := renderTree(staging, source, manifest, target); err != nil {
+	if err := renderTree(staging, source, document, manifest, target); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -71,7 +79,7 @@ const codexPolicyPath = "agents/openai.yaml"
 
 const codexPolicyManifest = "policy:\n  allow_implicit_invocation: false\n"
 
-func renderTree(staging string, source skill.Package, manifest []byte, target Target) (renderErr error) {
+func renderTree(staging string, source skill.Package, document skill.Document, manifest []byte, target Target) (renderErr error) {
 	sourceRoot, err := source.OpenSourceRoot()
 	if err != nil {
 		return fmt.Errorf("render source: %w", err)
@@ -96,7 +104,7 @@ func renderTree(staging string, source skill.Package, manifest []byte, target Ta
 			return err
 		}
 	}
-	if target == TargetCodex && source.Document.DisableModelInvocation && !hasFile(source, codexPolicyPath) {
+	if target == TargetCodex && document.DisableModelInvocation && !hasFile(source, codexPolicyPath) {
 		if err := writeRegular(staging, codexPolicyPath, strings.NewReader(codexPolicyManifest)); err != nil {
 			return err
 		}
@@ -115,22 +123,7 @@ func hasFile(source skill.Package, path string) bool {
 	return false
 }
 
-func targetOptions(targets skill.Targets, target Target) (skill.TargetOptions, error) {
-	switch target {
-	case TargetClaude:
-		return targets.Claude, nil
-	case TargetPi:
-		return targets.Pi, nil
-	case TargetCodex:
-		return targets.Codex, nil
-	case TargetAgents:
-		return targets.Agents, nil
-	default:
-		return skill.TargetOptions{}, fmt.Errorf("render: unsupported target %q", target)
-	}
-}
-
-func renderManifest(document skill.Document, argumentHint *string, target Target) ([]byte, error) {
+func renderManifest(document skill.Document) ([]byte, error) {
 	mapping := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
 	appendString := func(key, value string) {
 		mapping.Content = append(mapping.Content,
@@ -163,11 +156,6 @@ func renderManifest(document skill.Document, argumentHint *string, target Target
 			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "metadata"}, metadata,
 		)
 	}
-	emitted := map[string]struct{}{}
-	if (target == TargetClaude || target == TargetPi) && argumentHint != nil {
-		appendString("argument-hint", *argumentHint)
-		emitted["argument-hint"] = struct{}{}
-	}
 	if document.DisableModelInvocation {
 		mapping.Content = append(mapping.Content,
 			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "disable-model-invocation"},
@@ -175,9 +163,6 @@ func renderManifest(document skill.Document, argumentHint *string, target Target
 		)
 	}
 	for _, field := range document.Extra {
-		if _, duplicate := emitted[field.Key]; duplicate {
-			continue
-		}
 		mapping.Content = append(mapping.Content,
 			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: field.Key},
 			field.Value,

@@ -65,8 +65,10 @@ type Targets struct {
 
 // Config is the complete human-owned esheep configuration.
 type Config struct {
-	Sources []Source `toml:"sources"`
-	Targets Targets  `toml:"targets"`
+	Profiles    []string `toml:"profiles" config:"profiles" pflag_singular:"profile" help:"active profiles; --profiles accepts comma-separated values."`
+	EnvProfiles []string `toml:"env_profiles"`
+	Sources     []Source `toml:"sources"`
+	Targets     Targets  `toml:"targets"`
 }
 
 // Locations contains the discovered or explicit settings path.
@@ -98,11 +100,12 @@ type ResolvedTargets struct {
 
 // LoadResult is an effective configuration together with provenance and resolved paths.
 type LoadResult struct {
-	Config          Config
-	Locations       Locations
-	ResolvedSources []ResolvedSource
-	ResolvedTargets ResolvedTargets
-	Report          configloader.LoadReport
+	Config            Config
+	EffectiveProfiles []string
+	Locations         Locations
+	ResolvedSources   []ResolvedSource
+	ResolvedTargets   ResolvedTargets
+	Report            configloader.LoadReport
 }
 
 // RegisterFlags registers the config file flag and configuration-backed target flags.
@@ -175,17 +178,57 @@ func Load(options LoadOptions) (LoadResult, error) {
 		return LoadResult{}, err
 	}
 	cfg := Config(loaded)
+	effectiveProfiles, err := resolveProfiles(cfg, env)
+	if err != nil {
+		return LoadResult{}, err
+	}
 	resolvedSources, resolvedTargets, err := resolvePaths(cfg, home)
 	if err != nil {
 		return LoadResult{}, err
 	}
 	return LoadResult{
-		Config:          cfg,
-		Locations:       locations,
-		ResolvedSources: resolvedSources,
-		ResolvedTargets: resolvedTargets,
-		Report:          report,
+		Config:            cfg,
+		EffectiveProfiles: effectiveProfiles,
+		Locations:         locations,
+		ResolvedSources:   resolvedSources,
+		ResolvedTargets:   resolvedTargets,
+		Report:            report,
 	}, nil
+}
+
+// resolveProfiles appends the comma-separated values of each env_profiles
+// variable to the loaded profile list, dedupes preserving first-seen order,
+// and validates every name.
+func resolveProfiles(cfg Config, env map[string]string) ([]string, error) {
+	for _, name := range cfg.EnvProfiles {
+		trimmed := strings.TrimSpace(name)
+		if trimmed == "" || trimmed != name {
+			return nil, fmt.Errorf("config: env_profiles entry %q must be a nonblank environment variable name", name)
+		}
+	}
+
+	profiles := append([]string(nil), cfg.Profiles...)
+	for _, name := range cfg.EnvProfiles {
+		for _, value := range strings.Split(env[name], ",") {
+			if value = strings.TrimSpace(value); value != "" {
+				profiles = append(profiles, value)
+			}
+		}
+	}
+
+	seen := make(map[string]struct{}, len(profiles))
+	effective := make([]string, 0, len(profiles))
+	for _, profile := range profiles {
+		if err := naming.ValidateProfileName(profile); err != nil {
+			return nil, fmt.Errorf("config: %w", err)
+		}
+		if _, duplicate := seen[profile]; duplicate {
+			continue
+		}
+		seen[profile] = struct{}{}
+		effective = append(effective, profile)
+	}
+	return effective, nil
 }
 
 // ReportOptions controls effective TOML rendering.
@@ -218,6 +261,13 @@ func Render(result LoadResult, options ReportOptions) ([]byte, error) {
 		b.WriteByte('\n')
 	}
 	writeResolved("config_file", result.Locations.ConfigFile)
+	quoted := make([]string, 0, len(result.EffectiveProfiles))
+	for _, profile := range result.EffectiveProfiles {
+		quoted = append(quoted, strconv.Quote(sanitizeCommentValue(profile)))
+	}
+	b.WriteString("# effective_profiles = [")
+	b.WriteString(strings.Join(quoted, ", "))
+	b.WriteString("]\n")
 	for _, source := range result.ResolvedSources {
 		writeResolved("sources."+source.Name+".path", source.Path)
 	}

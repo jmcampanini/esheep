@@ -155,7 +155,7 @@ func TestDiscoverRejectsCaseInsensitiveRootReservedNameOnly(t *testing.T) {
 	}
 
 	catalog := Discover([]Source{{Name: "source", Path: root}})
-	if len(catalog.ValidCandidates()) != 1 || catalog.ValidCandidates()[0].Package.Document.Name != "nested" {
+	if len(catalog.ValidCandidates()) != 1 || catalog.ValidCandidates()[0].Package.Manifests[0].Document.Name != "nested" {
 		t.Fatalf("valid candidates = %#v", catalog.ValidCandidates())
 	}
 	if !hasSupportingPath(catalog.ValidCandidates()[0].Package.Files, "support/.EsHeEp.ToMl") {
@@ -178,11 +178,11 @@ func TestDiscoverCollidesValidIdentitiesDespiteOtherValidationErrors(t *testing.
 	writeSkill(t, filepath.Join(second, "other"), "other", "valid")
 
 	catalog := Discover([]Source{{Name: "first", Path: first}, {Name: "second", Path: second}})
-	if len(catalog.ValidCandidates()) != 1 || catalog.ValidCandidates()[0].Package.Document.Name != "other" {
+	if len(catalog.ValidCandidates()) != 1 || catalog.ValidCandidates()[0].Package.Manifests[0].Document.Name != "other" {
 		t.Fatalf("valid candidates = %#v", catalog.ValidCandidates())
 	}
 	for _, candidate := range catalog.Candidates {
-		if candidate.Package.Document.Name == "same" && !candidate.Colliding {
+		if candidate.Package.Manifests[0].Document.Name == "same" && !candidate.Colliding {
 			t.Fatalf("collision not marked: %#v", candidate)
 		}
 	}
@@ -244,6 +244,51 @@ func TestDiscoverReportsPresentInvalidManifests(t *testing.T) {
 		if !exists || countSkillCode(candidate.Diagnostics, code) != 1 {
 			t.Fatalf("candidate = %#v, want diagnostic %q", candidate, code)
 		}
+	}
+}
+
+func TestDiscoverRecognizesProfileVariantManifests(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	variantOnly := filepath.Join(root, "variant-only")
+	if err := os.Mkdir(variantOnly, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeManifest(t, filepath.Join(variantOnly, "SKILL.work.md"), "variant-only", "work only")
+	invalidVariant := filepath.Join(root, "invalid-variant")
+	if err := os.Mkdir(invalidVariant, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeManifest(t, filepath.Join(invalidVariant, "SKILL.Bad.md"), "invalid-variant", "bad segment")
+	noManifest := filepath.Join(root, "no-manifest")
+	if err := os.Mkdir(noManifest, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(noManifest, "notes.md"), []byte("data"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	catalog := Discover([]Source{{Name: "source", Path: root}})
+
+	if len(catalog.Candidates) != 2 {
+		t.Fatalf("candidates = %#v, want variant-only and invalid-variant", catalog.Candidates)
+	}
+	var variantCandidate, invalidCandidate Candidate
+	for _, candidate := range catalog.Candidates {
+		switch candidate.Location.RelativePath {
+		case "variant-only":
+			variantCandidate = candidate
+		case "invalid-variant":
+			invalidCandidate = candidate
+		default:
+			t.Fatalf("unexpected candidate %q", candidate.Location.RelativePath)
+		}
+	}
+	if !variantCandidate.Valid() || variantCandidate.Package.Manifests[0].Profile != "work" {
+		t.Fatalf("variant candidate = %#v", variantCandidate)
+	}
+	if invalidCandidate.Valid() || countSkillCode(invalidCandidate.Diagnostics, skill.CodeInvalidProfile) != 1 {
+		t.Fatalf("invalid candidate diagnostics = %#v", invalidCandidate.Diagnostics)
 	}
 }
 

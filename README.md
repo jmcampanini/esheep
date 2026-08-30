@@ -39,6 +39,7 @@ make build
 | `esheep --version` | Print the build version. |
 | `esheep completion zsh` | Write Zsh completion; bash, fish, and powershell work the same way. |
 | `esheep config [--provenance]` | Write the effective configuration and resolved paths. |
+| `esheep profiles [--json]` | Report effective and referenced profiles. |
 | `esheep skills list [--json]` | Inventory skills in every configured source. |
 | `esheep sync` | Install, repair, and prune esheep-owned output on enabled targets. |
 | `esheep skills status [--json]` | Report source readiness and per-target deployment health. |
@@ -47,9 +48,14 @@ The typical loop after changing a source skill is `esheep sync` followed by `esh
 
 ## Configuration
 
-Settings are discovered at `$XDG_CONFIG_HOME/esheep/esheep.toml`, or `$HOME/.config/esheep/esheep.toml`; `--config PATH` replaces discovery. Source directories are configured only in the TOML file. Target enablement and paths can also come from `ESHEEP_*` variables and flags, with the full precedence documented in `esheep config --help`.
+Settings are discovered at `$XDG_CONFIG_HOME/esheep/esheep.toml`, or `$HOME/.config/esheep/esheep.toml`; `--config PATH` replaces discovery. Source directories are configured only in the TOML file. Target enablement, paths, and active profiles can also come from `ESHEEP_*` variables and flags, with the full precedence documented in `esheep config --help`.
+
+Profiles gate when a skill applies: a skill limited by an `esheep-only-profiles` frontmatter field or a `SKILL.<profile>.md` manifest variant installs only while one of its profiles is active. `esheep help skill-format` describes the format.
 
 ```toml
+profiles = ["work"]
+env_profiles = ["MACHINE_PROFILES"]
+
 [[sources]]
 name = "personal"
 path = "~/Code/skills"

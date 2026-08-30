@@ -6,12 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/jmcampanini/esheep/internal/config"
 	"github.com/jmcampanini/esheep/internal/discovery"
 	"github.com/jmcampanini/esheep/internal/install"
 	"github.com/jmcampanini/esheep/internal/render"
+	"github.com/jmcampanini/esheep/internal/skill"
 )
 
 // Readiness describes whether a known source skill can be synchronized.
@@ -20,6 +22,7 @@ type Readiness string
 // Source readiness states.
 const (
 	ReadinessCollision Readiness = "collision"
+	ReadinessConflict  Readiness = "conflict"
 	ReadinessInvalid   Readiness = "invalid"
 	ReadinessReady     Readiness = "ready"
 )
@@ -36,27 +39,33 @@ type Diagnostic struct {
 	Target  string `json:"target,omitempty"`
 }
 
-// KnownSkill is one discovered source skill.
+// KnownSkill is one discovered source skill. ProfileGate limits when the skill
+// applies; an absent gate means every profile when HasManifest is true.
 type KnownSkill struct {
 	Description string    `json:"description,omitempty"`
 	Directory   string    `json:"directory"`
+	HasManifest bool      `json:"-"`
 	Path        string    `json:"path"`
+	ProfileGate []string  `json:"profile_gate,omitempty"`
 	Readiness   Readiness `json:"readiness"`
 	Source      string    `json:"source"`
 }
 
 // ListReport is the complete known-skill inventory.
 type ListReport struct {
-	Complete    bool         `json:"complete"`
-	Diagnostics []Diagnostic `json:"diagnostics"`
-	Skills      []KnownSkill `json:"skills"`
+	Complete          bool         `json:"complete"`
+	Diagnostics       []Diagnostic `json:"diagnostics"`
+	EffectiveProfiles []string     `json:"effective_profiles"`
+	Skills            []KnownSkill `json:"skills"`
 }
 
 // SkillStatus contains source readiness and available target states.
 type SkillStatus struct {
 	Description string                   `json:"description,omitempty"`
 	Directory   string                   `json:"directory"`
+	HasManifest bool                     `json:"-"`
 	Path        string                   `json:"path"`
+	ProfileGate []string                 `json:"profile_gate,omitempty"`
 	Readiness   Readiness                `json:"readiness"`
 	Source      string                   `json:"source"`
 	Targets     map[string]install.State `json:"targets"`
@@ -64,9 +73,19 @@ type SkillStatus struct {
 
 // StatusReport is a deployment health report for known skills.
 type StatusReport struct {
-	Diagnostics []Diagnostic  `json:"diagnostics"`
-	Healthy     bool          `json:"healthy"`
-	Skills      []SkillStatus `json:"skills"`
+	Diagnostics       []Diagnostic  `json:"diagnostics"`
+	EffectiveProfiles []string      `json:"effective_profiles"`
+	Healthy           bool          `json:"healthy"`
+	Skills            []SkillStatus `json:"skills"`
+}
+
+// ProfilesReport describes the effective profile list and every valid profile
+// referenced by discovered skills.
+type ProfilesReport struct {
+	Complete    bool         `json:"complete"`
+	Diagnostics []Diagnostic `json:"diagnostics"`
+	Effective   []string     `json:"effective"`
+	Referenced  []string     `json:"referenced"`
 }
 
 // Summary counts synchronization outcomes.
@@ -74,6 +93,7 @@ type Summary struct {
 	Blocked   int `json:"blocked"`
 	Disabled  int `json:"disabled"`
 	Failed    int `json:"failed"`
+	Inactive  int `json:"inactive"`
 	Installed int `json:"installed"`
 	Pruned    int `json:"pruned"`
 	Repaired  int `json:"repaired"`
@@ -91,6 +111,7 @@ type catalogResult struct {
 	catalog     discovery.Catalog
 	complete    bool
 	diagnostics []Diagnostic
+	selections  []skill.Selection
 	skills      []KnownSkill
 }
 
@@ -103,13 +124,41 @@ type targetSpec struct {
 // List inventories every discovered source skill.
 func List(ctx context.Context, loaded config.LoadResult) ListReport {
 	catalog := buildCatalog(ctx, loaded)
-	return ListReport{Complete: catalog.complete, Diagnostics: catalog.diagnostics, Skills: catalog.skills}
+	return ListReport{
+		Complete:          catalog.complete,
+		Diagnostics:       catalog.diagnostics,
+		EffectiveProfiles: loaded.EffectiveProfiles,
+		Skills:            catalog.skills,
+	}
+}
+
+// Profiles reports the effective profile list and every valid profile
+// referenced by discovered skills.
+func Profiles(ctx context.Context, loaded config.LoadResult) ProfilesReport {
+	catalog := buildCatalog(ctx, loaded)
+	union := make(map[string]struct{})
+	for _, candidate := range catalog.catalog.Candidates {
+		for _, profile := range candidate.Package.ReferencedProfiles() {
+			union[profile] = struct{}{}
+		}
+	}
+	referenced := make([]string, 0, len(union))
+	for profile := range union {
+		referenced = append(referenced, profile)
+	}
+	sort.Strings(referenced)
+	return ProfilesReport{
+		Complete:    catalog.complete,
+		Diagnostics: catalog.diagnostics,
+		Effective:   loaded.EffectiveProfiles,
+		Referenced:  referenced,
+	}
 }
 
 // Status inspects source readiness and per-target deployment state.
 func Status(ctx context.Context, loaded config.LoadResult) StatusReport {
 	catalog := buildCatalog(ctx, loaded)
-	report := StatusReport{Diagnostics: catalog.diagnostics, Healthy: catalog.complete}
+	report := StatusReport{Diagnostics: catalog.diagnostics, EffectiveProfiles: loaded.EffectiveProfiles, Healthy: catalog.complete}
 	targets := configuredTargets(loaded)
 	blockedTargets, targetDiagnostics := inspectTargets(ctx, targets)
 	report.Diagnostics = append(report.Diagnostics, targetDiagnostics...)
@@ -119,10 +168,13 @@ func Status(ctx context.Context, loaded config.LoadResult) StatusReport {
 
 	for index, candidate := range catalog.catalog.Candidates {
 		known := catalog.skills[index]
+		selection := catalog.selections[index]
 		row := SkillStatus{
 			Description: known.Description,
 			Directory:   known.Directory,
+			HasManifest: known.HasManifest,
 			Path:        known.Path,
+			ProfileGate: known.ProfileGate,
 			Readiness:   known.Readiness,
 			Source:      known.Source,
 			Targets:     make(map[string]install.State),
@@ -142,8 +194,13 @@ func Status(ctx context.Context, loaded config.LoadResult) StatusReport {
 				row.Targets[string(target.name)] = install.StateBlocked
 				continue
 			}
+			if !selection.Active {
+				row.Targets[string(target.name)] = install.StateInactive
+				continue
+			}
 
 			state, err := install.Inspect(ctx, install.Request{
+				Document: selection.Manifest.Document,
 				Identity: install.Identity{Skill: known.Directory, Source: known.Source, Target: target.name},
 				Package:  candidate.Package,
 				Root:     target.root,
@@ -195,10 +252,15 @@ func Sync(ctx context.Context, loaded config.LoadResult) SyncReport {
 	pruneStale(ctx, loaded, catalog, targets, blockedTargets, &report)
 	for index, candidate := range catalog.catalog.Candidates {
 		known := catalog.skills[index]
+		selection := catalog.selections[index]
 		if known.Readiness != ReadinessReady {
+			detail := "source skill is " + string(known.Readiness)
+			if known.Readiness == ReadinessConflict {
+				detail = "active profiles select multiple manifests"
+			}
 			record(&report, install.Result{
 				Action:   install.ActionFailed,
-				Detail:   "source skill is " + string(known.Readiness),
+				Detail:   detail,
 				Identity: install.Identity{Skill: known.Directory, Source: known.Source},
 			}, nil)
 			continue
@@ -216,8 +278,17 @@ func Sync(ctx context.Context, loaded config.LoadResult) SyncReport {
 			if _, blocked := blockedTargets[target.name]; blocked {
 				continue
 			}
+			if !selection.Active {
+				record(&report, install.Result{
+					Action:   install.ActionInactive,
+					Detail:   "profile not active",
+					Identity: install.Identity{Skill: known.Directory, Source: known.Source, Target: target.name},
+				}, nil)
+				continue
+			}
 
 			result, err := install.Reconcile(ctx, install.Request{
+				Document: selection.Manifest.Document,
 				Identity: install.Identity{Skill: known.Directory, Source: known.Source, Target: target.name},
 				Package:  candidate.Package,
 				Root:     target.root,
@@ -266,22 +337,49 @@ func buildCatalog(ctx context.Context, loaded config.LoadResult) catalogResult {
 		}
 	}
 	for _, candidate := range result.catalog.Candidates {
+		selection := candidate.Package.Select(loaded.EffectiveProfiles)
+		result.selections = append(result.selections, selection)
 		readiness := ReadinessReady
 		switch {
 		case len(candidate.Diagnostics) != 0:
 			readiness = ReadinessInvalid
 		case candidate.Colliding:
 			readiness = ReadinessCollision
+		case len(selection.Conflicts) != 0:
+			readiness = ReadinessConflict
+		}
+		if readiness == ReadinessConflict {
+			result.diagnostics = append(result.diagnostics, Diagnostic{
+				Code:    "profile-conflict",
+				Message: "active profiles select multiple manifests: " + strings.Join(selection.Conflicts, ", "),
+				Path:    candidate.Location.Path,
+				Skill:   candidate.Location.RelativePath,
+				Source:  candidate.Location.Source,
+			})
 		}
 		result.skills = append(result.skills, KnownSkill{
-			Description: candidate.Package.Document.Description,
+			Description: describe(candidate, selection),
 			Directory:   candidate.Location.RelativePath,
+			HasManifest: len(candidate.Package.Manifests) != 0,
 			Path:        candidate.Location.Path,
+			ProfileGate: candidate.Package.Gate(),
 			Readiness:   readiness,
 			Source:      candidate.Location.Source,
 		})
 	}
 	return result
+}
+
+// describe prefers the selected manifest's description so reports reflect
+// what would render under the active profiles.
+func describe(candidate discovery.Candidate, selection skill.Selection) string {
+	if selection.Active {
+		return selection.Manifest.Document.Description
+	}
+	if len(candidate.Package.Manifests) != 0 {
+		return candidate.Package.Manifests[0].Document.Description
+	}
+	return ""
 }
 
 func configuredTargets(loaded config.LoadResult) []targetSpec {
@@ -329,9 +427,10 @@ func pruneStale(
 			unavailable[diagnostic.Location.Source] = struct{}{}
 		}
 	}
-	present := make(map[string]discovery.Candidate, len(catalog.catalog.Candidates))
-	for _, candidate := range catalog.catalog.Candidates {
-		present[candidateKey(candidate.Location.Source, candidate.Location.RelativePath)] = candidate
+	present := make(map[string]presentCandidate, len(catalog.catalog.Candidates))
+	for index, candidate := range catalog.catalog.Candidates {
+		key := candidateKey(candidate.Location.Source, candidate.Location.RelativePath)
+		present[key] = presentCandidate{candidate: candidate, selection: catalog.selections[index]}
 	}
 
 	for _, target := range targets {
@@ -349,14 +448,17 @@ func pruneStale(
 			if _, found := configured[marker.Source]; !found {
 				return true
 			}
-			candidate, found := present[candidateKey(marker.Source, marker.Skill)]
+			entry, found := present[candidateKey(marker.Source, marker.Skill)]
 			if !found {
 				return true
 			}
-			if !candidate.Valid() {
+			if !entry.candidate.Valid() || len(entry.selection.Conflicts) != 0 {
 				return false
 			}
-			disabled, disabledErr := render.Disabled(candidate.Package, target.name)
+			if !entry.selection.Active {
+				return true
+			}
+			disabled, disabledErr := render.Disabled(entry.selection.Manifest.Document, target.name)
 			return disabledErr == nil && disabled
 		})
 		for _, result := range results {
@@ -382,6 +484,11 @@ func pruneStale(
 	}
 }
 
+type presentCandidate struct {
+	candidate discovery.Candidate
+	selection skill.Selection
+}
+
 func candidateKey(source, skill string) string {
 	return source + "\x00" + skill
 }
@@ -396,6 +503,8 @@ func record(report *SyncReport, result install.Result, operationErr error) {
 		report.Summary.Disabled++
 	case install.ActionFailed:
 		report.Summary.Failed++
+	case install.ActionInactive:
+		report.Summary.Inactive++
 	case install.ActionInstalled:
 		report.Summary.Installed++
 	case install.ActionPruned:

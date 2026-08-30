@@ -3,7 +3,6 @@ package render
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -29,7 +28,7 @@ func TestRenderExactTargetTrees(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	source.Document = skill.Document{
+	document := skill.Document{
 		Name:                   "demo",
 		Description:            "A demo",
 		License:                stringPointer("MIT"),
@@ -40,10 +39,6 @@ func TestRenderExactTargetTrees(t *testing.T) {
 			{Key: "allowed-tools", Value: yamlValue(t, "Bash")},
 			{Key: "hooks", Value: yamlValue(t, "PreToolUse:\n  - matcher: Bash\n")},
 		},
-		Targets: skill.Targets{
-			Claude: skill.TargetOptions{ArgumentHint: stringPointer("CLAUDE-ARG")},
-			Pi:     skill.TargetOptions{ArgumentHint: stringPointer("PI-ARG")},
-		},
 		Body: []byte("# Body\r\nexact\x00"),
 	}
 	tests := []struct {
@@ -51,8 +46,8 @@ func TestRenderExactTargetTrees(t *testing.T) {
 		golden      string
 		codexPolicy bool
 	}{
-		{target: TargetClaude, golden: "claude.golden"},
-		{target: TargetPi, golden: "pi.golden"},
+		{target: TargetClaude, golden: "common.golden"},
+		{target: TargetPi, golden: "common.golden"},
 		{target: TargetCodex, golden: "common.golden", codexPolicy: true},
 		{target: TargetAgents, golden: "common.golden"},
 	}
@@ -60,7 +55,7 @@ func TestRenderExactTargetTrees(t *testing.T) {
 		t.Run(string(test.target), func(t *testing.T) {
 			t.Parallel()
 			staging := t.TempDir()
-			rendered, err := Render(staging, source, test.target)
+			rendered, err := Render(staging, source, document, test.target)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -103,45 +98,32 @@ func yamlValue(t *testing.T, text string) *yaml.Node {
 func TestRenderPreservesEmptyOptionalFields(t *testing.T) {
 	t.Parallel()
 	source := loadManifestOnlyPackage(t)
-	source.Document = skill.Document{
+	document := skill.Document{
 		Name:          "demo",
 		Description:   "ok",
 		License:       stringPointer(""),
 		Compatibility: stringPointer(""),
 		Metadata:      map[string]string{},
-		Targets:       skill.Targets{Claude: skill.TargetOptions{ArgumentHint: stringPointer("")}},
 	}
 	claude := t.TempDir()
-	if _, err := Render(claude, source, TargetClaude); err != nil {
+	if _, err := Render(claude, source, document, TargetClaude); err != nil {
 		t.Fatal(err)
 	}
 	manifest, err := os.ReadFile(filepath.Join(claude, "SKILL.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "---\nname: demo\ndescription: ok\nlicense: \"\"\ncompatibility: \"\"\nmetadata: {}\nargument-hint: \"\"\n---\n"
+	want := "---\nname: demo\ndescription: ok\nlicense: \"\"\ncompatibility: \"\"\nmetadata: {}\n---\n"
 	if string(manifest) != want {
 		t.Fatalf("Claude manifest = %q, want %q", manifest, want)
-	}
-
-	codex := t.TempDir()
-	if _, err := Render(codex, source, TargetCodex); err != nil {
-		t.Fatal(err)
-	}
-	manifest, err = os.ReadFile(filepath.Join(codex, "SKILL.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(manifest), "argument-hint") {
-		t.Fatalf("Codex manifest contains Claude hint: %q", manifest)
 	}
 }
 
 func TestRenderDisabledTargetLeavesStagingUntouched(t *testing.T) {
 	t.Parallel()
 	staging := t.TempDir()
-	source := skill.Package{Document: skill.Document{Targets: skill.Targets{Codex: skill.TargetOptions{Disabled: true}}}}
-	rendered, err := Render(staging, source, TargetCodex)
+	document := skill.Document{Targets: skill.Targets{Codex: skill.TargetOptions{Disabled: true}}}
+	rendered, err := Render(staging, skill.Package{}, document, TargetCodex)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,13 +161,13 @@ func TestRenderRejectsInvalidConstructedTrees(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			source := skill.Package{Document: skill.Document{Name: "demo", Description: "ok"}, Directories: test.directories, Files: test.files}
+			source := skill.Package{Directories: test.directories, Files: test.files}
 			staging := t.TempDir()
 			before, err := os.Stat(staging)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := Render(staging, source, TargetClaude); err == nil {
+			if _, err := Render(staging, source, skill.Document{Name: "demo", Description: "ok"}, TargetClaude); err == nil {
 				t.Fatal("invalid tree rendered")
 			}
 			after, err := os.Stat(staging)
@@ -218,7 +200,7 @@ func TestRenderAllowsNestedReservedName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Render(staging, source, TargetClaude); err != nil {
+	if _, err := Render(staging, source, source.Manifests[0].Document, TargetClaude); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(filepath.Join(staging, "support", ".ESHEEP.TOML"))
@@ -236,8 +218,7 @@ func TestRenderRejectsNonemptyStaging(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(staging, "existing"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	source := skill.Package{Document: skill.Document{Name: "demo", Description: "ok"}}
-	if _, err := Render(staging, source, TargetClaude); err == nil {
+	if _, err := Render(staging, skill.Package{}, skill.Document{Name: "demo", Description: "ok"}, TargetClaude); err == nil {
 		t.Fatal("nonempty staging rendered")
 	}
 }
@@ -268,7 +249,7 @@ func TestRenderCleansStagingAndNormalizesModesDespiteUmask(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Render(staging+string(filepath.Separator), source, TargetClaude); err != nil {
+	if _, err := Render(staging+string(filepath.Separator), source, source.Manifests[0].Document, TargetClaude); err != nil {
 		t.Fatal(err)
 	}
 	assertMode(t, parent, 0o700)
@@ -303,7 +284,7 @@ func TestRenderStreamsCurrentRegularAndWithinRootSymlinkData(t *testing.T) {
 	}
 
 	staging := t.TempDir()
-	if _, err := Render(staging, loaded, TargetClaude); err != nil {
+	if _, err := Render(staging, loaded, loaded.Manifests[0].Document, TargetClaude); err != nil {
 		t.Fatal(err)
 	}
 	for _, relative := range []string{"data", "alias"} {
@@ -328,7 +309,7 @@ func TestRenderRejectsSupportFileReplacedByDirectory(t *testing.T) {
 	if err := os.Mkdir(path, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Render(t.TempDir(), loaded, TargetClaude); err == nil {
+	if _, err := Render(t.TempDir(), loaded, loaded.Manifests[0].Document, TargetClaude); err == nil {
 		t.Fatal("Render accepted a support file replaced by a directory")
 	}
 }
@@ -346,7 +327,7 @@ func TestRenderRejectsSupportFileReplacedByFIFOWithoutBlocking(t *testing.T) {
 	staging := t.TempDir()
 	result := make(chan error, 1)
 	go func() {
-		_, err := Render(staging, loaded, TargetClaude)
+		_, err := Render(staging, loaded, loaded.Manifests[0].Document, TargetClaude)
 		result <- err
 	}()
 	select {
@@ -388,7 +369,7 @@ func TestRenderRejectsSupportSymlinkChangedToEscape(t *testing.T) {
 	if err := os.Symlink("../outside", link); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Render(t.TempDir(), loaded, TargetClaude); err == nil {
+	if _, err := Render(t.TempDir(), loaded, loaded.Manifests[0].Document, TargetClaude); err == nil {
 		t.Fatal("Render followed an escaping support symlink")
 	}
 }
@@ -473,7 +454,7 @@ func TestRenderRejectsReplacedSkillOrSourceDirectoryBeforeStagingMutation(t *tes
 			if err := os.Chmod(staging, 0o700); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := Render(staging, loaded, TargetClaude); err == nil {
+			if _, err := Render(staging, loaded, loaded.Manifests[0].Document, TargetClaude); err == nil {
 				t.Fatal("Render accepted a replaced source identity")
 			}
 			entries, err := os.ReadDir(staging)
