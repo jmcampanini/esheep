@@ -72,9 +72,9 @@ func TestMilestoneWorkflow(t *testing.T) {
 		}
 	}
 	writeE2ESkill(t, personal, "alpha", "Alpha skill", "claude:\n  argument-hint: CLAUDE-ARG\npi:\n  argument-hint: PI-ARG\n", map[string]string{"data.txt": "alpha data"})
-	writeE2ESkill(t, personal, "local-only", "Local skill", "pi:\n  disabled: true\n", nil)
+	writeE2ESkill(t, personal, "local-only", "Local skill", "disable-model-invocation: true\nallowed-tools: Bash\npi:\n  disabled: true\n", nil)
 	writeE2ESkill(t, personal, "same", "Personal collision", "", nil)
-	writeE2ESkill(t, personal, "unsafe", "Unsafe skill", "allowed-tools: Bash\n", nil)
+	writeE2ESkill(t, personal, "unsafe", "Unsafe skill", "metadata: no\n", nil)
 	writeE2ESkill(t, work, "beta", "Beta skill", "", nil)
 	writeE2ESkill(t, work, "same", "Work collision", "", nil)
 	settingsPath := filepath.Join(configHome, "esheep", "esheep.toml")
@@ -94,20 +94,20 @@ func TestMilestoneWorkflow(t *testing.T) {
 	if err := json.Unmarshal([]byte(invalidInventory.stdout), &invalidReport); err != nil {
 		t.Fatalf("decode invalid inventory: %v\n%s", err, invalidInventory.stdout)
 	}
-	var foundCollision, foundUnsupportedField bool
+	var foundCollision, foundInvalidField bool
 	for _, diagnostic := range invalidReport.Diagnostics {
-		if diagnostic.Code == "unknown-field" && diagnostic.Field == "allowed-tools" {
-			foundUnsupportedField = true
+		if diagnostic.Code == "invalid-value" && diagnostic.Field == "metadata" {
+			foundInvalidField = true
 		}
 		if diagnostic.Code == "collision" && strings.Contains(diagnostic.Message, "personal/same") && strings.Contains(diagnostic.Message, "work/same") {
 			foundCollision = true
 		}
 	}
-	if !foundCollision || !foundUnsupportedField {
+	if !foundCollision || !foundInvalidField {
 		t.Fatalf("invalid inventory diagnostics = %#v", invalidReport.Diagnostics)
 	}
 	failedSync := runEsheep(t, environment, "sync")
-	if failedSync.exitCode != 1 || !strings.Contains(failedSync.stderr, "unknown-field") || !strings.Contains(failedSync.stderr, "collision") {
+	if failedSync.exitCode != 1 || !strings.Contains(failedSync.stderr, "invalid-value") || !strings.Contains(failedSync.stderr, "collision") {
 		t.Fatalf("invalid sync result = %#v", failedSync)
 	}
 	if got := snapshotTree(t, personal) + snapshotTree(t, work); got != invalidSourcesBefore {
@@ -182,6 +182,16 @@ func TestMilestoneWorkflow(t *testing.T) {
 	assertManifestMetadata(t, filepath.Join(pi, "alpha", "SKILL.md"), "argument-hint: PI-ARG", true)
 	assertManifestMetadata(t, filepath.Join(codex, "alpha", "SKILL.md"), "argument-hint:", false)
 	assertManifestMetadata(t, filepath.Join(agents, "alpha", "SKILL.md"), "argument-hint:", false)
+	assertManifestMetadata(t, filepath.Join(claude, "local-only", "SKILL.md"), "disable-model-invocation: true", true)
+	assertManifestMetadata(t, filepath.Join(claude, "local-only", "SKILL.md"), "allowed-tools: Bash", true)
+	assertManifestMetadata(t, filepath.Join(agents, "local-only", "SKILL.md"), "allowed-tools: Bash", true)
+	codexPolicy, err := os.ReadFile(filepath.Join(codex, "local-only", "agents", "openai.yaml"))
+	if err != nil || string(codexPolicy) != "policy:\n  allow_implicit_invocation: false\n" {
+		t.Fatalf("codex invocation policy = %q, %v", codexPolicy, err)
+	}
+	if _, err := os.Stat(filepath.Join(claude, "local-only", "agents")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("claude received the codex invocation policy: %v", err)
+	}
 
 	if err := os.WriteFile(filepath.Join(claude, "alpha", "SKILL.md"), []byte("drift"), 0o644); err != nil {
 		t.Fatal(err)

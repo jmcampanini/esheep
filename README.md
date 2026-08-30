@@ -108,17 +108,18 @@ Source names are case-insensitively unique safe slash-separated identifiers. Sou
 
 Each source is a read-only collection of top-level skill directories. Discovery inspects only immediate non-symlink child directories containing `SKILL.md`; the source root and grouping directories are not skills. Dot-directories and `node_modules` are skipped. Recognized skill contents are traversed to validate supporting files. Supporting paths must be unique under case-insensitive Unicode-normalized comparison, and absolute, escaping, cyclic, and directory symlinks are rejected. A missing, unreadable, or non-directory source makes source-consuming commands fail; help, version, completion, and `config` do not require sources to exist.
 
-Skills use declarative YAML frontmatter and a Markdown body. The common fields are:
+Skills use declarative YAML frontmatter and a Markdown body. Frontmatter fields fall into two categories: fields esheep interprets and validates, and fields it passes through verbatim. The interpreted fields are:
 
 - `name`: required, 1–64 characters, lowercase alphanumeric words separated by single hyphens, and equal to the skill directory name;
 - `description`: required and nonempty, at most 1024 characters;
 - `license`: optional string;
 - `compatibility`: optional string, at most 500 characters;
-- `metadata`: optional string-to-string map.
+- `metadata`: optional string-to-string map;
+- `disable-model-invocation`: optional boolean (`true` or `false`); when true, rendered output tells each target not to invoke the skill automatically.
 
-Unknown fields are errors. Command hooks, `allowed-tools`, and policy fields that grant or broaden execution permissions are also errors rather than fields esheep silently removes. The Markdown body after frontmatter is preserved byte-for-byte.
+Every other top-level field passes through unchanged: it is preserved in source order and rendered verbatim for every target. esheep grants nothing itself - a passed-through field carries only the meaning the receiving harness gives it, and harnesses ignore frontmatter they do not recognize. The generic Agent Skills spec defines a closed field table with `metadata` as its extension point and is silent about redistribution, so strict spec validators may flag passed-through fields in rendered output exactly as they would in the source. The Markdown body after frontmatter is preserved byte-for-byte.
 
-Every optional `claude`, `pi`, `codex`, or `agents` target block accepts `disabled: true`. Claude and Pi also accept the inert `argument-hint` string; Codex and agents accept no other target metadata. Executable hooks and permission policy are invalid in every target block. For example:
+Every optional `claude`, `pi`, `codex`, or `agents` target block accepts `disabled: true`. Claude and Pi also accept the inert `argument-hint` string. Target blocks are esheep configuration, not skill content, so unknown fields inside them are errors rather than pass-through. For example:
 
 ```markdown
 ---
@@ -128,6 +129,7 @@ license: MIT
 compatibility: Requires a Git worktree.
 metadata:
   owner: engineering
+disable-model-invocation: true
 claude:
   argument-hint: PR-NUMBER
 pi:
@@ -137,7 +139,7 @@ pi:
 Review the requested pull request.
 ```
 
-Rendering is deterministic. Claude and Pi receive common fields and `argument-hint` when present; Codex and the shared target receive common fields only. Supporting files are rendered as non-executable data, and root `.esheep.toml` is reserved for ownership metadata.
+Rendering is deterministic. Claude and Pi receive the interpreted fields and `argument-hint` when present; Codex and the shared target receive the interpreted fields without hints; every target receives the passed-through fields, except that a passed-through field is dropped for a target whose block already renders the same key. When `disable-model-invocation` is true, the Codex render also writes `agents/openai.yaml` containing `policy.allow_implicit_invocation: false` - Codex ignores unknown frontmatter and reads invocation policy from that file instead - unless the skill provides its own `agents/openai.yaml`, which is authoritative. Supporting files are rendered as non-executable data, and root `.esheep.toml` is reserved for ownership metadata.
 
 `esheep skills list` inventories every discovered source skill. Readiness is `ready`, `invalid`, or `collision`; validation and collision diagnostics do not hide known entries. The command exits nonzero only when configuration or filesystem failures prevent complete discovery.
 

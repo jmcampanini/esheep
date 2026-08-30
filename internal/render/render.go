@@ -58,13 +58,20 @@ func Render(staging string, source skill.Package, target Target) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if err := renderTree(staging, source, manifest); err != nil {
+	if err := renderTree(staging, source, manifest, target); err != nil {
 		return false, err
 	}
 	return true, nil
 }
 
-func renderTree(staging string, source skill.Package, manifest []byte) (renderErr error) {
+// codexPolicyPath is the Codex per-skill metadata file that carries invocation
+// policy. Codex ignores unknown SKILL.md frontmatter, so disable-model-invocation
+// is expressed there instead.
+const codexPolicyPath = "agents/openai.yaml"
+
+const codexPolicyManifest = "policy:\n  allow_implicit_invocation: false\n"
+
+func renderTree(staging string, source skill.Package, manifest []byte, target Target) (renderErr error) {
 	sourceRoot, err := source.OpenSourceRoot()
 	if err != nil {
 		return fmt.Errorf("render source: %w", err)
@@ -89,7 +96,23 @@ func renderTree(staging string, source skill.Package, manifest []byte) (renderEr
 			return err
 		}
 	}
+	if target == TargetCodex && source.Document.DisableModelInvocation && !hasFile(source, codexPolicyPath) {
+		if err := writeRegular(staging, codexPolicyPath, strings.NewReader(codexPolicyManifest)); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+// hasFile reports whether the source skill provides its own copy of path. A
+// source-provided file is authoritative and suppresses generation.
+func hasFile(source skill.Package, path string) bool {
+	for _, file := range source.Files {
+		if file.Path == path {
+			return true
+		}
+	}
+	return false
 }
 
 func targetOptions(targets skill.Targets, target Target) (skill.TargetOptions, error) {
@@ -140,8 +163,25 @@ func renderManifest(document skill.Document, argumentHint *string, target Target
 			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "metadata"}, metadata,
 		)
 	}
+	emitted := map[string]struct{}{}
 	if (target == TargetClaude || target == TargetPi) && argumentHint != nil {
 		appendString("argument-hint", *argumentHint)
+		emitted["argument-hint"] = struct{}{}
+	}
+	if document.DisableModelInvocation {
+		mapping.Content = append(mapping.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "disable-model-invocation"},
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool", Value: "true"},
+		)
+	}
+	for _, field := range document.Extra {
+		if _, duplicate := emitted[field.Key]; duplicate {
+			continue
+		}
+		mapping.Content = append(mapping.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: field.Key},
+			field.Value,
+		)
 	}
 
 	var yamlText bytes.Buffer

@@ -47,6 +47,50 @@ func TestParseDistinguishesAbsentOptionalFields(t *testing.T) {
 	}
 }
 
+func TestParsePreservesUninterpretedFieldsInOrder(t *testing.T) {
+	t.Parallel()
+	input := []byte("---\n" +
+		"name: demo\n" +
+		"allowed-tools: Bash\n" +
+		"description: ok\n" +
+		"disable-model-invocation: true\n" +
+		"hooks:\n" +
+		"  PreToolUse:\n" +
+		"    - matcher: Bash\n" +
+		"claude:\n" +
+		"  disabled: true\n" +
+		"x-owner: engineering\n" +
+		"---\nbody")
+	document, err := Parse(input, "demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !document.DisableModelInvocation {
+		t.Fatal("DisableModelInvocation = false, want true")
+	}
+	if !document.Targets.Claude.Disabled {
+		t.Fatal("claude target not disabled")
+	}
+	keys := make([]string, 0, len(document.Extra))
+	for _, field := range document.Extra {
+		keys = append(keys, field.Key)
+	}
+	want := []string{"allowed-tools", "hooks", "x-owner"}
+	if len(keys) != len(want) {
+		t.Fatalf("Extra keys = %v, want %v", keys, want)
+	}
+	for index := range want {
+		if keys[index] != want[index] {
+			t.Fatalf("Extra keys = %v, want %v", keys, want)
+		}
+	}
+	for _, field := range document.Extra {
+		if field.Value == nil {
+			t.Fatalf("Extra field %q has nil value", field.Key)
+		}
+	}
+}
+
 func TestParseRejectsInvalidDeclarativeFormat(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -58,12 +102,10 @@ func TestParseRejectsInvalidDeclarativeFormat(t *testing.T) {
 		{name: "missing frontmatter", dir: "demo", yaml: "name: demo\n", code: CodeFrontmatter},
 		{name: "duplicate common key", dir: "demo", yaml: "name: demo\nname: demo\ndescription: ok\n", code: CodeYAML},
 		{name: "duplicate target key", dir: "demo", yaml: "name: demo\ndescription: ok\nclaude:\n  disabled: true\n  disabled: false\n", code: CodeYAML},
-		{name: "unknown common field", dir: "demo", yaml: "name: demo\ndescription: ok\nextra: true\n", code: CodeUnknownField},
-		{name: "unsupported tools", dir: "demo", yaml: "name: demo\ndescription: ok\nallowed-tools: Bash\n", code: CodeUnknownField},
-		{name: "unsupported target hook", dir: "demo", yaml: "name: demo\ndescription: ok\nclaude:\n  hooks: run\n", code: CodeUnknownField},
-		{name: "unsupported policy", dir: "demo", yaml: "name: demo\ndescription: ok\nexecution-policy: strict\n", code: CodeUnknownField},
-		{name: "unsupported command", dir: "demo", yaml: "name: demo\ndescription: ok\ncommand: run\n", code: CodeUnknownField},
+		{name: "duplicate uninterpreted key", dir: "demo", yaml: "name: demo\ndescription: ok\nextra: 1\nextra: 2\n", code: CodeInvalidValue},
+		{name: "unknown target field", dir: "demo", yaml: "name: demo\ndescription: ok\nclaude:\n  hooks: run\n", code: CodeUnknownField},
 		{name: "codex hint", dir: "demo", yaml: "name: demo\ndescription: ok\ncodex:\n  argument-hint: no\n", code: CodeUnknownField},
+		{name: "invocation toggle is string", dir: "demo", yaml: "name: demo\ndescription: ok\ndisable-model-invocation: 'yes'\n", code: CodeInvalidValue},
 		{name: "name is map", dir: "demo", yaml: "name: {}\ndescription: ok\n", code: CodeInvalidValue},
 		{name: "license is boolean", dir: "demo", yaml: "name: demo\ndescription: ok\nlicense: true\n", code: CodeInvalidValue},
 		{name: "metadata is scalar", dir: "demo", yaml: "name: demo\ndescription: ok\nmetadata: no\n", code: CodeInvalidValue},
