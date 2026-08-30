@@ -66,10 +66,10 @@ type filesystem struct {
 }
 
 var defaultFilesystem = filesystem{
-	exchange:  func(root *targetRoot, oldName, newName string) error { return root.renameExchange(oldName, newName) },
-	noReplace: func(root *targetRoot, oldName, newName string) error { return root.renameNoReplace(oldName, newName) },
-	removeAll: func(root *os.Root, name string) error { return root.RemoveAll(name) },
-	rename:    func(root *os.Root, oldName, newName string) error { return root.Rename(oldName, newName) },
+	exchange:  (*targetRoot).renameExchange,
+	noReplace: (*targetRoot).renameNoReplace,
+	removeAll: (*os.Root).RemoveAll,
+	rename:    (*os.Root).Rename,
 }
 
 // Inspect compares an expected skill with its target installation without
