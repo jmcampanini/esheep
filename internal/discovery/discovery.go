@@ -76,8 +76,9 @@ func (catalog Catalog) ValidCandidates() []Candidate {
 	return valid
 }
 
-// Discover inspects each source in input order and only its immediate,
-// non-symlink child directories. It continues after structured failures.
+// Discover inspects each source in input order and only its immediate child
+// directories, following symlinks wherever they resolve. It continues after
+// structured failures.
 func Discover(sources []Source) Catalog {
 	var catalog Catalog
 	for _, source := range sources {
@@ -120,10 +121,19 @@ func discoverSource(source Source, catalog *Catalog) {
 	sort.Slice(children, func(left, right int) bool { return children[left].Name() < children[right].Name() })
 	for _, child := range children {
 		name := child.Name()
-		if strings.HasPrefix(name, ".") || name == "node_modules" || !child.IsDir() || child.Type()&os.ModeSymlink != 0 {
+		if strings.HasPrefix(name, ".") || name == "node_modules" {
 			continue
 		}
 		candidateRoot := filepath.Join(source.Path, name)
+		if child.Type()&os.ModeSymlink != 0 {
+			// A resolvable link is its target; an unresolvable one falls
+			// through so the load surfaces the failure as a diagnostic.
+			if info, statErr := os.Stat(candidateRoot); statErr == nil && !info.IsDir() {
+				continue
+			}
+		} else if !child.IsDir() {
+			continue
+		}
 		if entries, readErr := os.ReadDir(candidateRoot); readErr == nil && !containsManifest(entries) {
 			continue
 		}

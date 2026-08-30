@@ -26,7 +26,8 @@
 - Never modify an unmarked skill directory during install or prune operations.
 - Install managed skills atomically and record `source`, `skill`, and `target` ownership in `.esheep.toml` markers.
 - Leave disabled targets untouched during synchronization and pruning.
-- Preserve supporting files as non-executable data and reject escaping, absolute, cyclic, or directory symlinks.
+- Treat sources as trusted: follow their symlinks wherever they resolve, and treat a link that does not resolve as an error.
+- Preserve supporting files as non-executable data.
 - Validate the frontmatter fields esheep interprets; pass every other top-level field through verbatim without granting it any meaning of esheep's own.
 
 ## Breaking changes

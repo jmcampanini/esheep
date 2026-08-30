@@ -145,30 +145,152 @@ func TestParseRejectsInvalidDeclarativeFormat(t *testing.T) {
 	}
 }
 
-func TestLoadRejectsManifestSymlinkWithoutReadingThroughIt(t *testing.T) {
+func TestLoadFollowsCrossRepositorySymlinks(t *testing.T) {
 	t.Parallel()
-	root := filepath.Join(t.TempDir(), "demo")
-	if err := os.Mkdir(root, 0o755); err != nil {
+	parent := t.TempDir()
+	overlay := filepath.Join(parent, "overlay", "demo")
+	if err := os.MkdirAll(filepath.Join(overlay, "scripts"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	target := filepath.Join(root, "manifest-target")
-	if err := os.WriteFile(target, []byte("---\nname: demo\ndescription: ok\n---\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(overlay, "SKILL.md"), []byte("---\nname: demo\ndescription: ok\n---\nbody\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink("manifest-target", filepath.Join(root, "SKILL.md")); err != nil {
+	if err := os.WriteFile(filepath.Join(overlay, "scripts", "run.sh"), []byte("echo overlay\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(parent, "source", "demo")
+	if err := os.MkdirAll(filepath.Join(root, "scripts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("../../overlay/demo/SKILL.md", filepath.Join(root, "SKILL.md")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("../../../overlay/demo/scripts/run.sh", filepath.Join(root, "scripts", "run.sh")); err != nil {
 		t.Fatal(err)
 	}
 
 	loaded, err := Load(root)
-	if err == nil {
-		t.Fatal("Load accepted a manifest symlink")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if loaded.Root != root {
-		t.Fatalf("package root = %q, want %q", loaded.Root, root)
+
+	if len(loaded.Manifests) != 1 || loaded.Manifests[0].Document.Name != "demo" {
+		t.Fatalf("manifests = %#v", loaded.Manifests)
 	}
-	diagnostics := ErrorDiagnostics(err)
-	if len(diagnostics) != 1 || diagnostics[0].Code != CodeInvalidSymlink || diagnostics[0].Path != "SKILL.md" {
-		t.Fatalf("diagnostics = %#v", diagnostics)
+	if len(loaded.Files) != 1 || loaded.Files[0].Path != "scripts/run.sh" {
+		t.Fatalf("files = %#v", loaded.Files)
+	}
+}
+
+func TestLoadTraversesDirectorySymlinks(t *testing.T) {
+	t.Parallel()
+	parent := t.TempDir()
+	shared := filepath.Join(parent, "shared")
+	if err := os.MkdirAll(filepath.Join(shared, "nested"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(shared, "nested", "data"), []byte("payload"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(parent, "demo")
+	if err := os.Mkdir(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "SKILL.md"), []byte("---\nname: demo\ndescription: ok\n---\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("../shared", filepath.Join(root, "reference")); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	wantDirectories := []string{"reference", "reference/nested"}
+	if len(loaded.Directories) != len(wantDirectories) || loaded.Directories[0] != wantDirectories[0] || loaded.Directories[1] != wantDirectories[1] {
+		t.Fatalf("directories = %#v, want %#v", loaded.Directories, wantDirectories)
+	}
+	if len(loaded.Files) != 1 || loaded.Files[0].Path != "reference/nested/data" {
+		t.Fatalf("files = %#v", loaded.Files)
+	}
+}
+
+func TestLoadReportsUnresolvableSymlinks(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		build func(*testing.T, string)
+		path  string
+	}{
+		{
+			name: "dangling manifest",
+			build: func(t *testing.T, root string) {
+				t.Helper()
+				if err := os.Symlink("missing", filepath.Join(root, "SKILL.md")); err != nil {
+					t.Fatal(err)
+				}
+			},
+			path: "SKILL.md",
+		},
+		{
+			name: "dangling support file",
+			build: func(t *testing.T, root string) {
+				t.Helper()
+				writeLoadManifest(t, root)
+				if err := os.Symlink("missing", filepath.Join(root, "data")); err != nil {
+					t.Fatal(err)
+				}
+			},
+			path: "data",
+		},
+		{
+			name: "self cycle",
+			build: func(t *testing.T, root string) {
+				t.Helper()
+				writeLoadManifest(t, root)
+				if err := os.Symlink("loop", filepath.Join(root, "loop")); err != nil {
+					t.Fatal(err)
+				}
+			},
+			path: "loop",
+		},
+		{
+			name: "directory cycle",
+			build: func(t *testing.T, root string) {
+				t.Helper()
+				writeLoadManifest(t, root)
+				if err := os.Symlink(".", filepath.Join(root, "loop")); err != nil {
+					t.Fatal(err)
+				}
+			},
+			path: "loop",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			root := filepath.Join(t.TempDir(), "demo")
+			if err := os.Mkdir(root, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			test.build(t, root)
+
+			_, err := Load(root)
+
+			diagnostics := ErrorDiagnostics(err)
+			if len(diagnostics) != 1 || diagnostics[0].Code != CodeUnreadable || diagnostics[0].Path != test.path {
+				t.Fatalf("diagnostics = %#v, want one unreadable at %q", diagnostics, test.path)
+			}
+		})
+	}
+}
+
+func writeLoadManifest(t *testing.T, root string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(root, "SKILL.md"), []byte("---\nname: demo\ndescription: ok\n---\n"), 0o600); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -227,14 +349,9 @@ func TestValidateReadableRegularRejectsFIFOWithoutBlocking(t *testing.T) {
 	if err := syscall.Mkfifo(filepath.Join(rootPath, "support"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	root, err := os.OpenRoot(rootPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = root.Close() })
 	result := make(chan error, 1)
 	go func() {
-		result <- validateReadableRegular(root, "support")
+		result <- validateReadableRegular(filepath.Join(rootPath, "support"))
 	}()
 	select {
 	case err := <-result:

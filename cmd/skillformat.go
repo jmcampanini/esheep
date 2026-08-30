@@ -9,12 +9,13 @@ func newSkillFormatTopic() *cobra.Command {
 		Use:   "skill-format",
 		Short: "Skill directory layout and SKILL.md frontmatter",
 		Long: `Each source is a read-only collection of top-level skill directories: an
-immediate child directory containing a manifest is a skill. Dot-directories,
-node_modules, and symlinked children are skipped. Supporting files are
-validated and rendered as non-executable data; supporting paths must be
-unique under case-insensitive Unicode-normalized comparison, and absolute,
-escaping, cyclic, and directory symlinks are rejected. The root .esheep.toml
-name is reserved for ownership metadata.
+immediate child directory containing a manifest is a skill. Dot-entries and
+node_modules are skipped. Sources are trusted: symlinks anywhere beneath a
+source are followed wherever they resolve, and a link that does not resolve
+is an error. Supporting files are validated and rendered as non-executable
+data, and supporting paths must be unique under case-insensitive
+Unicode-normalized comparison. The root .esheep.toml name is reserved for
+ownership metadata.
 
 Manifests are SKILL.md and profile variants named SKILL.<profile>.md, where
 <profile> is 1-64 characters of lowercase alphanumeric words separated by

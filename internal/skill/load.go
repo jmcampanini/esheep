@@ -6,7 +6,6 @@ import (
 	"io"
 	"io/fs"
 	"os"
-	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -35,106 +34,29 @@ func ParseManifestName(name string) (string, bool, error) {
 	return parts[1], true, nil
 }
 
-// Load reads and validates one recognized skill directory without modifying it.
+// Load reads and validates one recognized skill directory without modifying
+// it. Symlinks are followed wherever they resolve; a link that does not
+// resolve is a diagnostic.
 func Load(root string) (Package, error) {
 	result := Package{Root: root}
-	sourceRoot, openErr := result.captureSourceRoot()
-	if openErr != nil {
-		return result, validationError(CodeUnreadable, ".", openErr)
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return result, validationError(CodeUnreadable, ".", err)
 	}
-	manifests, diagnostics := loadManifests(sourceRoot, filepath.Base(root))
+	manifests, diagnostics := loadManifests(root, entries, filepath.Base(root))
 	result.Manifests = manifests
-	if closeErr := sourceRoot.Close(); closeErr != nil {
-		diagnostics = append(diagnostics, Diagnostic{Code: CodeUnreadable, Path: ".", Err: closeErr})
-	}
-
-	sourceRoot, openErr = result.OpenSourceRoot()
-	if openErr != nil {
-		diagnostics = append(diagnostics, Diagnostic{Code: CodeUnreadable, Path: ".", Err: openErr})
-	} else {
-		directories, files, treeDiagnostics := loadTree(sourceRoot)
-		result.Directories = directories
-		result.Files = files
-		diagnostics = append(diagnostics, treeDiagnostics...)
-		diagnostics = append(diagnostics, ValidateTree(result)...)
-		if closeErr := sourceRoot.Close(); closeErr != nil {
-			diagnostics = append(diagnostics, Diagnostic{Code: CodeUnreadable, Path: ".", Err: closeErr})
-		}
-	}
+	directories, files, treeDiagnostics := loadTree(root, entries)
+	result.Directories = directories
+	result.Files = files
+	diagnostics = append(diagnostics, treeDiagnostics...)
+	diagnostics = append(diagnostics, ValidateTree(result)...)
 	if len(diagnostics) != 0 {
 		return result, &ValidationError{Diagnostics: diagnostics}
 	}
 	return result, nil
 }
 
-// OpenSourceRoot opens the loaded skill through its captured source collection
-// and rejects replacement of either directory.
-func (source Package) OpenSourceRoot() (*os.Root, error) {
-	if source.sourceParentPath == "" || source.sourceName == "" || source.sourceParentInfo == nil || source.sourceInfo == nil {
-		return nil, fmt.Errorf("skill source identity is unavailable")
-	}
-	parentRoot, err := os.OpenRoot(source.sourceParentPath)
-	if err != nil {
-		return nil, err
-	}
-	parentInfo, err := parentRoot.Stat(".")
-	if err != nil {
-		return nil, closeRoot(parentRoot, err)
-	}
-	if !os.SameFile(source.sourceParentInfo, parentInfo) {
-		return nil, closeRoot(parentRoot, fmt.Errorf("skill source parent was replaced"))
-	}
-	skillRoot, err := parentRoot.OpenRoot(source.sourceName)
-	if err != nil {
-		return nil, closeRoot(parentRoot, err)
-	}
-	skillInfo, err := skillRoot.Stat(".")
-	if err != nil {
-		return nil, errors.Join(closeRoot(skillRoot, err), parentRoot.Close())
-	}
-	if !os.SameFile(source.sourceInfo, skillInfo) {
-		return nil, errors.Join(fmt.Errorf("skill source was replaced"), skillRoot.Close(), parentRoot.Close())
-	}
-	if err := parentRoot.Close(); err != nil {
-		return nil, closeRoot(skillRoot, err)
-	}
-	return skillRoot, nil
-}
-
-func (source *Package) captureSourceRoot() (*os.Root, error) {
-	cleanRoot := filepath.Clean(source.Root)
-	source.sourceParentPath = filepath.Dir(cleanRoot)
-	source.sourceName = filepath.Base(cleanRoot)
-	parentRoot, err := os.OpenRoot(source.sourceParentPath)
-	if err != nil {
-		return nil, err
-	}
-	parentInfo, err := parentRoot.Stat(".")
-	if err != nil {
-		return nil, closeRoot(parentRoot, err)
-	}
-	skillRoot, err := parentRoot.OpenRoot(source.sourceName)
-	if err != nil {
-		return nil, closeRoot(parentRoot, err)
-	}
-	skillInfo, err := skillRoot.Stat(".")
-	if err != nil {
-		return nil, errors.Join(closeRoot(skillRoot, err), parentRoot.Close())
-	}
-	if err := parentRoot.Close(); err != nil {
-		return nil, closeRoot(skillRoot, err)
-	}
-	source.sourceParentInfo = parentInfo
-	source.sourceInfo = skillInfo
-	return skillRoot, nil
-}
-
-func loadManifests(root *os.Root, directoryName string) ([]Manifest, []Diagnostic) {
-	entries, err := fs.ReadDir(root.FS(), ".")
-	if err != nil {
-		return nil, []Diagnostic{{Code: CodeUnreadable, Path: ".", Err: err}}
-	}
-
+func loadManifests(root string, entries []os.DirEntry, directoryName string) ([]Manifest, []Diagnostic) {
 	var manifests []Manifest
 	var diagnostics []Diagnostic
 	for _, entry := range entries {
@@ -169,13 +91,8 @@ func loadManifests(root *os.Root, directoryName string) ([]Manifest, []Diagnosti
 	return manifests, diagnostics
 }
 
-func readManifest(root *os.Root, name string) ([]byte, error) {
-	expected, err := preclassifyManifest(root, name)
-	if err != nil {
-		return nil, err
-	}
-
-	manifest, openErr := root.OpenFile(name, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+func readManifest(root, name string) ([]byte, error) {
+	manifest, openErr := os.OpenFile(filepath.Join(root, name), os.O_RDONLY|syscall.O_NONBLOCK, 0)
 	if openErr != nil {
 		return nil, classifyManifestOpenError(root, name, openErr)
 	}
@@ -186,11 +103,6 @@ func readManifest(root *os.Root, name string) ([]byte, error) {
 	if !info.Mode().IsRegular() {
 		return nil, validationError(CodeUnsupportedFile, name, closeFile(manifest, nil))
 	}
-	// Root.OpenFile follows in-root symlinks even with O_NOFOLLOW, so the
-	// identity comparison is what pins the open to the Lstat-classified file.
-	if !os.SameFile(expected, info) {
-		return nil, validationError(CodeUnreadable, name, closeFile(manifest, fmt.Errorf("manifest was replaced")))
-	}
 
 	data, readErr := io.ReadAll(manifest)
 	if err := closeFile(manifest, readErr); err != nil {
@@ -199,107 +111,94 @@ func readManifest(root *os.Root, name string) ([]byte, error) {
 	return data, nil
 }
 
-func preclassifyManifest(root *os.Root, name string) (os.FileInfo, error) {
-	info, err := root.Lstat(name)
-	if err != nil {
-		return nil, validationError(CodeUnreadable, name, err)
+// classifyManifestOpenError distinguishes manifests that resolve to an
+// unopenable special file from manifests that cannot be read at all.
+func classifyManifestOpenError(root, name string, openErr error) error {
+	if info, statErr := os.Stat(filepath.Join(root, name)); statErr == nil && !info.Mode().IsRegular() {
+		return validationError(CodeUnsupportedFile, name, openErr)
 	}
-	if info.Mode()&os.ModeSymlink != 0 {
-		return nil, validationError(CodeInvalidSymlink, name, nil)
-	}
-	if !info.Mode().IsRegular() {
-		return nil, validationError(CodeUnsupportedFile, name, nil)
-	}
-	return info, nil
-}
-
-func classifyManifestOpenError(root *os.Root, name string, openErr error) error {
-	info, statErr := root.Lstat(name)
-	if statErr == nil {
-		if info.Mode()&os.ModeSymlink != 0 {
-			return validationError(CodeInvalidSymlink, name, openErr)
-		}
-		if !info.Mode().IsRegular() {
-			return validationError(CodeUnsupportedFile, name, openErr)
-		}
-	}
-	if errors.Is(openErr, syscall.ELOOP) {
-		return validationError(CodeInvalidSymlink, name, errors.Join(openErr, statErr))
-	}
-	return validationError(CodeUnreadable, name, errors.Join(openErr, statErr))
+	return validationError(CodeUnreadable, name, openErr)
 }
 
 func validationError(code Code, diagnosticPath string, err error) error {
 	return &ValidationError{Diagnostics: []Diagnostic{{Code: code, Path: diagnosticPath, Err: err}}}
 }
 
-func loadTree(root *os.Root) ([]string, []File, []Diagnostic) {
-	var directories []string
-	var files []File
-	var diagnostics []Diagnostic
-	walkErr := fs.WalkDir(root.FS(), ".", func(relative string, entry fs.DirEntry, err error) error {
-		if err != nil {
-			diagnostics = append(diagnostics, Diagnostic{Code: CodeUnreadable, Path: relative, Err: err})
-			if entry != nil && entry.IsDir() {
-				return fs.SkipDir
-			}
-			return nil
-		}
-		if relative == "." {
-			return nil
-		}
-		if !strings.Contains(relative, "/") {
-			if _, manifest, nameErr := ParseManifestName(relative); manifest || nameErr != nil {
-				if entry.IsDir() {
-					return fs.SkipDir
-				}
-				return nil
-			}
-		}
-		if strings.EqualFold(relative, ".esheep.toml") {
-			diagnostics = append(diagnostics, Diagnostic{Code: CodeReservedPath, Path: relative})
-			if entry.IsDir() {
-				return fs.SkipDir
-			}
-			return nil
-		}
-
-		info, infoErr := entry.Info()
-		if infoErr != nil {
-			diagnostics = append(diagnostics, Diagnostic{Code: CodeUnreadable, Path: relative, Err: infoErr})
-			return nil
-		}
-		mode := info.Mode()
-		switch {
-		case mode.IsDir():
-			directories = append(directories, relative)
-		case mode.IsRegular():
-			if readErr := validateReadableRegular(root, relative); readErr != nil {
-				diagnostics = append(diagnostics, Diagnostic{Code: CodeUnreadable, Path: relative, Err: readErr})
-				return nil
-			}
-			files = append(files, File{Path: relative})
-		case mode&os.ModeSymlink != 0:
-			if resolveErr := resolveSupportingLink(root, relative); resolveErr != nil {
-				diagnostics = append(diagnostics, Diagnostic{Code: CodeInvalidSymlink, Path: relative, Err: resolveErr})
-				return nil
-			}
-			files = append(files, File{Path: relative})
-		default:
-			diagnostics = append(diagnostics, Diagnostic{Code: CodeUnsupportedFile, Path: relative})
-		}
-		return nil
-	})
-	if walkErr != nil {
-		diagnostics = append(diagnostics, Diagnostic{Code: CodeUnreadable, Path: ".", Err: walkErr})
+func loadTree(root string, entries []os.DirEntry) ([]string, []File, []Diagnostic) {
+	info, err := os.Stat(root)
+	if err != nil {
+		return nil, nil, []Diagnostic{{Code: CodeUnreadable, Path: ".", Err: err}}
 	}
-	sort.Strings(directories)
-	sort.Slice(files, func(left, right int) bool { return files[left].Path < files[right].Path })
-	return directories, files, diagnostics
+	walker := treeWalker{root: root}
+	walker.walkEntries(".", entries, []os.FileInfo{info})
+	sort.Strings(walker.directories)
+	sort.Slice(walker.files, func(left, right int) bool { return walker.files[left].Path < walker.files[right].Path })
+	return walker.directories, walker.files, walker.diagnostics
 }
 
-func validateReadableRegular(root *os.Root, relative string) error {
-	file, err := root.OpenFile(relative, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+// treeWalker accumulates the supporting tree, following symlinks as if their
+// targets sat in place. A directory that resolves to one of its own ancestors
+// is a cycle.
+type treeWalker struct {
+	diagnostics []Diagnostic
+	directories []string
+	files       []File
+	root        string
+}
+
+func (walker *treeWalker) walkEntries(relative string, entries []os.DirEntry, ancestors []os.FileInfo) {
+	for _, entry := range entries {
+		name := entry.Name()
+		childRelative := relative + "/" + name
+		if relative == "." {
+			childRelative = name
+			if _, manifest, nameErr := ParseManifestName(name); manifest || nameErr != nil {
+				continue
+			}
+			if strings.EqualFold(name, ".esheep.toml") {
+				walker.diagnostics = append(walker.diagnostics, Diagnostic{Code: CodeReservedPath, Path: name})
+				continue
+			}
+		}
+		walker.walkEntry(childRelative, ancestors)
+	}
+}
+
+func (walker *treeWalker) walkEntry(relative string, ancestors []os.FileInfo) {
+	absolute := filepath.Join(walker.root, filepath.FromSlash(relative))
+	info, err := os.Stat(absolute)
+	if err != nil {
+		walker.diagnostics = append(walker.diagnostics, Diagnostic{Code: CodeUnreadable, Path: relative, Err: err})
+		return
+	}
+	switch {
+	case info.IsDir():
+		for _, ancestor := range ancestors {
+			if os.SameFile(ancestor, info) {
+				walker.diagnostics = append(walker.diagnostics, Diagnostic{Code: CodeUnreadable, Path: relative, Err: fmt.Errorf("symlink cycle")})
+				return
+			}
+		}
+		entries, readErr := os.ReadDir(absolute)
+		if readErr != nil {
+			walker.diagnostics = append(walker.diagnostics, Diagnostic{Code: CodeUnreadable, Path: relative, Err: readErr})
+			return
+		}
+		walker.directories = append(walker.directories, relative)
+		walker.walkEntries(relative, entries, append(ancestors, info))
+	case info.Mode().IsRegular():
+		if readErr := validateReadableRegular(absolute); readErr != nil {
+			walker.diagnostics = append(walker.diagnostics, Diagnostic{Code: CodeUnreadable, Path: relative, Err: readErr})
+			return
+		}
+		walker.files = append(walker.files, File{Path: relative})
+	default:
+		walker.diagnostics = append(walker.diagnostics, Diagnostic{Code: CodeUnsupportedFile, Path: relative})
+	}
+}
+
+func validateReadableRegular(absolute string) error {
+	file, err := os.OpenFile(absolute, os.O_RDONLY|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return err
 	}
@@ -314,66 +213,6 @@ func validateReadableRegular(root *os.Root, relative string) error {
 	return closeErr
 }
 
-func resolveSupportingLink(root *os.Root, linkPath string) error {
-	target, err := root.Readlink(linkPath)
-	if err != nil {
-		return err
-	}
-	if path.IsAbs(target) {
-		return fmt.Errorf("absolute target")
-	}
-	return resolveRegular(root, path.Join(path.Dir(linkPath), target), make(map[string]struct{}))
-}
-
-func resolveRegular(root *os.Root, candidate string, seen map[string]struct{}) error {
-	candidate = path.Clean(candidate)
-	if candidate == ".." || strings.HasPrefix(candidate, "../") || path.IsAbs(candidate) {
-		return fmt.Errorf("target escapes skill root")
-	}
-	parts := strings.Split(candidate, "/")
-	cursor := ""
-	for index, part := range parts {
-		cursor = path.Join(cursor, part)
-		info, statErr := root.Lstat(cursor)
-		if statErr != nil {
-			return statErr
-		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			if _, duplicate := seen[cursor]; duplicate {
-				return fmt.Errorf("cyclic target")
-			}
-			seen[cursor] = struct{}{}
-			target, readErr := root.Readlink(cursor)
-			if readErr != nil {
-				return readErr
-			}
-			if path.IsAbs(target) {
-				return fmt.Errorf("absolute target")
-			}
-			remainder := path.Join(parts[index+1:]...)
-			return resolveRegular(root, path.Join(path.Dir(cursor), target, remainder), seen)
-		}
-		if index != len(parts)-1 {
-			if !info.IsDir() {
-				return fmt.Errorf("non-directory path component")
-			}
-			continue
-		}
-		if info.IsDir() {
-			return fmt.Errorf("target is a directory")
-		}
-		if !info.Mode().IsRegular() {
-			return fmt.Errorf("target is not a regular file")
-		}
-		return validateReadableRegular(root, cursor)
-	}
-	return errors.New("empty target")
-}
-
 func closeFile(file *os.File, primary error) error {
 	return errors.Join(primary, file.Close())
-}
-
-func closeRoot(root *os.Root, primary error) error {
-	return errors.Join(primary, root.Close())
 }
