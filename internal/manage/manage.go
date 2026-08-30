@@ -203,6 +203,7 @@ func Status(ctx context.Context, loaded config.LoadResult) StatusReport {
 				Document: selection.Manifest.Document,
 				Identity: install.Identity{Skill: known.Directory, Source: known.Source, Target: target.name},
 				Package:  candidate.Package,
+				Profiles: loaded.EffectiveProfiles,
 				Root:     target.root,
 			})
 			if err != nil {
@@ -291,6 +292,7 @@ func Sync(ctx context.Context, loaded config.LoadResult) SyncReport {
 				Document: selection.Manifest.Document,
 				Identity: install.Identity{Skill: known.Directory, Source: known.Source, Target: target.name},
 				Package:  candidate.Package,
+				Profiles: loaded.EffectiveProfiles,
 				Root:     target.root,
 			})
 			record(&report, result, err)
@@ -458,7 +460,7 @@ func pruneStale(
 			if !entry.selection.Active {
 				return true
 			}
-			disabled, disabledErr := render.Disabled(entry.selection.Manifest.Document, target.name)
+			disabled, disabledErr := render.Disabled(entry.selection.Manifest.Document, target.name, loaded.EffectiveProfiles)
 			return disabledErr == nil && disabled
 		})
 		for _, result := range results {

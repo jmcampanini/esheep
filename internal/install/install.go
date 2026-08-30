@@ -47,11 +47,13 @@ type Identity struct {
 }
 
 // Request contains one target reconciliation request. Document is the
-// manifest selected for the active profiles.
+// manifest selected for the active profiles, and Profiles is the active
+// profile list that gates per-target installation.
 type Request struct {
 	Document skill.Document
 	Identity Identity
 	Package  skill.Package
+	Profiles []string
 	Root     string
 }
 
@@ -137,7 +139,7 @@ func Inspect(ctx context.Context, request Request) (state State, resultErr error
 		return "", err
 	}
 
-	disabled, err := render.Disabled(request.Document, request.Identity.Target)
+	disabled, err := render.Disabled(request.Document, request.Identity.Target, request.Profiles)
 	if err != nil {
 		return "", err
 	}
@@ -204,7 +206,7 @@ func reconcile(ctx context.Context, request Request, fsys filesystem) (result Re
 		return result, err
 	}
 
-	disabled, err := render.Disabled(request.Document, request.Identity.Target)
+	disabled, err := render.Disabled(request.Document, request.Identity.Target, request.Profiles)
 	if err != nil {
 		result.Action = ActionFailed
 		return result, err
@@ -358,7 +360,7 @@ func renderInTransaction(transaction string, request Request) (string, error) {
 	if err := os.Mkdir(staging, 0o700); err != nil {
 		return "", fmt.Errorf("create render staging: %w", err)
 	}
-	rendered, err := render.Render(staging, request.Package, request.Document, request.Identity.Target)
+	rendered, err := render.Render(staging, request.Package, request.Document, request.Identity.Target, request.Profiles)
 	if err != nil {
 		return "", fmt.Errorf("render target skill: %w", err)
 	}

@@ -18,7 +18,7 @@ func TestStatusListsEveryKnownSkillWithoutCreatingDisabledOrMissingTargets(t *te
 	root := t.TempDir()
 	first := filepath.Join(root, "first")
 	second := filepath.Join(root, "second")
-	writeSourceSkill(t, first, "ready", "Ready", "esheep-pi-disabled: true\n")
+	writeSourceSkill(t, first, "ready", "Ready", "esheep-targets: [claude, codex, agents]\n")
 	writeSourceSkill(t, first, "broken", "   ", "")
 	writeSourceSkill(t, first, "same", "First", "")
 	writeSourceSkill(t, second, "same", "Second", "")
@@ -246,7 +246,7 @@ func TestSyncPrunesSkillDisabledForEnabledTarget(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	source := filepath.Join(root, "source")
-	writeSourceSkill(t, source, "demo", "Ready", "esheep-claude-disabled: true\n")
+	writeSourceSkill(t, source, "demo", "Ready", "esheep-targets: [pi, codex, agents]\n")
 	claude := filepath.Join(root, "claude")
 	writeOwnedSkill(t, claude, install.Marker{Source: "source", Skill: "demo", Target: render.TargetClaude})
 	loaded := testConfig(source, "", claude, filepath.Join(root, "pi"), filepath.Join(root, "codex"), filepath.Join(root, "agents"))
@@ -450,7 +450,11 @@ func writeSourceSkill(t *testing.T, source, name, description, extra string) {
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	manifest := "---\nname: " + name + "\ndescription: '" + description + "'\n" + extra + "---\nbody\n"
+	manifest := "---\nname: " + name + "\ndescription: '" + description + "'\n"
+	if !strings.Contains(extra, "esheep-targets:") {
+		manifest += "esheep-targets: [claude, pi, codex, agents]\n"
+	}
+	manifest += extra + "---\nbody\n"
 	if err := os.WriteFile(filepath.Join(root, "SKILL.md"), []byte(manifest), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -462,7 +466,7 @@ func writeVariantManifest(t *testing.T, source, name, profile, description strin
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	manifest := "---\nname: " + name + "\ndescription: '" + description + "'\n---\nbody\n"
+	manifest := "---\nname: " + name + "\ndescription: '" + description + "'\nesheep-targets: [claude, pi, codex, agents]\n---\nbody\n"
 	if err := os.WriteFile(filepath.Join(root, "SKILL."+profile+".md"), []byte(manifest), 0o600); err != nil {
 		t.Fatal(err)
 	}
