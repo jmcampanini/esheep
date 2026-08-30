@@ -3,6 +3,7 @@ package manage
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -110,6 +111,12 @@ func Status(ctx context.Context, loaded config.LoadResult) StatusReport {
 	catalog := buildCatalog(ctx, loaded)
 	report := StatusReport{Diagnostics: catalog.diagnostics, Healthy: catalog.complete}
 	targets := configuredTargets(loaded)
+	blockedTargets, targetDiagnostics := inspectTargets(ctx, targets)
+	report.Diagnostics = append(report.Diagnostics, targetDiagnostics...)
+	if len(blockedTargets) != 0 {
+		report.Healthy = false
+	}
+
 	for index, candidate := range catalog.catalog.Candidates {
 		known := catalog.skills[index]
 		row := SkillStatus{
@@ -131,6 +138,11 @@ func Status(ctx context.Context, loaded config.LoadResult) StatusReport {
 				row.Targets[string(target.name)] = install.StateDisabled
 				continue
 			}
+			if _, blocked := blockedTargets[target.name]; blocked {
+				row.Targets[string(target.name)] = install.StateBlocked
+				continue
+			}
+
 			state, err := install.Inspect(ctx, install.Request{
 				Identity: install.Identity{Skill: known.Directory, Source: known.Source, Target: target.name},
 				Package:  candidate.Package,
@@ -138,7 +150,16 @@ func Status(ctx context.Context, loaded config.LoadResult) StatusReport {
 			})
 			if err != nil {
 				row.Targets[string(target.name)] = install.StateBlocked
-				report.Diagnostics = append(report.Diagnostics, targetDiagnostic("target-inspection", known, target.name, err))
+				var targetRootErr *install.TargetRootError
+				if errors.As(err, &targetRootErr) {
+					diagnostic := Diagnostic{
+						Code: "target-inspection", Message: fmt.Sprintf("%v", err), Path: targetRootErr.Path, Target: string(target.name),
+					}
+					blockedTargets[target.name] = diagnostic
+					report.Diagnostics = append(report.Diagnostics, diagnostic)
+				} else {
+					report.Diagnostics = append(report.Diagnostics, targetDiagnostic("target-inspection", known, target, err))
+				}
 				report.Healthy = false
 				continue
 			}
@@ -157,8 +178,21 @@ func Sync(ctx context.Context, loaded config.LoadResult) SyncReport {
 	catalog := buildCatalog(ctx, loaded)
 	report := SyncReport{Diagnostics: catalog.diagnostics}
 	targets := configuredTargets(loaded)
+	blockedTargets, targetDiagnostics := inspectTargets(ctx, targets)
+	report.Diagnostics = append(report.Diagnostics, targetDiagnostics...)
+	for _, target := range targets {
+		diagnostic, blocked := blockedTargets[target.name]
+		if !blocked {
+			continue
+		}
+		record(&report, install.Result{
+			Action:   install.ActionFailed,
+			Detail:   diagnostic.Message,
+			Identity: install.Identity{Target: target.name},
+		}, nil)
+	}
 
-	pruneStale(ctx, loaded, catalog, targets, &report)
+	pruneStale(ctx, loaded, catalog, targets, blockedTargets, &report)
 	for index, candidate := range catalog.catalog.Candidates {
 		known := catalog.skills[index]
 		if known.Readiness != ReadinessReady {
@@ -179,15 +213,30 @@ func Sync(ctx context.Context, loaded config.LoadResult) SyncReport {
 				}, nil)
 				continue
 			}
+			if _, blocked := blockedTargets[target.name]; blocked {
+				continue
+			}
+
 			result, err := install.Reconcile(ctx, install.Request{
 				Identity: install.Identity{Skill: known.Directory, Source: known.Source, Target: target.name},
 				Package:  candidate.Package,
 				Root:     target.root,
 			})
 			record(&report, result, err)
-			if err != nil {
-				report.Diagnostics = append(report.Diagnostics, targetDiagnostic("synchronization", known, target.name, err))
+			if err == nil {
+				continue
 			}
+
+			var targetRootErr *install.TargetRootError
+			if errors.As(err, &targetRootErr) {
+				diagnostic := Diagnostic{
+					Code: "synchronization", Message: fmt.Sprintf("%v", err), Path: targetRootErr.Path, Target: string(target.name),
+				}
+				blockedTargets[target.name] = diagnostic
+				report.Diagnostics = append(report.Diagnostics, diagnostic)
+				continue
+			}
+			report.Diagnostics = append(report.Diagnostics, targetDiagnostic("synchronization", known, target, err))
 		}
 	}
 	for _, diagnostic := range catalog.catalog.Diagnostics {
@@ -244,7 +293,32 @@ func configuredTargets(loaded config.LoadResult) []targetSpec {
 	}
 }
 
-func pruneStale(ctx context.Context, loaded config.LoadResult, catalog catalogResult, targets []targetSpec, report *SyncReport) {
+func inspectTargets(ctx context.Context, targets []targetSpec) (map[render.Target]Diagnostic, []Diagnostic) {
+	blocked := make(map[render.Target]Diagnostic)
+	var diagnostics []Diagnostic
+	for _, target := range targets {
+		if !target.enabled {
+			continue
+		}
+		if err := install.InspectTarget(ctx, target.root); err != nil {
+			diagnostic := Diagnostic{
+				Code: "target-inspection", Message: fmt.Sprintf("%v", err), Path: target.root, Target: string(target.name),
+			}
+			blocked[target.name] = diagnostic
+			diagnostics = append(diagnostics, diagnostic)
+		}
+	}
+	return blocked, diagnostics
+}
+
+func pruneStale(
+	ctx context.Context,
+	loaded config.LoadResult,
+	catalog catalogResult,
+	targets []targetSpec,
+	blockedTargets map[render.Target]Diagnostic,
+	report *SyncReport,
+) {
 	configured := make(map[string]struct{}, len(loaded.ResolvedSources))
 	for _, source := range loaded.ResolvedSources {
 		configured[source.Name] = struct{}{}
@@ -264,6 +338,10 @@ func pruneStale(ctx context.Context, loaded config.LoadResult, catalog catalogRe
 		if !target.enabled {
 			continue
 		}
+		if _, blocked := blockedTargets[target.name]; blocked {
+			continue
+		}
+
 		results, err := install.Prune(ctx, target.root, target.name, func(marker install.Marker) bool {
 			if _, found := unavailable[marker.Source]; found {
 				return false
@@ -362,9 +440,9 @@ func convertDiagnostic(diagnostic discovery.Diagnostic) Diagnostic {
 	return result
 }
 
-func targetDiagnostic(code string, known KnownSkill, target render.Target, err error) Diagnostic {
+func targetDiagnostic(code string, known KnownSkill, target targetSpec, err error) Diagnostic {
 	return Diagnostic{
-		Code: code, Message: fmt.Sprintf("%v", err), Path: known.Path,
-		Skill: known.Directory, Source: known.Source, Target: string(target),
+		Code: code, Message: fmt.Sprintf("%v", err), Path: filepath.Join(target.root, filepath.FromSlash(known.Directory)),
+		Skill: known.Directory, Source: known.Source, Target: string(target.name),
 	}
 }

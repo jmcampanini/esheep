@@ -117,16 +117,19 @@ func (root *targetRoot) close() error {
 func (root *targetRoot) verifyPath() error {
 	handle, info, exists, err := openVerifiedDirectory(root.path, false)
 	if err != nil {
-		return fmt.Errorf("verify target root: %w", err)
+		return &TargetRootError{Err: fmt.Errorf("verify target root: %w", err), Path: root.path}
 	}
 	if !exists {
-		return fmt.Errorf("verify target root: root is missing")
+		return &TargetRootError{Err: fmt.Errorf("verify target root: root is missing"), Path: root.path}
 	}
 	closeErr := handle.Close()
 	if !os.SameFile(root.info, info) {
-		return errors.Join(fmt.Errorf("verify target root: root was replaced"), closeErr)
+		return &TargetRootError{Err: errors.Join(fmt.Errorf("verify target root: root was replaced"), closeErr), Path: root.path}
 	}
-	return closeErr
+	if closeErr != nil {
+		return &TargetRootError{Err: closeErr, Path: root.path}
+	}
+	return nil
 }
 
 func (root *targetRoot) renameExchange(oldName, newName string) error {
@@ -151,11 +154,11 @@ func (root *targetRoot) verifyEntry(name string, expected os.FileInfo) error {
 func (root *targetRoot) readDir() ([]os.DirEntry, error) {
 	directory, err := root.handle.Open(".")
 	if err != nil {
-		return nil, fmt.Errorf("read target root: %w", err)
+		return nil, &TargetRootError{Err: fmt.Errorf("read target root: %w", err), Path: root.path}
 	}
 	entries, readErr := directory.ReadDir(-1)
 	if err := errors.Join(readErr, directory.Close()); err != nil {
-		return nil, fmt.Errorf("read target root: %w", err)
+		return nil, &TargetRootError{Err: fmt.Errorf("read target root: %w", err), Path: root.path}
 	}
 	sort.Slice(entries, func(left, right int) bool { return entries[left].Name() < entries[right].Name() })
 	return entries, nil

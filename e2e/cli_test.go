@@ -258,9 +258,13 @@ func TestFoundationConfigurationWorkflow(t *testing.T) {
 		t.Fatalf("version stdout = %q", version.stdout)
 	}
 
-	configuration := runEsheep(t, environment, "--claude-enabled=true", "config", "--provenance")
+	configuration := runEsheep(t, environment, "--claude-enabled=false", "config", "--provenance")
 	assertSuccess(t, configuration)
-	if !strings.Contains(configuration.stdout, "# Resolved paths") || !strings.Contains(configuration.stdout, filepath.Join(home, ".claude", "skills")) || !strings.Contains(configuration.stdout, "# Provenance") {
+	if !strings.Contains(configuration.stdout, "[targets.claude]\nenabled = false\n") ||
+		!strings.Contains(configuration.stdout, "# targets.claude.enabled = false (source: <pflag>)") ||
+		!strings.Contains(configuration.stdout, "# Resolved paths") ||
+		!strings.Contains(configuration.stdout, filepath.Join(home, ".claude", "skills")) ||
+		!strings.Contains(configuration.stdout, "# Provenance") {
 		t.Fatalf("config output = %s", configuration.stdout)
 	}
 	missingConfig := runEsheep(t, environment, "--config", filepath.Join(root, "missing.toml"), "config")
