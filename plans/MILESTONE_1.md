@@ -17,14 +17,14 @@ Users control how source directories are created and updated. Esheep treats them
 - `[[sources]]` TOML tables define safe named local directories. HOME/XDG resolution is hermetic; source and enabled-target roots are absolute, disjoint, non-nested, and bounded.
 - `sync` discovers immediate non-symlink child directories containing `SKILL.md`, while skipping dot-directories and `node_modules`; validates recognized skill contents and the declarative skill subset, including support-path uniqueness under case-insensitive Unicode-normalized comparison; rejects command-enabling metadata; detects case-insensitive collisions; renders stable per-target output; copies supporting files as non-executable data; installs atomically; writes source/skill/target ownership markers; and prunes only validly marked stale output on enabled targets.
 - Every target block supports `disabled`. Claude and Pi additionally support `argument-hint`; Codex and agents have no additional metadata. Claude and Pi renders contain common fields plus `argument-hint`, while Codex and shared renders contain common fields only. Root `.esheep.toml` is the only reserved output path.
-- `skills list` reports source and per-target `synced`, `drifted`, `missing`, or `disabled` state.
+- `skills list` inventories every discovered source skill and reports source readiness. `skills status` reports per-target `synced`, `drifted`, `missing`, `disabled`, or `blocked` state and acts as a deployment health check. Both inspection commands support one-document JSON output.
 - `config` emits redirectable effective TOML, resolved paths, and optional provenance. `lint` reports all parser, declarative-subset, symlink, name, and collision violations with the documented exit behavior.
 - Unmarked, mismatched, and symlinked destination directories remain untouched. Disabled targets remain untouched. Failed swaps roll back.
 - README and CLI help document supported platforms, local-source ownership, target ownership, output streams, exit statuses, configuration, and HEAD installation.
 
 ## Required acceptance proof
 
-From a clean temporary environment, an agent runs the exact milestone-wide workflow in root `PLAN.md` against two plain local fixture directories. The workflow uses the built binary and isolated `HOME` and `XDG_CONFIG_HOME`; proves version/configuration and no settings or source mutation; exercises collisions, all render variants, supporting files, markers, unmarked-directory preservation, drift repair, exact pruning, declarative-metadata rejection, lint failures and recovery, optional shared-target installation, and the representative `config → sync → skills list → lint` user flow.
+From a clean temporary environment, an agent runs the exact milestone-wide workflow in root `PLAN.md` against two plain local fixture directories. The workflow uses the built binary and isolated `HOME` and `XDG_CONFIG_HOME`; proves version/configuration and no settings or source mutation; exercises collisions, all render variants, supporting files, markers, unmarked-directory preservation, drift repair, exact pruning, declarative-metadata rejection, lint failures and recovery, optional shared-target installation, and the representative `config → skills list → sync → skills status → lint` user flow.
 
 `make check` must run equivalent durable subprocess coverage from `e2e/`.
 

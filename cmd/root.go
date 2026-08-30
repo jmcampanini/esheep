@@ -1,12 +1,14 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
 	"runtime/debug"
 
 	"github.com/jmcampanini/esheep/internal/config"
+	"github.com/jmcampanini/esheep/internal/manage"
 	"github.com/spf13/cobra"
 )
 
@@ -25,8 +27,15 @@ func effectiveVersion() string {
 
 type configLoader func(config.LoadOptions) (config.LoadResult, error)
 
+type commandOperations struct {
+	list   func(context.Context, config.LoadResult) manage.ListReport
+	status func(context.Context, config.LoadResult) manage.StatusReport
+	sync   func(context.Context, config.LoadResult) manage.SyncReport
+}
+
 type applicationError struct {
-	err error
+	err    error
+	silent bool
 }
 
 func (e applicationError) Error() string {
@@ -44,18 +53,28 @@ func Execute() int {
 
 func execute(root *cobra.Command, args []string) int {
 	root.SetArgs(args)
-	if err := root.Execute(); err != nil {
-		_, _ = fmt.Fprintf(root.ErrOrStderr(), "Error: %v\n", err)
-		var application applicationError
-		if errors.As(err, &application) {
-			return 1
-		}
-		return 2
+	err := root.Execute()
+	if err == nil {
+		return 0
 	}
-	return 0
+
+	exitCode := 2
+	var application applicationError
+	if errors.As(err, &application) {
+		exitCode = 1
+		if application.silent {
+			return exitCode
+		}
+	}
+	_, _ = fmt.Fprintf(root.ErrOrStderr(), "Error: %v\n", err)
+	return exitCode
 }
 
 func newRootCommand(load configLoader) *cobra.Command {
+	return newRootCommandWithOperations(load, commandOperations{list: manage.List, status: manage.Status, sync: manage.Sync})
+}
+
+func newRootCommandWithOperations(load configLoader, operations commandOperations) *cobra.Command {
 	root := &cobra.Command{
 		Use:   "esheep",
 		Short: "Manage local Agent Skills across coding harnesses",
@@ -75,6 +94,8 @@ func newRootCommand(load configLoader) *cobra.Command {
 	root.AddCommand(
 		newCompletionCommand(),
 		newConfigCommand(load),
+		newSkillsCommand(load, operations),
+		newSyncCommand(load, operations.sync),
 	)
 	return root
 }
@@ -92,4 +113,11 @@ func appError(err error) error {
 		return nil
 	}
 	return applicationError{err: err}
+}
+
+func silentAppError(err error) error {
+	if err == nil {
+		return nil
+	}
+	return applicationError{err: err, silent: true}
 }

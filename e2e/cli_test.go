@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -53,6 +54,129 @@ func runTests(m *testing.M) int {
 	}
 	binaryPath = filepath.Join(workDir, "esheep")
 	return m.Run()
+}
+
+func TestSynchronizationLifecycle(t *testing.T) {
+	root := filepath.Join(workDir, "synchronization")
+	home := filepath.Join(root, "home")
+	configHome := filepath.Join(root, "config")
+	personal := filepath.Join(root, "personal")
+	work := filepath.Join(root, "work")
+	claude := filepath.Join(root, "targets", "claude")
+	pi := filepath.Join(root, "targets", "pi")
+	codex := filepath.Join(root, "targets", "codex")
+	agents := filepath.Join(root, "targets", "agents")
+	for _, directory := range []string{home, configHome, personal, work} {
+		if err := os.MkdirAll(directory, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeE2ESkill(t, personal, "alpha", "Alpha skill", "", map[string]string{"data.txt": "alpha data"})
+	writeE2ESkill(t, personal, "local-only", "Local skill", "pi:\n  disabled: true\n", nil)
+	writeE2ESkill(t, work, "beta", "Beta skill", "", nil)
+	settingsPath := filepath.Join(configHome, "esheep", "esheep.toml")
+	writeSyncSettings(t, settingsPath, personal, work, claude, pi, codex, agents, true)
+	environment := map[string]string{"HOME": home, "XDG_CONFIG_HOME": configHome}
+
+	first := runEsheep(t, environment, "sync")
+	assertSuccess(t, first)
+	if !strings.Contains(first.stdout, "installed") || !strings.Contains(first.stdout, "failed=0") {
+		t.Fatalf("initial sync stdout = %s", first.stdout)
+	}
+	for _, target := range []struct {
+		name string
+		path string
+	}{
+		{name: "claude", path: claude},
+		{name: "pi", path: pi},
+		{name: "codex", path: codex},
+	} {
+		for _, identity := range []struct {
+			skill  string
+			source string
+		}{
+			{skill: "alpha", source: "personal"},
+			{skill: "beta", source: "work"},
+		} {
+			assertMarker(t, target.path, target.name, identity.source, identity.skill)
+		}
+	}
+	assertMarker(t, claude, "claude", "personal", "local-only")
+	assertMarker(t, codex, "codex", "personal", "local-only")
+	if _, err := os.Stat(filepath.Join(pi, "local-only")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("Pi received disabled skill: %v", err)
+	}
+	if info, err := os.Stat(filepath.Join(claude, "alpha", "data.txt")); err != nil || info.Mode().Perm() != 0o644 {
+		t.Fatalf("supporting file mode: info=%v err=%v", info, err)
+	}
+	if _, err := os.Stat(agents); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("disabled Agents target was created: %v", err)
+	}
+
+	listed := runEsheep(t, environment, "skills", "list", "--json")
+	assertSuccess(t, listed)
+	var inventory struct {
+		Skills []struct {
+			Directory string `json:"directory"`
+			Source    string `json:"source"`
+		} `json:"skills"`
+	}
+	if err := json.Unmarshal([]byte(listed.stdout), &inventory); err != nil || len(inventory.Skills) != 3 {
+		t.Fatalf("inventory: %v %#v\n%s", err, inventory, listed.stdout)
+	}
+	status := runEsheep(t, environment, "skills", "status", "--json")
+	assertSuccess(t, status)
+	assertStatusHealth(t, status.stdout, true)
+
+	if err := os.WriteFile(filepath.Join(claude, "alpha", "SKILL.md"), []byte("drift"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	drifted := runEsheep(t, environment, "skills", "status", "--json")
+	if drifted.exitCode != 1 || drifted.stderr != "" {
+		t.Fatalf("drifted status = %#v", drifted)
+	}
+	assertStatusHealth(t, drifted.stdout, false)
+	if err := os.Mkdir(filepath.Join(claude, "human-owned"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(claude, "human-owned", "keep"), []byte("human"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(codex, "alpha", "disabled-target-sentinel"), []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(filepath.Join(work, "beta")); err != nil {
+		t.Fatal(err)
+	}
+	writeSyncSettings(t, settingsPath, personal, work, claude, pi, codex, agents, false)
+	sourcesBefore := snapshotTree(t, personal) + snapshotTree(t, work)
+	codexBefore := snapshotTree(t, codex)
+
+	second := runEsheep(t, environment, "sync")
+	assertSuccess(t, second)
+	if !strings.Contains(second.stdout, "repaired") || !strings.Contains(second.stdout, "pruned") {
+		t.Fatalf("second sync stdout = %s", second.stdout)
+	}
+	if got := snapshotTree(t, personal) + snapshotTree(t, work); got != sourcesBefore {
+		t.Fatal("sync modified a source directory")
+	}
+	if got := snapshotTree(t, codex); got != codexBefore {
+		t.Fatal("sync modified the disabled Codex target")
+	}
+	if data, err := os.ReadFile(filepath.Join(claude, "human-owned", "keep")); err != nil || string(data) != "human" {
+		t.Fatalf("human-owned directory changed: %q %v", data, err)
+	}
+	for _, target := range []string{claude, pi} {
+		if _, err := os.Stat(filepath.Join(target, "beta")); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("stale beta remains in %q: %v", target, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(codex, "beta")); err != nil {
+		t.Fatalf("disabled Codex beta was pruned: %v", err)
+	}
+	finalStatus := runEsheep(t, environment, "skills", "status", "--json")
+	assertSuccess(t, finalStatus)
+	assertStatusHealth(t, finalStatus.stdout, true)
 }
 
 func TestFoundationConfigurationWorkflow(t *testing.T) {
@@ -177,6 +301,127 @@ enabled = true
 	if invalid.exitCode != 2 || invalid.stdout != "" {
 		t.Fatalf("invalid operands result = %#v", invalid)
 	}
+}
+
+func writeE2ESkill(t *testing.T, source, name, description, extra string, support map[string]string) {
+	t.Helper()
+	root := filepath.Join(source, name)
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := "---\nname: " + name + "\ndescription: '" + description + "'\n" + extra + "---\n# Body\n"
+	if err := os.WriteFile(filepath.Join(root, "SKILL.md"), []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for relative, contents := range support {
+		path := filepath.Join(root, filepath.FromSlash(relative))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(contents), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func writeSyncSettings(t *testing.T, path, personal, work, claude, pi, codex, agents string, codexEnabled bool) {
+	t.Helper()
+	settings := fmt.Sprintf(`[[sources]]
+name = "personal"
+path = %q
+
+[[sources]]
+name = "work"
+path = %q
+
+[targets.claude]
+enabled = true
+path = %q
+
+[targets.pi]
+enabled = true
+path = %q
+
+[targets.codex]
+enabled = %t
+path = %q
+
+[targets.agents]
+enabled = false
+path = %q
+`, personal, work, claude, pi, codexEnabled, codex, agents)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(settings), 0o640); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func assertMarker(t *testing.T, targetRoot, target, source, skill string) {
+	t.Helper()
+	path := filepath.Join(targetRoot, skill, ".esheep.toml")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var marker struct {
+		Skill  string `toml:"skill"`
+		Source string `toml:"source"`
+		Target string `toml:"target"`
+	}
+	metadata, err := toml.Decode(string(data), &marker)
+	if err != nil {
+		t.Fatalf("decode marker %q: %v", path, err)
+	}
+	if len(metadata.Undecoded()) != 0 || marker.Source != source || marker.Skill != skill || marker.Target != target {
+		t.Fatalf("marker %q = %#v, undecoded=%v", path, marker, metadata.Undecoded())
+	}
+}
+
+func assertStatusHealth(t *testing.T, output string, healthy bool) {
+	t.Helper()
+	var status struct {
+		Healthy bool `json:"healthy"`
+	}
+	if err := json.Unmarshal([]byte(output), &status); err != nil {
+		t.Fatalf("decode status JSON: %v\n%s", err, output)
+	}
+	if status.Healthy != healthy {
+		t.Fatalf("status healthy = %t, want %t\n%s", status.Healthy, healthy, output)
+	}
+}
+
+func snapshotTree(t *testing.T, root string) string {
+	t.Helper()
+	var snapshot strings.Builder
+	err := filepath.WalkDir(root, func(path string, _ os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		relative, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		info, err := os.Lstat(path)
+		if err != nil {
+			return err
+		}
+		_, _ = fmt.Fprintf(&snapshot, "%s %s", filepath.ToSlash(relative), info.Mode())
+		if info.Mode().IsRegular() {
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			_, _ = fmt.Fprintf(&snapshot, " %q", data)
+		}
+		_ = snapshot.WriteByte('\n')
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return snapshot.String()
 }
 
 type processResult struct {

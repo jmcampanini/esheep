@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/jmcampanini/esheep/internal/config"
+	"github.com/jmcampanini/esheep/internal/manage"
 )
 
 func TestMetadataCommandsDoNotLoadConfiguration(t *testing.T) {
@@ -18,6 +19,8 @@ func TestMetadataCommandsDoNotLoadConfiguration(t *testing.T) {
 		{name: "help", args: []string{"--config", "missing.toml", "--help"}, want: "human-maintained local source directories"},
 		{name: "version", args: []string{"--config", "missing.toml", "--version"}, want: "esheep version dev\n"},
 		{name: "completion", args: []string{"--config", "missing.toml", "completion", "bash"}, want: "bash completion"},
+		{name: "skills help", args: []string{"--config", "missing.toml", "skills", "--help"}, want: "deployment status"},
+		{name: "status help", args: []string{"--config", "missing.toml", "skills", "status", "--help"}, want: "deployment health"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -44,7 +47,16 @@ func TestMetadataCommandsDoNotLoadConfiguration(t *testing.T) {
 }
 
 func TestInvalidOperandsDoNotLoadConfiguration(t *testing.T) {
-	for _, args := range [][]string{{"config", "extra"}, {"completion"}, {"completion", "elvish"}, {"completion", "bash", "extra"}} {
+	for _, args := range [][]string{
+		{"config", "extra"},
+		{"completion"},
+		{"completion", "elvish"},
+		{"completion", "bash", "extra"},
+		{"skills", "list", "extra"},
+		{"skills", "status", "extra"},
+		{"sync", "extra"},
+		{"sync", "--json"},
+	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			calls := 0
 			load := func(config.LoadOptions) (config.LoadResult, error) {
@@ -92,9 +104,18 @@ func TestEffectiveVersionUsesInjectedValue(t *testing.T) {
 
 func runCommand(t *testing.T, load configLoader, args ...string) (int, string, string) {
 	t.Helper()
+	return runCommandWithOperations(t, load, commandOperations{
+		list:   manage.List,
+		status: manage.Status,
+		sync:   manage.Sync,
+	}, args...)
+}
+
+func runCommandWithOperations(t *testing.T, load configLoader, operations commandOperations, args ...string) (int, string, string) {
+	t.Helper()
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
-	root := newRootCommand(load)
+	root := newRootCommandWithOperations(load, operations)
 	root.SetOut(&stdout)
 	root.SetErr(&stderr)
 	return execute(root, args), stdout.String(), stderr.String()
