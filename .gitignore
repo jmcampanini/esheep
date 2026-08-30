@@ -1,0 +1,16 @@
+# Agent scratch paths
+/.sandbox/
+.claude/
+.claude-plans/
+.claude-sandbox/
+.codex-*
+
+# Local build artifacts
+/esheep
+/build/
+/dist/
+
+# Coverage output
+/coverage.out
+/coverage.html
+*.coverprofile
