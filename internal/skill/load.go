@@ -11,7 +11,6 @@ import (
 	"sort"
 	"strings"
 	"syscall"
-	"unsafe"
 )
 
 const manifestName = "SKILL.md"
@@ -117,20 +116,14 @@ func (source *Package) captureSourceRoot() (*os.Root, error) {
 }
 
 func readManifest(root *os.Root) ([]byte, error) {
-	if err := preclassifyManifest(root); err != nil {
+	expected, err := preclassifyManifest(root)
+	if err != nil {
 		return nil, err
 	}
-	directory, err := root.Open(".")
-	if err != nil {
-		return nil, validationError(CodeUnreadable, manifestName, err)
-	}
-	manifest, openErr := openManifestAt(directory)
-	directoryCloseErr := directory.Close()
+
+	manifest, openErr := root.OpenFile(manifestName, os.O_RDONLY|syscall.O_NONBLOCK, 0)
 	if openErr != nil {
-		return nil, classifyManifestOpenError(root, errors.Join(openErr, directoryCloseErr))
-	}
-	if directoryCloseErr != nil {
-		return nil, validationError(CodeUnreadable, manifestName, closeFile(manifest, directoryCloseErr))
+		return nil, classifyManifestOpenError(root, openErr)
 	}
 	info, statErr := manifest.Stat()
 	if statErr != nil {
@@ -139,6 +132,12 @@ func readManifest(root *os.Root) ([]byte, error) {
 	if !info.Mode().IsRegular() {
 		return nil, validationError(CodeUnsupportedFile, manifestName, closeFile(manifest, nil))
 	}
+	// Root.OpenFile follows in-root symlinks even with O_NOFOLLOW, so the
+	// identity comparison is what pins the open to the Lstat-classified file.
+	if !os.SameFile(expected, info) {
+		return nil, validationError(CodeUnreadable, manifestName, closeFile(manifest, fmt.Errorf("manifest was replaced")))
+	}
+
 	data, readErr := io.ReadAll(manifest)
 	if err := closeFile(manifest, readErr); err != nil {
 		return nil, validationError(CodeUnreadable, manifestName, err)
@@ -146,38 +145,18 @@ func readManifest(root *os.Root) ([]byte, error) {
 	return data, nil
 }
 
-func openManifestAt(directory *os.File) (*os.File, error) {
-	name, err := syscall.BytePtrFromString(manifestName)
-	if err != nil {
-		return nil, err
-	}
-	fd, _, errno := syscall.Syscall6(
-		sysOpenat,
-		directory.Fd(),
-		uintptr(unsafe.Pointer(name)),
-		uintptr(os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK|syscall.O_CLOEXEC),
-		0,
-		0,
-		0,
-	)
-	if errno != 0 {
-		return nil, errno
-	}
-	return os.NewFile(fd, manifestName), nil
-}
-
-func preclassifyManifest(root *os.Root) error {
+func preclassifyManifest(root *os.Root) (os.FileInfo, error) {
 	info, err := root.Lstat(manifestName)
 	if err != nil {
-		return validationError(CodeUnreadable, manifestName, err)
+		return nil, validationError(CodeUnreadable, manifestName, err)
 	}
 	if info.Mode()&os.ModeSymlink != 0 {
-		return validationError(CodeInvalidSymlink, manifestName, nil)
+		return nil, validationError(CodeInvalidSymlink, manifestName, nil)
 	}
 	if !info.Mode().IsRegular() {
-		return validationError(CodeUnsupportedFile, manifestName, nil)
+		return nil, validationError(CodeUnsupportedFile, manifestName, nil)
 	}
-	return nil
+	return info, nil
 }
 
 func classifyManifestOpenError(root *os.Root, openErr error) error {
