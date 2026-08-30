@@ -56,7 +56,7 @@ func runTests(m *testing.M) int {
 	return m.Run()
 }
 
-func TestSynchronizationLifecycle(t *testing.T) {
+func TestMilestoneWorkflow(t *testing.T) {
 	root := filepath.Join(workDir, "synchronization")
 	home := filepath.Join(root, "home")
 	configHome := filepath.Join(root, "config")
@@ -71,48 +71,59 @@ func TestSynchronizationLifecycle(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	writeE2ESkill(t, personal, "alpha", "Alpha skill", "", map[string]string{"data.txt": "alpha data"})
+	writeE2ESkill(t, personal, "alpha", "Alpha skill", "claude:\n  argument-hint: CLAUDE-ARG\npi:\n  argument-hint: PI-ARG\n", map[string]string{"data.txt": "alpha data"})
 	writeE2ESkill(t, personal, "local-only", "Local skill", "pi:\n  disabled: true\n", nil)
+	writeE2ESkill(t, personal, "same", "Personal collision", "", nil)
+	writeE2ESkill(t, personal, "unsafe", "Unsafe skill", "allowed-tools: Bash\n", nil)
 	writeE2ESkill(t, work, "beta", "Beta skill", "", nil)
+	writeE2ESkill(t, work, "same", "Work collision", "", nil)
 	settingsPath := filepath.Join(configHome, "esheep", "esheep.toml")
 	writeSyncSettings(t, settingsPath, personal, work, claude, pi, codex, agents, true)
 	environment := map[string]string{"HOME": home, "XDG_CONFIG_HOME": configHome}
 
-	first := runEsheep(t, environment, "sync")
-	assertSuccess(t, first)
-	if !strings.Contains(first.stdout, "installed") || !strings.Contains(first.stdout, "failed=0") {
-		t.Fatalf("initial sync stdout = %s", first.stdout)
+	invalidSourcesBefore := snapshotTree(t, personal) + snapshotTree(t, work)
+	invalidInventory := runEsheep(t, environment, "skills", "list", "--json")
+	assertSuccess(t, invalidInventory)
+	var invalidReport struct {
+		Diagnostics []struct {
+			Code    string `json:"code"`
+			Field   string `json:"field"`
+			Message string `json:"message"`
+		} `json:"diagnostics"`
 	}
-	for _, target := range []struct {
-		name string
-		path string
-	}{
-		{name: "claude", path: claude},
-		{name: "pi", path: pi},
-		{name: "codex", path: codex},
-	} {
-		for _, identity := range []struct {
-			skill  string
-			source string
-		}{
-			{skill: "alpha", source: "personal"},
-			{skill: "beta", source: "work"},
-		} {
-			assertMarker(t, target.path, target.name, identity.source, identity.skill)
+	if err := json.Unmarshal([]byte(invalidInventory.stdout), &invalidReport); err != nil {
+		t.Fatalf("decode invalid inventory: %v\n%s", err, invalidInventory.stdout)
+	}
+	var foundCollision, foundUnsupportedField bool
+	for _, diagnostic := range invalidReport.Diagnostics {
+		if diagnostic.Code == "unknown-field" && diagnostic.Field == "allowed-tools" {
+			foundUnsupportedField = true
+		}
+		if diagnostic.Code == "collision" && strings.Contains(diagnostic.Message, "personal/same") && strings.Contains(diagnostic.Message, "work/same") {
+			foundCollision = true
 		}
 	}
-	assertMarker(t, claude, "claude", "personal", "local-only")
-	assertMarker(t, codex, "codex", "personal", "local-only")
-	if _, err := os.Stat(filepath.Join(pi, "local-only")); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("Pi received disabled skill: %v", err)
+	if !foundCollision || !foundUnsupportedField {
+		t.Fatalf("invalid inventory diagnostics = %#v", invalidReport.Diagnostics)
 	}
-	if info, err := os.Stat(filepath.Join(claude, "alpha", "data.txt")); err != nil || info.Mode().Perm() != 0o644 {
-		t.Fatalf("supporting file mode: info=%v err=%v", info, err)
+	failedSync := runEsheep(t, environment, "sync")
+	if failedSync.exitCode != 1 || !strings.Contains(failedSync.stderr, "unknown-field") || !strings.Contains(failedSync.stderr, "collision") {
+		t.Fatalf("invalid sync result = %#v", failedSync)
 	}
-	if _, err := os.Stat(agents); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("disabled Agents target was created: %v", err)
+	if got := snapshotTree(t, personal) + snapshotTree(t, work); got != invalidSourcesBefore {
+		t.Fatal("validation or failed synchronization modified a source directory")
 	}
 
+	for _, path := range []string{filepath.Join(personal, "unsafe"), filepath.Join(work, "same"), claude, pi, codex, agents} {
+		if err := os.RemoveAll(path); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sourcesBefore := snapshotTree(t, personal) + snapshotTree(t, work)
+	settingsBefore := snapshotTree(t, configHome)
+
+	configuration := runEsheep(t, environment, "config")
+	assertSuccess(t, configuration)
 	listed := runEsheep(t, environment, "skills", "list", "--json")
 	assertSuccess(t, listed)
 	var inventory struct {
@@ -121,12 +132,56 @@ func TestSynchronizationLifecycle(t *testing.T) {
 			Source    string `json:"source"`
 		} `json:"skills"`
 	}
-	if err := json.Unmarshal([]byte(listed.stdout), &inventory); err != nil || len(inventory.Skills) != 3 {
+	if err := json.Unmarshal([]byte(listed.stdout), &inventory); err != nil || len(inventory.Skills) != 4 {
 		t.Fatalf("inventory: %v %#v\n%s", err, inventory, listed.stdout)
+	}
+	first := runEsheep(t, environment, "sync")
+	assertSuccess(t, first)
+	if !strings.Contains(first.stdout, "installed") || !strings.Contains(first.stdout, "failed=0") {
+		t.Fatalf("initial sync stdout = %s", first.stdout)
 	}
 	status := runEsheep(t, environment, "skills", "status", "--json")
 	assertSuccess(t, status)
 	assertStatusHealth(t, status.stdout, true)
+	if got := snapshotTree(t, personal) + snapshotTree(t, work); got != sourcesBefore {
+		t.Fatal("representative workflow modified a source directory")
+	}
+	if got := snapshotTree(t, configHome); got != settingsBefore {
+		t.Fatal("representative workflow modified settings")
+	}
+	for _, target := range []struct {
+		name string
+		path string
+	}{
+		{name: "claude", path: claude},
+		{name: "pi", path: pi},
+		{name: "codex", path: codex},
+		{name: "agents", path: agents},
+	} {
+		for _, identity := range []struct {
+			skill  string
+			source string
+		}{
+			{skill: "alpha", source: "personal"},
+			{skill: "beta", source: "work"},
+			{skill: "same", source: "personal"},
+		} {
+			assertMarker(t, target.path, target.name, identity.source, identity.skill)
+		}
+	}
+	assertMarker(t, claude, "claude", "personal", "local-only")
+	assertMarker(t, codex, "codex", "personal", "local-only")
+	assertMarker(t, agents, "agents", "personal", "local-only")
+	if _, err := os.Stat(filepath.Join(pi, "local-only")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("Pi received disabled skill: %v", err)
+	}
+	if info, err := os.Stat(filepath.Join(claude, "alpha", "data.txt")); err != nil || info.Mode().Perm() != 0o644 {
+		t.Fatalf("supporting file mode: info=%v err=%v", info, err)
+	}
+	assertManifestMetadata(t, filepath.Join(claude, "alpha", "SKILL.md"), "argument-hint: CLAUDE-ARG", true)
+	assertManifestMetadata(t, filepath.Join(pi, "alpha", "SKILL.md"), "argument-hint: PI-ARG", true)
+	assertManifestMetadata(t, filepath.Join(codex, "alpha", "SKILL.md"), "argument-hint:", false)
+	assertManifestMetadata(t, filepath.Join(agents, "alpha", "SKILL.md"), "argument-hint:", false)
 
 	if err := os.WriteFile(filepath.Join(claude, "alpha", "SKILL.md"), []byte("drift"), 0o644); err != nil {
 		t.Fatal(err)
@@ -149,7 +204,7 @@ func TestSynchronizationLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeSyncSettings(t, settingsPath, personal, work, claude, pi, codex, agents, false)
-	sourcesBefore := snapshotTree(t, personal) + snapshotTree(t, work)
+	recoverySourcesBefore := snapshotTree(t, personal) + snapshotTree(t, work)
 	codexBefore := snapshotTree(t, codex)
 
 	second := runEsheep(t, environment, "sync")
@@ -157,8 +212,8 @@ func TestSynchronizationLifecycle(t *testing.T) {
 	if !strings.Contains(second.stdout, "repaired") || !strings.Contains(second.stdout, "pruned") {
 		t.Fatalf("second sync stdout = %s", second.stdout)
 	}
-	if got := snapshotTree(t, personal) + snapshotTree(t, work); got != sourcesBefore {
-		t.Fatal("sync modified a source directory")
+	if got := snapshotTree(t, personal) + snapshotTree(t, work); got != recoverySourcesBefore {
+		t.Fatal("recovery sync modified a source directory")
 	}
 	if got := snapshotTree(t, codex); got != codexBefore {
 		t.Fatal("sync modified the disabled Codex target")
@@ -166,7 +221,7 @@ func TestSynchronizationLifecycle(t *testing.T) {
 	if data, err := os.ReadFile(filepath.Join(claude, "human-owned", "keep")); err != nil || string(data) != "human" {
 		t.Fatalf("human-owned directory changed: %q %v", data, err)
 	}
-	for _, target := range []string{claude, pi} {
+	for _, target := range []string{claude, pi, agents} {
 		if _, err := os.Stat(filepath.Join(target, "beta")); !errors.Is(err, os.ErrNotExist) {
 			t.Fatalf("stale beta remains in %q: %v", target, err)
 		}
@@ -347,7 +402,7 @@ enabled = %t
 path = %q
 
 [targets.agents]
-enabled = false
+enabled = true
 path = %q
 `, personal, work, claude, pi, codexEnabled, codex, agents)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -376,6 +431,18 @@ func assertMarker(t *testing.T, targetRoot, target, source, skill string) {
 	}
 	if len(metadata.Undecoded()) != 0 || marker.Source != source || marker.Skill != skill || marker.Target != target {
 		t.Fatalf("marker %q = %#v, undecoded=%v", path, marker, metadata.Undecoded())
+	}
+}
+
+func assertManifestMetadata(t *testing.T, path, metadata string, present bool) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actual := strings.Contains(string(data), metadata)
+	if actual != present {
+		t.Fatalf("manifest %q metadata %q presence = %t, want %t\n%s", path, metadata, actual, present, data)
 	}
 }
 
@@ -408,12 +475,19 @@ func snapshotTree(t *testing.T, root string) string {
 			return err
 		}
 		_, _ = fmt.Fprintf(&snapshot, "%s %s", filepath.ToSlash(relative), info.Mode())
-		if info.Mode().IsRegular() {
+		switch {
+		case info.Mode().IsRegular():
 			data, err := os.ReadFile(path)
 			if err != nil {
 				return err
 			}
 			_, _ = fmt.Fprintf(&snapshot, " %q", data)
+		case info.Mode()&os.ModeSymlink != 0:
+			target, err := os.Readlink(path)
+			if err != nil {
+				return err
+			}
+			_, _ = fmt.Fprintf(&snapshot, " -> %q", target)
 		}
 		_ = snapshot.WriteByte('\n')
 		return nil

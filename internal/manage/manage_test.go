@@ -149,6 +149,11 @@ func TestSyncPrunesSkillDisabledForEnabledTarget(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(claude, "demo")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("target-disabled skill remains: %v", err)
 	}
+	for _, target := range []string{loaded.ResolvedTargets.Pi, loaded.ResolvedTargets.Codex, loaded.ResolvedTargets.Agents} {
+		if _, err := os.Stat(target); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("sync created disabled target %q: %v", target, err)
+		}
+	}
 }
 
 func testConfig(first, second, claude, pi, codex, agents string) config.LoadResult {
