@@ -92,8 +92,9 @@ effective profiles.
 
 Each ready skill is synced, drifted, missing, inactive, disabled, or
 blocked for every target; blocked means a destination or target cannot be
-inspected or managed safely, and inactive means no manifest applies under
-the active profiles. Every enabled target is inspected even when no skills
+inspected or managed safely, inactive means no manifest applies under the
+active profiles, and disabled means target configuration or esheep-targets
+excludes installation. Every enabled target is inspected even when no skills
 are discovered; missing and valid empty targets remain healthy.
 
 Status is a health check: it exits 0 only when every source skill is ready

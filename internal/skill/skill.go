@@ -480,7 +480,7 @@ func parseTargets(node *yaml.Node) (Targets, []Diagnostic) {
 	for _, item := range node.Content {
 		name, gate, entryDiagnostics := parseTargetEntry(item)
 		diagnostics = append(diagnostics, entryDiagnostics...)
-		if name == "" {
+		if name == "" && len(entryDiagnostics) != 0 {
 			continue
 		}
 		options := targets.options(name)
@@ -499,8 +499,8 @@ func parseTargets(node *yaml.Node) (Targets, []Diagnostic) {
 	return targets, diagnostics
 }
 
-// parseTargetEntry decodes one esheep-targets entry. An empty name means the
-// entry shape was invalid and already diagnosed.
+// parseTargetEntry decodes one esheep-targets entry. Invalid entry shapes
+// return a diagnostic.
 func parseTargetEntry(item *yaml.Node) (string, []string, []Diagnostic) {
 	if item.Kind == yaml.ScalarNode && item.Tag == "!!str" {
 		return item.Value, nil, nil

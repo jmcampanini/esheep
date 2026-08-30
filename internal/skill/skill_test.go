@@ -116,6 +116,7 @@ func TestParseRejectsInvalidDeclarativeFormat(t *testing.T) {
 		{name: "targets missing", dir: "demo", yaml: "name: demo\ndescription: ok\n", code: CodeRequiredField},
 		{name: "targets is scalar", dir: "demo", yaml: "name: demo\ndescription: ok\nesheep-targets: claude\n", code: CodeInvalidValue},
 		{name: "targets is empty", dir: "demo", yaml: "name: demo\ndescription: ok\nesheep-targets: []\n", code: CodeInvalidValue},
+		{name: "target name is empty", dir: "demo", yaml: "name: demo\ndescription: ok\nesheep-targets: ['']\n", code: CodeInvalidValue},
 		{name: "targets unknown name", dir: "demo", yaml: "name: demo\ndescription: ok\nesheep-targets: [opencode]\n", code: CodeInvalidValue},
 		{name: "targets item is number", dir: "demo", yaml: "name: demo\ndescription: ok\nesheep-targets: [3]\n", code: CodeInvalidValue},
 		{name: "targets duplicate", dir: "demo", yaml: "name: demo\ndescription: ok\nesheep-targets: [claude, claude]\n", code: CodeInvalidValue},
