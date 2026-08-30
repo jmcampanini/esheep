@@ -47,23 +47,27 @@ func TestMetadataCommandsDoNotLoadConfiguration(t *testing.T) {
 }
 
 func TestInvalidOperandsDoNotLoadConfiguration(t *testing.T) {
-	for _, args := range [][]string{
-		{"config", "extra"},
-		{"completion"},
-		{"completion", "elvish"},
-		{"completion", "bash", "extra"},
-		{"skills", "list", "extra"},
-		{"skills", "status", "extra"},
-		{"sync", "extra"},
-		{"sync", "--json"},
-	} {
-		t.Run(strings.Join(args, " "), func(t *testing.T) {
+	tests := []struct {
+		args []string
+		hint string
+	}{
+		{args: []string{"config", "extra"}, hint: "Run 'esheep config --help' for usage.\n"},
+		{args: []string{"completion"}, hint: "Run 'esheep completion --help' for usage.\n"},
+		{args: []string{"completion", "elvish"}, hint: "Run 'esheep completion --help' for usage.\n"},
+		{args: []string{"completion", "bash", "extra"}, hint: "Run 'esheep completion --help' for usage.\n"},
+		{args: []string{"skills", "list", "extra"}, hint: "Run 'esheep skills list --help' for usage.\n"},
+		{args: []string{"skills", "status", "extra"}, hint: "Run 'esheep skills status --help' for usage.\n"},
+		{args: []string{"sync", "extra"}, hint: "Run 'esheep sync --help' for usage.\n"},
+		{args: []string{"sync", "--json"}, hint: "Run 'esheep sync --help' for usage.\n"},
+	}
+	for _, test := range tests {
+		t.Run(strings.Join(test.args, " "), func(t *testing.T) {
 			calls := 0
 			load := func(config.LoadOptions) (config.LoadResult, error) {
 				calls++
 				return config.LoadResult{}, errors.New("configuration was loaded")
 			}
-			code, stdout, _ := runCommand(t, load, args...)
+			code, stdout, stderr := runCommand(t, load, test.args...)
 			if code != 2 {
 				t.Fatalf("exit code = %d, want 2", code)
 			}
@@ -72,6 +76,9 @@ func TestInvalidOperandsDoNotLoadConfiguration(t *testing.T) {
 			}
 			if calls != 0 {
 				t.Fatalf("configuration loads = %d, want 0", calls)
+			}
+			if !strings.HasPrefix(stderr, "Error: ") || !strings.HasSuffix(stderr, test.hint) {
+				t.Fatalf("stderr = %q, want error followed by %q", stderr, test.hint)
 			}
 		})
 	}
