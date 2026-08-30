@@ -7,16 +7,14 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 
+	"github.com/jmcampanini/esheep/internal/naming"
 	"github.com/jmcampanini/go-config-loader/configloader"
 	"github.com/jmcampanini/go-config-loader/configreporter"
 	"github.com/jmcampanini/go-config-loader/pflagloader"
 	"github.com/spf13/pflag"
-	"golang.org/x/text/cases"
-	"golang.org/x/text/unicode/norm"
 )
 
 const (
@@ -310,26 +308,11 @@ func resolvePaths(cfg Config, home string) ([]ResolvedSource, ResolvedTargets, e
 	return sources, targets, nil
 }
 
-var sourceNamePart = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
-
-// ValidateSourceName validates a configured source identity.
-func ValidateSourceName(name string) error {
-	if name == "" || len(name) > 255 || strings.HasPrefix(name, "/") || strings.HasSuffix(name, "/") || strings.Contains(name, "\\") {
-		return fmt.Errorf("config: invalid source name %q", name)
-	}
-	for _, part := range strings.Split(name, "/") {
-		if part == "." || part == ".." || !sourceNamePart.MatchString(part) {
-			return fmt.Errorf("config: invalid source name %q", name)
-		}
-	}
-	return nil
-}
-
 func resolveSources(configured []Source, home string) ([]ResolvedSource, error) {
 	resolved := make([]ResolvedSource, 0, len(configured))
 	for _, source := range configured {
-		if err := ValidateSourceName(source.Name); err != nil {
-			return nil, err
+		if err := naming.ValidateSourceName(source.Name); err != nil {
+			return nil, fmt.Errorf("config: %w", err)
 		}
 		path, err := resolveManagedPath("source "+strconv.Quote(source.Name), source.Path, home)
 		if err != nil {
@@ -481,8 +464,7 @@ func samePath(left, right string) bool {
 }
 
 func normalizePath(path string) string {
-	cleaned := norm.NFC.String(filepath.Clean(path))
-	return norm.NFC.String(cases.Fold().String(cleaned))
+	return naming.PathKey(filepath.Clean(path))
 }
 
 func sanitizeCommentValue(value string) string {

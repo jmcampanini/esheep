@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/BurntSushi/toml"
-	"github.com/jmcampanini/esheep/internal/config"
+	"github.com/jmcampanini/esheep/internal/naming"
 	"github.com/jmcampanini/esheep/internal/render"
 	"github.com/jmcampanini/esheep/internal/skill"
 )
@@ -34,7 +34,7 @@ func ParseMarker(data []byte) (Marker, error) {
 	if undecoded := metadata.Undecoded(); len(undecoded) != 0 {
 		return Marker{}, fmt.Errorf("parse ownership marker: unknown field %q", undecoded[0].String())
 	}
-	if err := config.ValidateSourceName(decoded.Source); err != nil {
+	if err := naming.ValidateSourceName(decoded.Source); err != nil {
 		return Marker{}, fmt.Errorf("parse ownership marker: %w", err)
 	}
 	if !skill.ValidIdentity(decoded.Skill, decoded.Skill) {
@@ -50,7 +50,7 @@ func ParseMarker(data []byte) (Marker, error) {
 
 // MarshalMarker returns canonical ownership metadata.
 func MarshalMarker(marker Marker) ([]byte, error) {
-	if err := config.ValidateSourceName(marker.Source); err != nil {
+	if err := naming.ValidateSourceName(marker.Source); err != nil {
 		return nil, fmt.Errorf("marshal ownership marker: %w", err)
 	}
 	if !skill.ValidIdentity(marker.Skill, marker.Skill) {

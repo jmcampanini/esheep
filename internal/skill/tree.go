@@ -4,13 +4,12 @@ import (
 	"path"
 	"strings"
 
-	"golang.org/x/text/cases"
-	"golang.org/x/text/unicode/norm"
+	"github.com/jmcampanini/esheep/internal/naming"
 )
 
 // ValidateTree validates package paths using target-filesystem comparison rules.
 func ValidateTree(source Package) []Diagnostic {
-	entries := map[string]bool{canonicalPathKey(manifestName): false}
+	entries := map[string]bool{naming.PathKey(manifestName): false}
 	var diagnostics []Diagnostic
 	for _, directory := range source.Directories {
 		diagnostics = append(diagnostics, validateTreeEntry(entries, directory, true)...)
@@ -25,7 +24,7 @@ func validateTreeEntry(entries map[string]bool, relative string, directory bool)
 	if !validRelativePath(relative) {
 		return []Diagnostic{{Code: CodeUnsupportedFile, Path: relative, Detail: "path is unsafe"}}
 	}
-	key := canonicalPathKey(relative)
+	key := naming.PathKey(relative)
 	if !strings.ContainsRune(key, '/') && key == ".esheep.toml" {
 		return []Diagnostic{{Code: CodeReservedPath, Path: relative}}
 	}
@@ -47,10 +46,6 @@ func validateTreeEntry(entries map[string]bool, relative string, directory bool)
 	}
 	entries[key] = directory
 	return nil
-}
-
-func canonicalPathKey(relative string) string {
-	return norm.NFC.String(cases.Fold().String(norm.NFC.String(relative)))
 }
 
 func validRelativePath(relative string) bool {

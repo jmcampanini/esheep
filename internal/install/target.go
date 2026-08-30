@@ -11,8 +11,7 @@ import (
 	"sort"
 	"strings"
 
-	"golang.org/x/text/cases"
-	"golang.org/x/text/unicode/norm"
+	"github.com/jmcampanini/esheep/internal/naming"
 )
 
 type targetRoot struct {
@@ -170,9 +169,9 @@ func (root *targetRoot) inspect(identity Identity) (destination, error) {
 		return destination{}, err
 	}
 	var matches []os.DirEntry
-	key := pathKey(identity.Skill)
+	key := naming.PathKey(identity.Skill)
 	for _, entry := range entries {
-		if pathKey(entry.Name()) == key {
+		if naming.PathKey(entry.Name()) == key {
 			matches = append(matches, entry)
 		}
 	}
@@ -286,8 +285,4 @@ func (root *targetRoot) createTransaction(prefix string) (string, string, error)
 		return name, filepath.Join(root.path, name), nil
 	}
 	return "", "", fmt.Errorf("create target transaction: unique name unavailable")
-}
-
-func pathKey(value string) string {
-	return norm.NFC.String(cases.Fold().String(norm.NFC.String(value)))
 }
