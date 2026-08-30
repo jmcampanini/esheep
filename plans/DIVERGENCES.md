@@ -1,8 +1,10 @@
 # Temporary divergence intake
 
-The active milestone file and root `PLAN.md` settle Milestone 1 behavior. This
-file is only an intake queue for a temporary contradiction discovered during
-implementation; it is not a parallel specification or decision archive.
+Durable documentation, current code, and tests settle completed behavior. When
+a milestone is active, its milestone file and root `PLAN.md` settle that
+milestone's acceptance and implementation behavior. This file is only an intake
+queue for a temporary contradiction discovered during implementation; it is not
+a parallel specification or decision archive.
 
 ## Protocol
 
@@ -10,8 +12,8 @@ implementation; it is not a parallel specification or decision archive.
    as soon as it is discovered. Assign monotonically increasing IDs and include
    the affected section, temporary behavior or proposed decision, owner, and
    consolidation deadline.
-2. Before that deadline, reconcile the decision into `plans/MILESTONE_1.md` and
-   the relevant durable documentation, align code and tests, and verify the
+2. Before that deadline, reconcile the decision into the active milestone file
+   and relevant durable documentation, align code and tests, and verify the
    result.
 3. Delete the resolved entry during consolidation. Git history preserves the
    temporary discussion; do not retain a closed section.

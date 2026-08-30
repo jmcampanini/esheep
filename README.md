@@ -1,6 +1,6 @@
 # esheep
 
-esheep manages Agent Skills from human-maintained source directories and renders them for Claude Code, Pi, Codex, and the shared Agent Skills directory. It never accesses the network and never creates, updates, or deletes source directories.
+esheep manages Agent Skills from human-maintained source directories and renders them for Claude Code, Pi, Codex, and the shared Agent Skills directory. It never accesses the network, executes source content, or creates, updates, or deletes source directories.
 
 The command surface provides versioning, completion, effective-configuration reporting, source inventory, ownership-safe synchronization, and deployment health inspection.
 
@@ -90,7 +90,34 @@ Source names are case-insensitively unique safe slash-separated identifiers. Sou
 
 Each source is a read-only collection of top-level skill directories. Discovery inspects only immediate non-symlink child directories containing `SKILL.md`; the source root and grouping directories are not skills. Dot-directories and `node_modules` are skipped. Recognized skill contents are traversed to validate supporting files. Supporting paths must be unique under case-insensitive Unicode-normalized comparison, and absolute, escaping, cyclic, and directory symlinks are rejected. A missing, unreadable, or non-directory source makes source-consuming commands fail; help, version, completion, and `config` do not require sources to exist.
 
-Skills use declarative YAML frontmatter and a Markdown body. Command hooks, `allowed-tools`, and policies that grant or broaden execution permissions are rejected. Every `claude`, `pi`, `codex`, or `agents` target block may disable that render. Claude and Pi also support the inert `argument-hint` field; Codex and agents support no additional metadata in Milestone 1.
+Skills use declarative YAML frontmatter and a Markdown body. The common fields are:
+
+- `name`: required, 1–64 characters, lowercase alphanumeric words separated by single hyphens, and equal to the skill directory name;
+- `description`: required and nonempty, at most 1024 characters;
+- `license`: optional string;
+- `compatibility`: optional string, at most 500 characters;
+- `metadata`: optional string-to-string map.
+
+Unknown fields are errors. Command hooks, `allowed-tools`, and policy fields that grant or broaden execution permissions are also errors rather than fields esheep silently removes. The Markdown body after frontmatter is preserved byte-for-byte.
+
+Every optional `claude`, `pi`, `codex`, or `agents` target block accepts `disabled: true`. Claude and Pi also accept the inert `argument-hint` string; Codex and agents accept no other target metadata. Executable hooks and permission policy are invalid in every target block. For example:
+
+```markdown
+---
+name: review-pr
+description: Review a local pull request.
+license: MIT
+compatibility: Requires a Git worktree.
+metadata:
+  owner: engineering
+claude:
+  argument-hint: PR-NUMBER
+pi:
+  disabled: true
+---
+
+Review the requested pull request.
+```
 
 Rendering is deterministic. Claude and Pi receive common fields and `argument-hint` when present; Codex and the shared target receive common fields only. Supporting files are rendered as non-executable data, and root `.esheep.toml` is reserved for ownership metadata.
 
@@ -98,7 +125,7 @@ Rendering is deterministic. Claude and Pi receive common fields and `argument-hi
 
 ## Synchronization and status
 
-`esheep sync` processes unrelated skills after individual failures and prints deterministic action rows followed by a summary. Every managed installation contains a strict marker:
+`esheep sync` processes unrelated skills after individual failures and prints deterministic action rows followed by a summary. Concurrent mutating esheep commands against the same targets are unsupported; serialize `sync` invocations. Every managed installation contains a strict marker:
 
 ```toml
 source = "personal"
