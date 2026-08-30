@@ -10,7 +10,21 @@ func newConfigCommand(load configLoader) *cobra.Command {
 	command := &cobra.Command{
 		Use:   "config",
 		Short: "Print the effective configuration",
-		Args:  cobra.NoArgs,
+		Long: `Print the effective configuration as redirectable TOML on stdout, followed
+by comments showing resolved configuration, source, and target paths.
+--provenance adds the source of each setting.
+
+` + configResolutionHelp + `
+
+Source and target paths must be absolute, exactly '~', or begin with '~/'.
+Source roots must be distinct and non-nested. Enabled target roots must
+also be distinct and non-nested, may not be symlinks, may not overlap a
+source root, and may not be '/' or the home directory.
+
+The command reads but never creates or modifies esheep.toml, works before
+any source directory exists, and fails before any skill or target
+processing when configuration is invalid.`,
+		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			loaded, err := loadConfiguration(command, load)
 			if err != nil {

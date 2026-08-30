@@ -14,7 +14,12 @@ func newSkillsCommand(load configLoader, operations commandOperations) *cobra.Co
 	command := &cobra.Command{
 		Use:   "skills",
 		Short: "Inspect known skills and deployment status",
-		Args:  cobra.NoArgs,
+		Long: `Inspect skills and their deployment status without changing sources or
+targets.
+
+'skills list' inventories configured sources; 'skills status' checks
+per-target deployment health.`,
+		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			return command.Help()
 		},
@@ -31,7 +36,17 @@ func newSkillsListCommand(load configLoader, list func(context.Context, config.L
 	command := &cobra.Command{
 		Use:   "list",
 		Short: "List skills known from configured sources",
-		Args:  cobra.NoArgs,
+		Long: `Inventory every skill discovered in configured sources without changing
+sources or targets.
+
+Readiness is ready, invalid, or collision; validation and collision
+diagnostics do not hide known entries. The command exits nonzero only when
+configuration or filesystem failures prevent complete discovery.
+
+` + streamContractHelp + `
+
+` + jsonContractHelp + ` List JSON includes "complete".`,
+		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			loaded, err := loadConfiguration(command, load)
 			if err != nil {
@@ -68,7 +83,20 @@ func newSkillsStatusCommand(load configLoader, status func(context.Context, conf
 	command := &cobra.Command{
 		Use:   "status",
 		Short: "Report per-target deployment health",
-		Args:  cobra.NoArgs,
+		Long: `Report source readiness and per-target deployment health.
+
+Each ready skill is synced, drifted, missing, disabled, or blocked for
+every target; blocked means a destination or target cannot be inspected or
+managed safely. Every enabled target is inspected even when no skills are
+discovered; missing and valid empty targets remain healthy.
+
+Status is a health check: it exits 0 only when every source skill is ready
+and every target is synced or disabled.
+
+` + streamContractHelp + `
+
+` + jsonContractHelp + ` Status JSON includes "healthy".`,
+		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			loaded, err := loadConfiguration(command, load)
 			if err != nil {

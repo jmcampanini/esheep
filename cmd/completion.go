@@ -8,8 +8,13 @@ import (
 
 func newCompletionCommand() *cobra.Command {
 	return &cobra.Command{
-		Use:       "completion [bash|zsh|fish|powershell]",
-		Short:     "Generate a shell completion script",
+		Use:   "completion [bash|zsh|fish|powershell]",
+		Short: "Generate a shell completion script",
+		Long: `Write a completion script for the named shell to stdout.
+
+For example, 'esheep completion zsh' writes Zsh completion. Load the
+script as your shell's documentation describes. Completion does not load
+configuration.`,
 		Args:      cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
 		ValidArgs: []string{"bash", "zsh", "fish", "powershell"},
 		RunE: func(command *cobra.Command, args []string) error {
