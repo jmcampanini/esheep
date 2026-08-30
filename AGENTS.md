@@ -13,7 +13,6 @@
 - Keep application-specific implementation under `internal/`.
 - Support macOS and Linux only.
 - Treat configured source directories as human-managed, read-only inputs; never access the network or create, update, or delete source directories.
-- When root `PLAN.md` exists for an active milestone, treat it as the implementation authority and keep its settled behavior aligned with the CLI.
 
 ## CLI behavior
 
