@@ -370,6 +370,9 @@ func TestGateAndReferencedProfilesUnionManifestGates(t *testing.T) {
 		{FileName: "SKILL.md", Document: Document{OnlyProfiles: []string{"client"}}},
 		{FileName: "SKILL.work.md", Profile: "work"},
 	}}
+	invalid := Package{Manifests: []Manifest{
+		{FileName: "SKILL.md", Document: Document{OnlyProfiles: []string{"Work", "client"}}},
+	}}
 
 	if gate := universal.Gate(); gate != nil {
 		t.Fatalf("universal Gate() = %v, want nil", gate)
@@ -380,6 +383,9 @@ func TestGateAndReferencedProfilesUnionManifestGates(t *testing.T) {
 	gate := gated.Gate()
 	if len(gate) != 2 || gate[0] != "client" || gate[1] != "work" {
 		t.Fatalf("gated Gate() = %v, want [client work]", gate)
+	}
+	if referenced := invalid.ReferencedProfiles(); len(referenced) != 1 || referenced[0] != "client" {
+		t.Fatalf("invalid ReferencedProfiles() = %v, want [client]", referenced)
 	}
 }
 

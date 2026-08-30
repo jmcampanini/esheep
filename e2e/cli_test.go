@@ -182,7 +182,7 @@ func TestMilestoneWorkflow(t *testing.T) {
 	assertManifestMetadata(t, filepath.Join(pi, "alpha", "SKILL.md"), "argument-hint: SHARED-ARG", true)
 	assertManifestMetadata(t, filepath.Join(codex, "alpha", "SKILL.md"), "argument-hint: SHARED-ARG", true)
 	assertManifestMetadata(t, filepath.Join(agents, "alpha", "SKILL.md"), "argument-hint: SHARED-ARG", true)
-	assertManifestMetadata(t, filepath.Join(claude, "alpha", "SKILL.md"), "esheep-", false)
+	assertManifestMetadata(t, filepath.Join(claude, "local-only", "SKILL.md"), "esheep-pi-disabled", false)
 	assertManifestMetadata(t, filepath.Join(claude, "local-only", "SKILL.md"), "disable-model-invocation: true", true)
 	assertManifestMetadata(t, filepath.Join(claude, "local-only", "SKILL.md"), "allowed-tools: Bash", true)
 	assertManifestMetadata(t, filepath.Join(agents, "local-only", "SKILL.md"), "allowed-tools: Bash", true)
@@ -296,7 +296,6 @@ enabled = false
 		t.Fatalf("inactive gated skill was installed: %v", err)
 	}
 	assertManifestMetadata(t, filepath.Join(claude, "variant", "SKILL.md"), "Base variant", true)
-	assertManifestMetadata(t, filepath.Join(claude, "variant", "SKILL.md"), "esheep-only-profiles", false)
 
 	profilesReport := runEsheep(t, baseEnvironment, "profiles")
 	assertSuccess(t, profilesReport)
@@ -323,12 +322,34 @@ enabled = false
 		t.Fatalf("work-profile sync stdout = %s", withProfiles.stdout)
 	}
 	assertMarker(t, claude, "claude", "skills", "gated")
+	assertManifestMetadata(t, filepath.Join(claude, "gated", "SKILL.md"), "esheep-only-profiles", false)
 	assertManifestMetadata(t, filepath.Join(claude, "variant", "SKILL.md"), "Work variant", true)
 
 	status := runEsheep(t, workEnvironment, "skills", "status")
 	assertSuccess(t, status)
-	if !strings.HasPrefix(status.stdout, "Profiles: work\n") || !strings.Contains(status.stdout, "PROFILES") {
+	if !strings.HasPrefix(status.stdout, "Effective profiles: work\n") || !strings.Contains(status.stdout, "PROFILE GATE") {
 		t.Fatalf("status stdout = %s", status.stdout)
+	}
+	statusJSON := runEsheep(t, workEnvironment, "skills", "status", "--json")
+	assertSuccess(t, statusJSON)
+	var statusDocument struct {
+		EffectiveProfiles []string `json:"effective_profiles"`
+		Skills            []struct {
+			Directory   string   `json:"directory"`
+			ProfileGate []string `json:"profile_gate"`
+		} `json:"skills"`
+	}
+	if err := json.Unmarshal([]byte(statusJSON.stdout), &statusDocument); err != nil {
+		t.Fatalf("decode status JSON: %v\n%s", err, statusJSON.stdout)
+	}
+	var foundGatedProfile bool
+	for _, skill := range statusDocument.Skills {
+		if skill.Directory == "gated" && len(skill.ProfileGate) == 1 && skill.ProfileGate[0] == "work" {
+			foundGatedProfile = true
+		}
+	}
+	if len(statusDocument.EffectiveProfiles) != 1 || statusDocument.EffectiveProfiles[0] != "work" || !foundGatedProfile {
+		t.Fatalf("status document = %#v", statusDocument)
 	}
 	configuration := runEsheep(t, workEnvironment, "config")
 	assertSuccess(t, configuration)

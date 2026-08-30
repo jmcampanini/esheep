@@ -331,6 +331,27 @@ func TestSyncBlocksProfileConflictAndProtectsInstalledOutput(t *testing.T) {
 	}
 }
 
+func TestListTracksWhetherAnyManifestLoaded(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	source := filepath.Join(root, "source")
+	writeSourceSkill(t, source, "everywhere", "Everywhere", "")
+	writeVariantManifest(t, source, "invalid", "base", "Invalid")
+	loaded := testConfig(source, "", filepath.Join(root, "claude"), filepath.Join(root, "pi"), filepath.Join(root, "codex"), filepath.Join(root, "agents"))
+	loaded.ResolvedSources = []config.ResolvedSource{{Name: "source", Path: source}}
+
+	report := List(context.Background(), loaded)
+
+	everywhere := findKnownSkill(t, report, "source", "everywhere")
+	if !everywhere.HasManifest || len(everywhere.ProfileGate) != 0 {
+		t.Fatalf("universal skill = %#v, want loaded manifest and empty gate", everywhere)
+	}
+	invalid := findKnownSkill(t, report, "source", "invalid")
+	if invalid.HasManifest || invalid.Readiness != ReadinessInvalid {
+		t.Fatalf("invalid skill = %#v, want no loaded manifest", invalid)
+	}
+}
+
 func TestStatusReportsInactiveSkillsAsHealthy(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
@@ -349,8 +370,8 @@ func TestStatusReportsInactiveSkillsAsHealthy(t *testing.T) {
 	if status.Readiness != ReadinessReady || status.Targets["claude"] != install.StateInactive {
 		t.Fatalf("status = %#v", status)
 	}
-	if len(status.Profiles) != 1 || status.Profiles[0] != "work" {
-		t.Fatalf("profiles gate = %#v, want [work]", status.Profiles)
+	if len(status.ProfileGate) != 1 || status.ProfileGate[0] != "work" {
+		t.Fatalf("profile gate = %#v, want [work]", status.ProfileGate)
 	}
 }
 
@@ -360,6 +381,7 @@ func TestProfilesUnionsReferencedGates(t *testing.T) {
 	source := filepath.Join(root, "source")
 	writeSourceSkill(t, source, "everywhere", "Everywhere", "")
 	writeSourceSkill(t, source, "gated", "Gated", "esheep-only-profiles: [client]\n")
+	writeSourceSkill(t, source, "invalid", "Invalid", "esheep-only-profiles: [Work]\n")
 	writeSourceSkill(t, source, "variant", "Base", "")
 	writeVariantManifest(t, source, "variant", "work", "Work")
 	loaded := testConfig(source, "", filepath.Join(root, "claude"), filepath.Join(root, "pi"), filepath.Join(root, "codex"), filepath.Join(root, "agents"))
@@ -376,6 +398,9 @@ func TestProfilesUnionsReferencedGates(t *testing.T) {
 	}
 	if len(report.Referenced) != 2 || report.Referenced[0] != "client" || report.Referenced[1] != "work" {
 		t.Fatalf("referenced = %#v, want [client work]", report.Referenced)
+	}
+	if len(report.Diagnostics) != 1 || report.Diagnostics[0].Code != "invalid-profile" {
+		t.Fatalf("diagnostics = %#v, want invalid-profile", report.Diagnostics)
 	}
 }
 
@@ -467,6 +492,17 @@ func writeOwnedSkill(t *testing.T, root string, marker install.Marker) {
 	if err := os.WriteFile(filepath.Join(directory, install.MarkerName), data, 0o644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func findKnownSkill(t *testing.T, report ListReport, source, skill string) KnownSkill {
+	t.Helper()
+	for _, known := range report.Skills {
+		if known.Source == source && known.Directory == skill {
+			return known
+		}
+	}
+	t.Fatalf("skill %s/%s not found in %#v", source, skill, report.Skills)
+	return KnownSkill{}
 }
 
 func findStatus(t *testing.T, report StatusReport, source, skill string) SkillStatus {

@@ -23,8 +23,8 @@ func TestSkillsListReportsAllKnownSkillsWithoutFailingOnValidation(t *testing.T)
 				Path: "/source/broken/SKILL.md", Skill: "broken", Source: "local",
 			}},
 			Skills: []manage.KnownSkill{
-				{Description: "Ready skill", Directory: "ready", Path: "/source/ready", Readiness: manage.ReadinessReady, Source: "local"},
-				{Directory: "broken", Path: "/source/broken", Readiness: manage.ReadinessInvalid, Source: "local"},
+				{Description: "Ready skill", Directory: "ready", HasManifest: true, Path: "/source/ready", Readiness: manage.ReadinessReady, Source: "local"},
+				{Directory: "broken", HasManifest: true, Path: "/source/broken", Readiness: manage.ReadinessInvalid, Source: "local"},
 			},
 		}
 	}
@@ -79,7 +79,7 @@ func TestSkillsStatusIsAHealthCheckInHumanAndJSONModes(t *testing.T) {
 		return manage.StatusReport{
 			Healthy: false,
 			Skills: []manage.SkillStatus{{
-				Directory: "demo", Path: "/source/demo", Readiness: manage.ReadinessReady, Source: "local",
+				Directory: "demo", HasManifest: true, Path: "/source/demo", Readiness: manage.ReadinessReady, Source: "local",
 				Targets: map[string]install.State{
 					"agents": install.StateDisabled,
 					"claude": install.StateSynced,

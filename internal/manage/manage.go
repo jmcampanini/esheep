@@ -39,32 +39,33 @@ type Diagnostic struct {
 	Target  string `json:"target,omitempty"`
 }
 
-// KnownSkill is one discovered source skill. Profiles is the gate limiting
-// when the skill applies; an absent gate means the skill applies under every
-// profile.
+// KnownSkill is one discovered source skill. ProfileGate limits when the skill
+// applies; an absent gate means every profile when HasManifest is true.
 type KnownSkill struct {
 	Description string    `json:"description,omitempty"`
 	Directory   string    `json:"directory"`
+	HasManifest bool      `json:"-"`
 	Path        string    `json:"path"`
-	Profiles    []string  `json:"profiles,omitempty"`
+	ProfileGate []string  `json:"profile_gate,omitempty"`
 	Readiness   Readiness `json:"readiness"`
 	Source      string    `json:"source"`
 }
 
 // ListReport is the complete known-skill inventory.
 type ListReport struct {
-	Complete    bool         `json:"complete"`
-	Diagnostics []Diagnostic `json:"diagnostics"`
-	Profiles    []string     `json:"profiles"`
-	Skills      []KnownSkill `json:"skills"`
+	Complete          bool         `json:"complete"`
+	Diagnostics       []Diagnostic `json:"diagnostics"`
+	EffectiveProfiles []string     `json:"effective_profiles"`
+	Skills            []KnownSkill `json:"skills"`
 }
 
 // SkillStatus contains source readiness and available target states.
 type SkillStatus struct {
 	Description string                   `json:"description,omitempty"`
 	Directory   string                   `json:"directory"`
+	HasManifest bool                     `json:"-"`
 	Path        string                   `json:"path"`
-	Profiles    []string                 `json:"profiles,omitempty"`
+	ProfileGate []string                 `json:"profile_gate,omitempty"`
 	Readiness   Readiness                `json:"readiness"`
 	Source      string                   `json:"source"`
 	Targets     map[string]install.State `json:"targets"`
@@ -72,13 +73,13 @@ type SkillStatus struct {
 
 // StatusReport is a deployment health report for known skills.
 type StatusReport struct {
-	Diagnostics []Diagnostic  `json:"diagnostics"`
-	Healthy     bool          `json:"healthy"`
-	Profiles    []string      `json:"profiles"`
-	Skills      []SkillStatus `json:"skills"`
+	Diagnostics       []Diagnostic  `json:"diagnostics"`
+	EffectiveProfiles []string      `json:"effective_profiles"`
+	Healthy           bool          `json:"healthy"`
+	Skills            []SkillStatus `json:"skills"`
 }
 
-// ProfilesReport describes the effective profile list and every profile
+// ProfilesReport describes the effective profile list and every valid profile
 // referenced by discovered skills.
 type ProfilesReport struct {
 	Complete    bool         `json:"complete"`
@@ -124,15 +125,15 @@ type targetSpec struct {
 func List(ctx context.Context, loaded config.LoadResult) ListReport {
 	catalog := buildCatalog(ctx, loaded)
 	return ListReport{
-		Complete:    catalog.complete,
-		Diagnostics: catalog.diagnostics,
-		Profiles:    loaded.EffectiveProfiles,
-		Skills:      catalog.skills,
+		Complete:          catalog.complete,
+		Diagnostics:       catalog.diagnostics,
+		EffectiveProfiles: loaded.EffectiveProfiles,
+		Skills:            catalog.skills,
 	}
 }
 
-// Profiles reports the effective profile list and every profile referenced by
-// discovered skills.
+// Profiles reports the effective profile list and every valid profile
+// referenced by discovered skills.
 func Profiles(ctx context.Context, loaded config.LoadResult) ProfilesReport {
 	catalog := buildCatalog(ctx, loaded)
 	union := make(map[string]struct{})
@@ -157,7 +158,7 @@ func Profiles(ctx context.Context, loaded config.LoadResult) ProfilesReport {
 // Status inspects source readiness and per-target deployment state.
 func Status(ctx context.Context, loaded config.LoadResult) StatusReport {
 	catalog := buildCatalog(ctx, loaded)
-	report := StatusReport{Diagnostics: catalog.diagnostics, Healthy: catalog.complete, Profiles: loaded.EffectiveProfiles}
+	report := StatusReport{Diagnostics: catalog.diagnostics, EffectiveProfiles: loaded.EffectiveProfiles, Healthy: catalog.complete}
 	targets := configuredTargets(loaded)
 	blockedTargets, targetDiagnostics := inspectTargets(ctx, targets)
 	report.Diagnostics = append(report.Diagnostics, targetDiagnostics...)
@@ -171,8 +172,9 @@ func Status(ctx context.Context, loaded config.LoadResult) StatusReport {
 		row := SkillStatus{
 			Description: known.Description,
 			Directory:   known.Directory,
+			HasManifest: known.HasManifest,
 			Path:        known.Path,
-			Profiles:    known.Profiles,
+			ProfileGate: known.ProfileGate,
 			Readiness:   known.Readiness,
 			Source:      known.Source,
 			Targets:     make(map[string]install.State),
@@ -358,8 +360,9 @@ func buildCatalog(ctx context.Context, loaded config.LoadResult) catalogResult {
 		result.skills = append(result.skills, KnownSkill{
 			Description: describe(candidate, selection),
 			Directory:   candidate.Location.RelativePath,
+			HasManifest: len(candidate.Package.Manifests) != 0,
 			Path:        candidate.Location.Path,
-			Profiles:    candidate.Package.Gate(),
+			ProfileGate: candidate.Package.Gate(),
 			Readiness:   readiness,
 			Source:      candidate.Location.Source,
 		})

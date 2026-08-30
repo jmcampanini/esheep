@@ -144,8 +144,7 @@ type Selection struct {
 // Select resolves which manifest applies under the active profiles. A manifest
 // applies when its gate is empty or names an active profile. Specific beats
 // base: an active profile variant overrides SKILL.md, and two active variants
-// are a conflict. If this proves overcomplicated, default back to
-// overlay-style ordering where the last active layer wins.
+// are a conflict.
 func (source Package) Select(profiles []string) Selection {
 	var base *Manifest
 	var variants []Manifest
@@ -193,14 +192,19 @@ func (source Package) Gate() []string {
 	return sortedProfiles(union)
 }
 
-// ReferencedProfiles returns every profile name any manifest gates on, sorted.
+// ReferencedProfiles returns every valid profile name any manifest gates on,
+// sorted.
 func (source Package) ReferencedProfiles() []string {
 	union := make(map[string]struct{})
 	for _, manifest := range source.Manifests {
 		for _, profile := range manifestGate(manifest) {
+			if naming.ValidateProfileName(profile) != nil {
+				continue
+			}
 			union[profile] = struct{}{}
 		}
 	}
+
 	return sortedProfiles(union)
 }
 

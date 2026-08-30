@@ -33,10 +33,10 @@ func WriteList(writer io.Writer, report manage.ListReport, color bool) error {
 	rows := make([][]string, 0, len(report.Skills))
 	for _, known := range report.Skills {
 		rows = append(rows, []string{
-			clean(known.Source), clean(known.Directory), string(known.Readiness), profilesCell(known.Profiles), clean(known.Description),
+			clean(known.Source), clean(known.Directory), string(known.Readiness), profileGateCell(known.ProfileGate, known.HasManifest), clean(known.Description),
 		})
 	}
-	return writeTable(writer, []string{"SOURCE", "SKILL", "READINESS", "PROFILES", "DESCRIPTION"}, rows, color)
+	return writeTable(writer, []string{"SOURCE", "SKILL", "READINESS", "PROFILE GATE", "DESCRIPTION"}, rows, color)
 }
 
 // WriteListJSON writes one complete known-skill JSON document.
@@ -44,8 +44,8 @@ func WriteListJSON(writer io.Writer, report manage.ListReport) error {
 	if report.Diagnostics == nil {
 		report.Diagnostics = []manage.Diagnostic{}
 	}
-	if report.Profiles == nil {
-		report.Profiles = []string{}
+	if report.EffectiveProfiles == nil {
+		report.EffectiveProfiles = []string{}
 	}
 	if report.Skills == nil {
 		report.Skills = []manage.KnownSkill{}
@@ -56,7 +56,7 @@ func WriteListJSON(writer io.Writer, report manage.ListReport) error {
 // WriteStatus writes a human deployment-status table headed by the effective
 // profile list.
 func WriteStatus(writer io.Writer, report manage.StatusReport, color bool) error {
-	if _, err := fmt.Fprintf(writer, "Profiles: %s\n\n", profilesLine(report.Profiles)); err != nil {
+	if _, err := fmt.Fprintf(writer, "Effective profiles: %s\n\n", profilesLine(report.EffectiveProfiles)); err != nil {
 		return err
 	}
 	rows := make([][]string, 0, len(report.Skills))
@@ -65,14 +65,14 @@ func WriteStatus(writer io.Writer, report manage.StatusReport, color bool) error
 			clean(status.Source),
 			clean(status.Directory),
 			string(status.Readiness),
-			profilesCell(status.Profiles),
+			profileGateCell(status.ProfileGate, status.HasManifest),
 			targetState(status, "claude"),
 			targetState(status, "pi"),
 			targetState(status, "codex"),
 			targetState(status, "agents"),
 		})
 	}
-	return writeTable(writer, []string{"SOURCE", "SKILL", "READINESS", "PROFILES", "CLAUDE", "PI", "CODEX", "AGENTS"}, rows, color)
+	return writeTable(writer, []string{"SOURCE", "SKILL", "READINESS", "PROFILE GATE", "CLAUDE", "PI", "CODEX", "AGENTS"}, rows, color)
 }
 
 // WriteStatusJSON writes one complete deployment-status JSON document.
@@ -80,8 +80,8 @@ func WriteStatusJSON(writer io.Writer, report manage.StatusReport) error {
 	if report.Diagnostics == nil {
 		report.Diagnostics = []manage.Diagnostic{}
 	}
-	if report.Profiles == nil {
-		report.Profiles = []string{}
+	if report.EffectiveProfiles == nil {
+		report.EffectiveProfiles = []string{}
 	}
 	if report.Skills == nil {
 		report.Skills = []manage.SkillStatus{}
@@ -231,7 +231,10 @@ func targetState(status manage.SkillStatus, target string) string {
 	return string(state)
 }
 
-func profilesCell(profiles []string) string {
+func profileGateCell(profiles []string, hasManifest bool) string {
+	if !hasManifest {
+		return "-"
+	}
 	if len(profiles) == 0 {
 		return "all"
 	}
