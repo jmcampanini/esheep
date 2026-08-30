@@ -146,15 +146,17 @@ type Selection struct {
 // base: an active profile variant overrides SKILL.md, and two active variants
 // are a conflict.
 func (source Package) Select(profiles []string) Selection {
-	var base *Manifest
+	var base Manifest
+	var hasBase bool
 	var variants []Manifest
-	for index, manifest := range source.Manifests {
+	for _, manifest := range source.Manifests {
 		gate := manifestGate(manifest)
 		if len(gate) != 0 && !intersects(gate, profiles) {
 			continue
 		}
 		if manifest.Profile == "" {
-			base = &source.Manifests[index]
+			base = manifest
+			hasBase = true
 			continue
 		}
 		variants = append(variants, manifest)
@@ -170,8 +172,8 @@ func (source Package) Select(profiles []string) Selection {
 	if len(variants) == 1 {
 		return Selection{Active: true, Manifest: variants[0]}
 	}
-	if base != nil {
-		return Selection{Active: true, Manifest: *base}
+	if hasBase {
+		return Selection{Active: true, Manifest: base}
 	}
 	return Selection{}
 }
@@ -225,9 +227,6 @@ func manifestGate(manifest Manifest) []string {
 	union := make(map[string]struct{}, len(manifest.Document.OnlyProfiles)+1)
 	if manifest.Profile != "" {
 		union[manifest.Profile] = struct{}{}
-	}
-	if manifest.Profile == "" && len(manifest.Document.OnlyProfiles) == 0 {
-		return nil
 	}
 	for _, profile := range manifest.Document.OnlyProfiles {
 		union[profile] = struct{}{}

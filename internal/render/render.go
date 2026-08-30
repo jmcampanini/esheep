@@ -29,11 +29,18 @@ const (
 
 // Disabled reports whether a manifest disables a target.
 func Disabled(document skill.Document, target Target) (bool, error) {
-	options, err := targetOptions(document.Targets, target)
-	if err != nil {
-		return false, err
+	switch target {
+	case TargetClaude:
+		return document.Targets.Claude.Disabled, nil
+	case TargetPi:
+		return document.Targets.Pi.Disabled, nil
+	case TargetCodex:
+		return document.Targets.Codex.Disabled, nil
+	case TargetAgents:
+		return document.Targets.Agents.Disabled, nil
+	default:
+		return false, fmt.Errorf("render: unsupported target %q", target)
 	}
-	return options.Disabled, nil
 }
 
 // Render writes a skill into an existing empty staging directory using the
@@ -114,21 +121,6 @@ func hasFile(source skill.Package, path string) bool {
 		}
 	}
 	return false
-}
-
-func targetOptions(targets skill.Targets, target Target) (skill.TargetOptions, error) {
-	switch target {
-	case TargetClaude:
-		return targets.Claude, nil
-	case TargetPi:
-		return targets.Pi, nil
-	case TargetCodex:
-		return targets.Codex, nil
-	case TargetAgents:
-		return targets.Agents, nil
-	default:
-		return skill.TargetOptions{}, fmt.Errorf("render: unsupported target %q", target)
-	}
 }
 
 func renderManifest(document skill.Document) ([]byte, error) {
