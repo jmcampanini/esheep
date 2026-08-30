@@ -22,9 +22,6 @@ func TestDiscoverUsesSourceThenLexicalChildOrderWithoutDescending(t *testing.T) 
 	writeSkill(t, filepath.Join(first, "node_modules"), "node_modules", "ignored")
 	writeSkill(t, filepath.Join(second, "b-second-source"), "b-second-source", "valid")
 	writeManifest(t, filepath.Join(first, "SKILL.md"), "root", "root is not a skill")
-	if err := os.Symlink(filepath.Join(first, "a-first"), filepath.Join(first, "directory-link")); err != nil {
-		t.Fatal(err)
-	}
 
 	catalog := Discover([]Source{{Name: "first", Path: first}, {Name: "second", Path: second}})
 	var locations []string
@@ -42,7 +39,14 @@ func TestDiscoverUsesSourceThenLexicalChildOrderWithoutDescending(t *testing.T) 
 
 func TestDiscoverValidatesSupportingFilesAndSymlinks(t *testing.T) {
 	t.Parallel()
-	root := t.TempDir()
+	parent := t.TempDir()
+	root := filepath.Join(parent, "source")
+	if err := os.Mkdir(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(parent, "outside.txt"), []byte("outside"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	valid := filepath.Join(root, "valid")
 	writeSkill(t, valid, "valid", "valid")
 	if err := os.WriteFile(filepath.Join(valid, "data.txt"), []byte("payload"), 0o600); err != nil {
@@ -54,16 +58,20 @@ func TestDiscoverValidatesSupportingFilesAndSymlinks(t *testing.T) {
 	if err := os.Symlink("copy.txt", filepath.Join(valid, "chain.txt")); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.Symlink("../../outside.txt", filepath.Join(valid, "escape.txt")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(parent, "outside.txt"), filepath.Join(valid, "absolute.txt")); err != nil {
+		t.Fatal(err)
+	}
 
 	invalid := filepath.Join(root, "invalid")
 	writeSkill(t, invalid, "invalid", "invalid")
 	links := map[string]string{
-		"absolute":       filepath.Join(root, "valid", "data.txt"),
-		"broken":         "missing",
-		"directory-link": ".",
-		"escape":         "../../outside",
-		"cycle-a":        "cycle-b",
-		"cycle-b":        "cycle-a",
+		"broken":      "missing",
+		"cycle-a":     "cycle-b",
+		"cycle-b":     "cycle-a",
+		"self-parent": ".",
 	}
 	for name, target := range links {
 		if err := os.Symlink(target, filepath.Join(invalid, name)); err != nil {
@@ -93,23 +101,69 @@ func TestDiscoverValidatesSupportingFilesAndSymlinks(t *testing.T) {
 	if validCandidate.Package.Root != valid {
 		t.Fatalf("package root = %q, want %q", validCandidate.Package.Root, valid)
 	}
-	for _, path := range []string{"data.txt", "copy.txt", "chain.txt"} {
+	for _, path := range []string{"data.txt", "copy.txt", "chain.txt", "escape.txt", "absolute.txt"} {
 		if !hasSupportingPath(validCandidate.Package.Files, path) {
 			t.Fatalf("support path %q missing from %#v", path, validCandidate.Package.Files)
 		}
 	}
-	if invalidCandidate.Valid() || countSkillCode(invalidCandidate.Diagnostics, skill.CodeInvalidSymlink) != len(links) {
+	if invalidCandidate.Valid() || countSkillCode(invalidCandidate.Diagnostics, skill.CodeUnreadable) != len(links) {
 		t.Fatalf("invalid candidate diagnostics = %#v", invalidCandidate.Diagnostics)
 	}
 	if countSkillCode(invalidCandidate.Diagnostics, skill.CodeUnsupportedFile) != 1 {
 		t.Fatalf("special-file diagnostics = %#v", invalidCandidate.Diagnostics)
 	}
 	for _, diagnostic := range catalog.Diagnostics {
-		if diagnostic.SkillCode == skill.CodeInvalidSymlink && diagnostic.Path == "escape" {
+		if diagnostic.SkillCode == skill.CodeUnreadable && diagnostic.Path == "broken" {
 			return
 		}
 	}
 	t.Fatal("discovery did not preserve supporting-file diagnostic path")
+}
+
+func TestDiscoverFollowsSymlinkedSkillDirectories(t *testing.T) {
+	t.Parallel()
+	parent := t.TempDir()
+	overlay := filepath.Join(parent, "overlay")
+	writeSkill(t, filepath.Join(overlay, "linked"), "linked", "overlay skill")
+	root := filepath.Join(parent, "source")
+	if err := os.Mkdir(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join("..", "overlay", "linked"), filepath.Join(root, "linked")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join("..", "overlay", "missing"), filepath.Join(root, "dangling")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(parent, "note.md"), []byte("not a skill"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join("..", "note.md"), filepath.Join(root, "note.md")); err != nil {
+		t.Fatal(err)
+	}
+
+	catalog := Discover([]Source{{Name: "source", Path: root}})
+
+	if len(catalog.Candidates) != 2 {
+		t.Fatalf("candidates = %#v, want linked and dangling", catalog.Candidates)
+	}
+	var linkedCandidate, danglingCandidate Candidate
+	for _, candidate := range catalog.Candidates {
+		switch candidate.Location.RelativePath {
+		case "linked":
+			linkedCandidate = candidate
+		case "dangling":
+			danglingCandidate = candidate
+		default:
+			t.Fatalf("unexpected candidate %q", candidate.Location.RelativePath)
+		}
+	}
+	if !linkedCandidate.Valid() || linkedCandidate.Package.Manifests[0].Document.Name != "linked" {
+		t.Fatalf("linked candidate = %#v", linkedCandidate)
+	}
+	if danglingCandidate.Valid() || countSkillCode(danglingCandidate.Diagnostics, skill.CodeUnreadable) == 0 {
+		t.Fatalf("dangling candidate diagnostics = %#v", danglingCandidate.Diagnostics)
+	}
 }
 
 func TestDiscoverRejectsCaseCollidingSupportPathsWhenFilesystemRepresentsThem(t *testing.T) {
@@ -221,7 +275,7 @@ func TestDiscoverReportsPresentInvalidManifests(t *testing.T) {
 	want := map[string]skill.Code{
 		"directory-manifest": skill.CodeUnsupportedFile,
 		"fifo-manifest":      skill.CodeUnsupportedFile,
-		"symlink-manifest":   skill.CodeInvalidSymlink,
+		"symlink-manifest":   skill.CodeUnreadable,
 	}
 	if os.Geteuid() != 0 {
 		unreadableManifest := filepath.Join(root, "unreadable-manifest")

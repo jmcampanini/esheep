@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"os"
 	"regexp"
 	"sort"
 	"strings"
@@ -39,7 +38,6 @@ const (
 	CodeReservedPath    Code = "reserved-path"
 	CodePathCollision   Code = "path-collision"
 	CodeUnsupportedFile Code = "unsupported-file"
-	CodeInvalidSymlink  Code = "invalid-symlink"
 	CodeUnreadable      Code = "unreadable"
 )
 
@@ -154,14 +152,10 @@ type Manifest struct {
 
 // Package is a validated skill tree ready for rendering.
 type Package struct {
-	Root             string
-	Manifests        []Manifest
-	Directories      []string
-	Files            []File
-	sourceParentPath string
-	sourceName       string
-	sourceParentInfo os.FileInfo
-	sourceInfo       os.FileInfo
+	Root        string
+	Manifests   []Manifest
+	Directories []string
+	Files       []File
 }
 
 // Selection describes which manifest applies under the active profiles.

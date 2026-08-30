@@ -380,6 +380,92 @@ enabled = false
 	assertStatusHealth(t, finalStatus.stdout, true)
 }
 
+func TestCubbyOverlayWorkflow(t *testing.T) {
+	root := filepath.Join(workDir, "cubby")
+	home := filepath.Join(root, "home")
+	configHome := filepath.Join(root, "config")
+	overlay := filepath.Join(root, "overlay")
+	skills := filepath.Join(root, "skills")
+	claude := filepath.Join(root, "targets", "claude")
+	for _, directory := range []string{home, configHome, skills} {
+		if err := os.MkdirAll(directory, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeE2ESkill(t, overlay, "layered", "Layered skill", "", map[string]string{"scripts/run.sh": "echo layered\n"})
+	writeE2ESkill(t, overlay, "whole", "Whole skill", "", nil)
+	layered := filepath.Join(skills, "layered")
+	if err := os.MkdirAll(filepath.Join(layered, "scripts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("../../overlay/layered/SKILL.md", filepath.Join(layered, "SKILL.md")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("../../../overlay/layered/scripts/run.sh", filepath.Join(layered, "scripts", "run.sh")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("../overlay/whole", filepath.Join(skills, "whole")); err != nil {
+		t.Fatal(err)
+	}
+	settingsPath := filepath.Join(configHome, "esheep", "esheep.toml")
+	settings := fmt.Sprintf(`[[sources]]
+name = "skills"
+path = %q
+
+[targets.claude]
+enabled = true
+path = %q
+
+[targets.pi]
+enabled = false
+
+[targets.codex]
+enabled = false
+
+[targets.agents]
+enabled = false
+`, skills, claude)
+	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(settingsPath, []byte(settings), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	environment := map[string]string{"HOME": home, "XDG_CONFIG_HOME": configHome}
+	sourcesBefore := snapshotTree(t, skills)
+
+	synced := runEsheep(t, environment, "sync")
+	assertSuccess(t, synced)
+	if !strings.Contains(synced.stdout, "installed=2") || !strings.Contains(synced.stdout, "failed=0") {
+		t.Fatalf("cubby sync stdout = %s", synced.stdout)
+	}
+	if got := snapshotTree(t, skills); got != sourcesBefore {
+		t.Fatal("cubby sync modified the source directory")
+	}
+	assertMarker(t, claude, "claude", "skills", "layered")
+	assertMarker(t, claude, "claude", "skills", "whole")
+	assertManifestMetadata(t, filepath.Join(claude, "layered", "SKILL.md"), "Layered skill", true)
+	assertManifestMetadata(t, filepath.Join(claude, "whole", "SKILL.md"), "Whole skill", true)
+	script := filepath.Join(claude, "layered", "scripts", "run.sh")
+	info, err := os.Lstat(script)
+	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0o644 {
+		t.Fatalf("installed script info = %v, %v", info, err)
+	}
+	data, err := os.ReadFile(script)
+	if err != nil || string(data) != "echo layered\n" {
+		t.Fatalf("installed script = %q, %v", data, err)
+	}
+
+	if err := os.RemoveAll(filepath.Join(overlay, "layered")); err != nil {
+		t.Fatal(err)
+	}
+	broken := runEsheep(t, environment, "sync")
+	if broken.exitCode != 1 || !strings.Contains(broken.stderr, "unreadable") {
+		t.Fatalf("broken-link sync result = %#v", broken)
+	}
+	assertManifestMetadata(t, filepath.Join(claude, "layered", "SKILL.md"), "Layered skill", true)
+}
+
 func TestFoundationConfigurationWorkflow(t *testing.T) {
 	root := filepath.Join(workDir, "foundation")
 	home := filepath.Join(root, "home")
