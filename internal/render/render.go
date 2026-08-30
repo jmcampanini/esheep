@@ -79,15 +79,7 @@ const codexPolicyPath = "agents/openai.yaml"
 
 const codexPolicyManifest = "policy:\n  allow_implicit_invocation: false\n"
 
-func renderTree(staging string, source skill.Package, document skill.Document, manifest []byte, target Target) (renderErr error) {
-	sourceRoot, err := source.OpenSourceRoot()
-	if err != nil {
-		return fmt.Errorf("render source: %w", err)
-	}
-	defer func() {
-		renderErr = errors.Join(renderErr, sourceRoot.Close())
-	}()
-
+func renderTree(staging string, source skill.Package, document skill.Document, manifest []byte, target Target) error {
 	if err := os.Chmod(staging, 0o755); err != nil {
 		return err
 	}
@@ -100,7 +92,7 @@ func renderTree(staging string, source skill.Package, document skill.Document, m
 		return err
 	}
 	for _, file := range source.Files {
-		if err := copySupportFile(sourceRoot, staging, file.Path); err != nil {
+		if err := copySupportFile(source.Root, staging, file.Path); err != nil {
 			return err
 		}
 	}
@@ -212,8 +204,8 @@ func makeDirectory(staging, relative string) error {
 	return os.Chmod(destination, 0o755)
 }
 
-func copySupportFile(sourceRoot *os.Root, staging, relative string) error {
-	source, err := sourceRoot.OpenFile(relative, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+func copySupportFile(root, staging, relative string) error {
+	source, err := os.OpenFile(filepath.Join(root, filepath.FromSlash(relative)), os.O_RDONLY|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return fmt.Errorf("render source %q: %w", relative, err)
 	}
