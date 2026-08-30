@@ -101,7 +101,7 @@ func Inspect(ctx context.Context, request Request) (state State, resultErr error
 	if err != nil || destination.state != StateSynced {
 		return destination.state, err
 	}
-	staging, cleanup, err := renderExpected("", request)
+	staging, cleanup, err := renderExpected(request)
 	if err != nil {
 		return "", err
 	}
@@ -260,8 +260,8 @@ func validateRequest(request Request) error {
 	return nil
 }
 
-func renderExpected(parent string, request Request) (string, func() error, error) {
-	transaction, err := os.MkdirTemp(parent, ".esheep-inspect-")
+func renderExpected(request Request) (string, func() error, error) {
+	transaction, err := os.MkdirTemp("", ".esheep-inspect-")
 	if err != nil {
 		return "", nil, fmt.Errorf("create inspection staging: %w", err)
 	}

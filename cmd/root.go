@@ -53,18 +53,21 @@ func Execute() int {
 
 func execute(root *cobra.Command, args []string) int {
 	root.SetArgs(args)
-	if err := root.Execute(); err != nil {
-		var application applicationError
-		if errors.As(err, &application) {
-			if !application.silent {
-				_, _ = fmt.Fprintf(root.ErrOrStderr(), "Error: %v\n", err)
-			}
-			return 1
-		}
-		_, _ = fmt.Fprintf(root.ErrOrStderr(), "Error: %v\n", err)
-		return 2
+	err := root.Execute()
+	if err == nil {
+		return 0
 	}
-	return 0
+
+	exitCode := 2
+	var application applicationError
+	if errors.As(err, &application) {
+		exitCode = 1
+		if application.silent {
+			return exitCode
+		}
+	}
+	_, _ = fmt.Fprintf(root.ErrOrStderr(), "Error: %v\n", err)
+	return exitCode
 }
 
 func newRootCommand(load configLoader) *cobra.Command {
