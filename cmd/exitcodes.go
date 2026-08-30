@@ -15,7 +15,7 @@ func newExitCodesTopic() *cobra.Command {
      output prevented a valid command from succeeding. 'sync' exits 1 when
      its final report contains failures after unrelated work is attempted.
      'skills status' exits 1 whenever deployment health is not proven.
-     'skills list' exits 1 only when discovery is incomplete.
+     'skills list' and 'profiles' exit 1 only when discovery is incomplete.
   2  Invalid command usage or command wiring failure.
 
 JSON modes report an unsuccessful result inside the emitted document and

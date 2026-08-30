@@ -309,6 +309,93 @@ func TestUnknownTOMLKeyFails(t *testing.T) {
 	}
 }
 
+func TestProfilesResolveWithPrecedenceEnvProfilesAndDedupe(t *testing.T) {
+	env := testEnv(filepath.Join(t.TempDir(), "home"), filepath.Join(t.TempDir(), "config"))
+	env["MACHINE_PROFILES"] = " client ,alpha,"
+	path := filepath.Join(t.TempDir(), "esheep.toml")
+	if err := os.WriteFile(path, []byte("profiles = [\"file-profile\"]\nenv_profiles = [\"MACHINE_PROFILES\", \"UNSET_PROFILES\"]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	flags := pflag.NewFlagSet("test", pflag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	if err := RegisterFlags(flags); err != nil {
+		t.Fatal(err)
+	}
+	if err := flags.Parse([]string{"--profiles=alpha,beta", "--profile", "gamma"}); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := Load(LoadOptions{Env: env, ConfigPath: path, Flags: flags})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := []string{"alpha", "beta", "gamma", "client"}
+	if !reflect.DeepEqual(result.EffectiveProfiles, want) {
+		t.Fatalf("EffectiveProfiles = %#v, want %#v", result.EffectiveProfiles, want)
+	}
+}
+
+func TestProfilesLoadFromEnvironmentVariable(t *testing.T) {
+	env := testEnv(filepath.Join(t.TempDir(), "home"), filepath.Join(t.TempDir(), "config"))
+	env["ESHEEP_PROFILES"] = "work,client"
+
+	result, err := Load(LoadOptions{Env: env})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := []string{"work", "client"}
+	if !reflect.DeepEqual(result.EffectiveProfiles, want) {
+		t.Fatalf("EffectiveProfiles = %#v, want %#v", result.EffectiveProfiles, want)
+	}
+}
+
+func TestProfilesRejectInvalidAndReservedNames(t *testing.T) {
+	tests := []struct {
+		name string
+		toml string
+		env  map[string]string
+	}{
+		{name: "reserved profile", toml: "profiles = [\"base\"]\n"},
+		{name: "invalid grammar", toml: "profiles = [\"Work\"]\n"},
+		{name: "padded env_profiles entry", toml: "env_profiles = [\" MACHINE\"]\n"},
+		{name: "blank env_profiles entry", toml: "env_profiles = [\"\"]\n"},
+		{name: "invalid appended profile", toml: "env_profiles = [\"MACHINE\"]\n", env: map[string]string{"MACHINE": "no.dots"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			env := testEnv(filepath.Join(t.TempDir(), "home"), filepath.Join(t.TempDir(), "config"))
+			for key, value := range test.env {
+				env[key] = value
+			}
+			path := filepath.Join(t.TempDir(), "esheep.toml")
+			if err := os.WriteFile(path, []byte(test.toml), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Load(LoadOptions{Env: env, ConfigPath: path}); err == nil {
+				t.Fatal("Load accepted an invalid profile configuration")
+			}
+		})
+	}
+}
+
+func TestRenderReportsEffectiveProfiles(t *testing.T) {
+	env := testEnv(filepath.Join(t.TempDir(), "home"), filepath.Join(t.TempDir(), "config"))
+	env["ESHEEP_PROFILES"] = "work"
+	result, err := Load(LoadOptions{Env: env})
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, err := Render(result, ReportOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(output), "# effective_profiles = [\"work\"]") {
+		t.Fatalf("report = %s", output)
+	}
+}
+
 func TestRenderedConfigRoundTripsThroughExplicitLoading(t *testing.T) {
 	env := testEnv(filepath.Join(t.TempDir(), "home"), filepath.Join(t.TempDir(), "config"))
 	result, err := Load(LoadOptions{Env: env})

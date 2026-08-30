@@ -71,8 +71,8 @@ func TestMilestoneWorkflow(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	writeE2ESkill(t, personal, "alpha", "Alpha skill", "claude:\n  argument-hint: CLAUDE-ARG\npi:\n  argument-hint: PI-ARG\n", map[string]string{"data.txt": "alpha data"})
-	writeE2ESkill(t, personal, "local-only", "Local skill", "disable-model-invocation: true\nallowed-tools: Bash\npi:\n  disabled: true\n", nil)
+	writeE2ESkill(t, personal, "alpha", "Alpha skill", "argument-hint: SHARED-ARG\n", map[string]string{"data.txt": "alpha data"})
+	writeE2ESkill(t, personal, "local-only", "Local skill", "disable-model-invocation: true\nallowed-tools: Bash\nesheep-pi-disabled: true\n", nil)
 	writeE2ESkill(t, personal, "same", "Personal collision", "", nil)
 	writeE2ESkill(t, personal, "unsafe", "Unsafe skill", "metadata: no\n", nil)
 	writeE2ESkill(t, work, "beta", "Beta skill", "", nil)
@@ -178,10 +178,11 @@ func TestMilestoneWorkflow(t *testing.T) {
 	if info, err := os.Stat(filepath.Join(claude, "alpha", "data.txt")); err != nil || info.Mode().Perm() != 0o644 {
 		t.Fatalf("supporting file mode: info=%v err=%v", info, err)
 	}
-	assertManifestMetadata(t, filepath.Join(claude, "alpha", "SKILL.md"), "argument-hint: CLAUDE-ARG", true)
-	assertManifestMetadata(t, filepath.Join(pi, "alpha", "SKILL.md"), "argument-hint: PI-ARG", true)
-	assertManifestMetadata(t, filepath.Join(codex, "alpha", "SKILL.md"), "argument-hint:", false)
-	assertManifestMetadata(t, filepath.Join(agents, "alpha", "SKILL.md"), "argument-hint:", false)
+	assertManifestMetadata(t, filepath.Join(claude, "alpha", "SKILL.md"), "argument-hint: SHARED-ARG", true)
+	assertManifestMetadata(t, filepath.Join(pi, "alpha", "SKILL.md"), "argument-hint: SHARED-ARG", true)
+	assertManifestMetadata(t, filepath.Join(codex, "alpha", "SKILL.md"), "argument-hint: SHARED-ARG", true)
+	assertManifestMetadata(t, filepath.Join(agents, "alpha", "SKILL.md"), "argument-hint: SHARED-ARG", true)
+	assertManifestMetadata(t, filepath.Join(claude, "alpha", "SKILL.md"), "esheep-", false)
 	assertManifestMetadata(t, filepath.Join(claude, "local-only", "SKILL.md"), "disable-model-invocation: true", true)
 	assertManifestMetadata(t, filepath.Join(claude, "local-only", "SKILL.md"), "allowed-tools: Bash", true)
 	assertManifestMetadata(t, filepath.Join(agents, "local-only", "SKILL.md"), "allowed-tools: Bash", true)
@@ -240,6 +241,111 @@ func TestMilestoneWorkflow(t *testing.T) {
 		t.Fatalf("disabled Codex beta was pruned: %v", err)
 	}
 	finalStatus := runEsheep(t, environment, "skills", "status", "--json")
+	assertSuccess(t, finalStatus)
+	assertStatusHealth(t, finalStatus.stdout, true)
+}
+
+func TestProfileWorkflow(t *testing.T) {
+	root := filepath.Join(workDir, "profiles")
+	home := filepath.Join(root, "home")
+	configHome := filepath.Join(root, "config")
+	skills := filepath.Join(root, "skills")
+	claude := filepath.Join(root, "targets", "claude")
+	for _, directory := range []string{home, configHome, skills} {
+		if err := os.MkdirAll(directory, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeE2ESkill(t, skills, "everywhere", "Everywhere skill", "", nil)
+	writeE2ESkill(t, skills, "gated", "Gated skill", "esheep-only-profiles: [work]\n", nil)
+	writeE2ESkill(t, skills, "variant", "Base variant", "", nil)
+	writeE2EVariantManifest(t, skills, "variant", "work", "Work variant")
+	settingsPath := filepath.Join(configHome, "esheep", "esheep.toml")
+	settings := fmt.Sprintf(`[[sources]]
+name = "skills"
+path = %q
+
+[targets.claude]
+enabled = true
+path = %q
+
+[targets.pi]
+enabled = false
+
+[targets.codex]
+enabled = false
+
+[targets.agents]
+enabled = false
+`, skills, claude)
+	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(settingsPath, []byte(settings), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	baseEnvironment := map[string]string{"HOME": home, "XDG_CONFIG_HOME": configHome}
+	workEnvironment := map[string]string{"HOME": home, "XDG_CONFIG_HOME": configHome, "ESHEEP_PROFILES": "work"}
+
+	withoutProfiles := runEsheep(t, baseEnvironment, "sync")
+	assertSuccess(t, withoutProfiles)
+	if !strings.Contains(withoutProfiles.stdout, "inactive=1") || !strings.Contains(withoutProfiles.stdout, "failed=0") {
+		t.Fatalf("profile-less sync stdout = %s", withoutProfiles.stdout)
+	}
+	if _, err := os.Stat(filepath.Join(claude, "gated")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("inactive gated skill was installed: %v", err)
+	}
+	assertManifestMetadata(t, filepath.Join(claude, "variant", "SKILL.md"), "Base variant", true)
+	assertManifestMetadata(t, filepath.Join(claude, "variant", "SKILL.md"), "esheep-only-profiles", false)
+
+	profilesReport := runEsheep(t, baseEnvironment, "profiles")
+	assertSuccess(t, profilesReport)
+	if profilesReport.stdout != "Effective: (none)\nReferenced: work\n" {
+		t.Fatalf("profiles stdout = %q", profilesReport.stdout)
+	}
+	profilesJSON := runEsheep(t, baseEnvironment, "profiles", "--json")
+	assertSuccess(t, profilesJSON)
+	var profilesDocument struct {
+		Complete   bool     `json:"complete"`
+		Effective  []string `json:"effective"`
+		Referenced []string `json:"referenced"`
+	}
+	if err := json.Unmarshal([]byte(profilesJSON.stdout), &profilesDocument); err != nil {
+		t.Fatalf("decode profiles JSON: %v\n%s", err, profilesJSON.stdout)
+	}
+	if !profilesDocument.Complete || len(profilesDocument.Effective) != 0 || len(profilesDocument.Referenced) != 1 || profilesDocument.Referenced[0] != "work" {
+		t.Fatalf("profiles document = %#v", profilesDocument)
+	}
+
+	withProfiles := runEsheep(t, workEnvironment, "sync")
+	assertSuccess(t, withProfiles)
+	if !strings.Contains(withProfiles.stdout, "installed=1") || !strings.Contains(withProfiles.stdout, "repaired=1") {
+		t.Fatalf("work-profile sync stdout = %s", withProfiles.stdout)
+	}
+	assertMarker(t, claude, "claude", "skills", "gated")
+	assertManifestMetadata(t, filepath.Join(claude, "variant", "SKILL.md"), "Work variant", true)
+
+	status := runEsheep(t, workEnvironment, "skills", "status")
+	assertSuccess(t, status)
+	if !strings.HasPrefix(status.stdout, "Profiles: work\n") || !strings.Contains(status.stdout, "PROFILES") {
+		t.Fatalf("status stdout = %s", status.stdout)
+	}
+	configuration := runEsheep(t, workEnvironment, "config")
+	assertSuccess(t, configuration)
+	if !strings.Contains(configuration.stdout, "# effective_profiles = [\"work\"]") {
+		t.Fatalf("config stdout = %s", configuration.stdout)
+	}
+
+	switchedBack := runEsheep(t, baseEnvironment, "sync")
+	assertSuccess(t, switchedBack)
+	if !strings.Contains(switchedBack.stdout, "pruned=1") || !strings.Contains(switchedBack.stdout, "inactive=1") {
+		t.Fatalf("switch-back sync stdout = %s", switchedBack.stdout)
+	}
+	if _, err := os.Stat(filepath.Join(claude, "gated")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("gated skill survived deactivation: %v", err)
+	}
+	assertManifestMetadata(t, filepath.Join(claude, "variant", "SKILL.md"), "Base variant", true)
+	finalStatus := runEsheep(t, baseEnvironment, "skills", "status", "--json")
 	assertSuccess(t, finalStatus)
 	assertStatusHealth(t, finalStatus.stdout, true)
 }
@@ -390,6 +496,18 @@ func writeE2ESkill(t *testing.T, source, name, description, extra string, suppor
 		if err := os.WriteFile(path, []byte(contents), 0o700); err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+func writeE2EVariantManifest(t *testing.T, source, name, profile, description string) {
+	t.Helper()
+	root := filepath.Join(source, name)
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := "---\nname: " + name + "\ndescription: '" + description + "'\n---\n# Body\n"
+	if err := os.WriteFile(filepath.Join(root, "SKILL."+profile+".md"), []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
 	}
 }
 

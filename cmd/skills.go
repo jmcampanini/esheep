@@ -39,9 +39,11 @@ func newSkillsListCommand(load configLoader, list func(context.Context, config.L
 		Long: `Inventory every skill discovered in configured sources without changing
 sources or targets.
 
-Readiness is ready, invalid, or collision; validation and collision
-diagnostics do not hide known entries. The command exits nonzero only when
-configuration or filesystem failures prevent complete discovery.
+Readiness is ready, invalid, collision, or conflict; validation and
+collision diagnostics do not hide known entries. The profiles column shows
+the gate limiting when a skill applies; all means every profile. The
+command exits nonzero only when configuration or filesystem failures
+prevent complete discovery.
 
 ` + streamContractHelp + `
 
@@ -83,15 +85,17 @@ func newSkillsStatusCommand(load configLoader, status func(context.Context, conf
 	command := &cobra.Command{
 		Use:   "status",
 		Short: "Report per-target deployment health",
-		Long: `Report source readiness and per-target deployment health.
+		Long: `Report source readiness and per-target deployment health under the
+effective profiles.
 
-Each ready skill is synced, drifted, missing, disabled, or blocked for
-every target; blocked means a destination or target cannot be inspected or
-managed safely. Every enabled target is inspected even when no skills are
-discovered; missing and valid empty targets remain healthy.
+Each ready skill is synced, drifted, missing, inactive, disabled, or
+blocked for every target; blocked means a destination or target cannot be
+inspected or managed safely, and inactive means no manifest applies under
+the active profiles. Every enabled target is inspected even when no skills
+are discovered; missing and valid empty targets remain healthy.
 
 Status is a health check: it exits 0 only when every source skill is ready
-and every target is synced or disabled.
+and every target is synced, inactive, or disabled.
 
 ` + streamContractHelp + `
 

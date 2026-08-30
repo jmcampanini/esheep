@@ -10,6 +10,9 @@ import (
 // ValidateTree validates package paths using target-filesystem comparison rules.
 func ValidateTree(source Package) []Diagnostic {
 	entries := map[string]bool{naming.PathKey(manifestName): false}
+	for _, manifest := range source.Manifests {
+		entries[naming.PathKey(manifest.FileName)] = false
+	}
 	var diagnostics []Diagnostic
 	for _, directory := range source.Directories {
 		diagnostics = append(diagnostics, validateTreeEntry(entries, directory, true)...)

@@ -33,10 +33,10 @@ func WriteList(writer io.Writer, report manage.ListReport, color bool) error {
 	rows := make([][]string, 0, len(report.Skills))
 	for _, known := range report.Skills {
 		rows = append(rows, []string{
-			clean(known.Source), clean(known.Directory), string(known.Readiness), clean(known.Description),
+			clean(known.Source), clean(known.Directory), string(known.Readiness), profilesCell(known.Profiles), clean(known.Description),
 		})
 	}
-	return writeTable(writer, []string{"SOURCE", "SKILL", "READINESS", "DESCRIPTION"}, rows, color)
+	return writeTable(writer, []string{"SOURCE", "SKILL", "READINESS", "PROFILES", "DESCRIPTION"}, rows, color)
 }
 
 // WriteListJSON writes one complete known-skill JSON document.
@@ -44,27 +44,35 @@ func WriteListJSON(writer io.Writer, report manage.ListReport) error {
 	if report.Diagnostics == nil {
 		report.Diagnostics = []manage.Diagnostic{}
 	}
+	if report.Profiles == nil {
+		report.Profiles = []string{}
+	}
 	if report.Skills == nil {
 		report.Skills = []manage.KnownSkill{}
 	}
 	return writeJSON(writer, report)
 }
 
-// WriteStatus writes a human deployment-status table.
+// WriteStatus writes a human deployment-status table headed by the effective
+// profile list.
 func WriteStatus(writer io.Writer, report manage.StatusReport, color bool) error {
+	if _, err := fmt.Fprintf(writer, "Profiles: %s\n\n", profilesLine(report.Profiles)); err != nil {
+		return err
+	}
 	rows := make([][]string, 0, len(report.Skills))
 	for _, status := range report.Skills {
 		rows = append(rows, []string{
 			clean(status.Source),
 			clean(status.Directory),
 			string(status.Readiness),
+			profilesCell(status.Profiles),
 			targetState(status, "claude"),
 			targetState(status, "pi"),
 			targetState(status, "codex"),
 			targetState(status, "agents"),
 		})
 	}
-	return writeTable(writer, []string{"SOURCE", "SKILL", "READINESS", "CLAUDE", "PI", "CODEX", "AGENTS"}, rows, color)
+	return writeTable(writer, []string{"SOURCE", "SKILL", "READINESS", "PROFILES", "CLAUDE", "PI", "CODEX", "AGENTS"}, rows, color)
 }
 
 // WriteStatusJSON writes one complete deployment-status JSON document.
@@ -72,8 +80,31 @@ func WriteStatusJSON(writer io.Writer, report manage.StatusReport) error {
 	if report.Diagnostics == nil {
 		report.Diagnostics = []manage.Diagnostic{}
 	}
+	if report.Profiles == nil {
+		report.Profiles = []string{}
+	}
 	if report.Skills == nil {
 		report.Skills = []manage.SkillStatus{}
+	}
+	return writeJSON(writer, report)
+}
+
+// WriteProfiles writes the effective and referenced profile lists.
+func WriteProfiles(writer io.Writer, report manage.ProfilesReport) error {
+	_, err := fmt.Fprintf(writer, "Effective: %s\nReferenced: %s\n", profilesLine(report.Effective), profilesLine(report.Referenced))
+	return err
+}
+
+// WriteProfilesJSON writes one complete profiles JSON document.
+func WriteProfilesJSON(writer io.Writer, report manage.ProfilesReport) error {
+	if report.Diagnostics == nil {
+		report.Diagnostics = []manage.Diagnostic{}
+	}
+	if report.Effective == nil {
+		report.Effective = []string{}
+	}
+	if report.Referenced == nil {
+		report.Referenced = []string{}
 	}
 	return writeJSON(writer, report)
 }
@@ -101,11 +132,12 @@ func WriteSync(writer io.Writer, report manage.SyncReport, color bool) error {
 	}
 	_, err := fmt.Fprintf(
 		writer,
-		"Summary: installed=%d repaired=%d unchanged=%d pruned=%d disabled=%d blocked=%d failed=%d\n",
+		"Summary: installed=%d repaired=%d unchanged=%d pruned=%d inactive=%d disabled=%d blocked=%d failed=%d\n",
 		report.Summary.Installed,
 		report.Summary.Repaired,
 		report.Summary.Unchanged,
 		report.Summary.Pruned,
+		report.Summary.Inactive,
 		report.Summary.Disabled,
 		report.Summary.Blocked,
 		report.Summary.Failed,
@@ -172,11 +204,11 @@ func tableStyles(color bool, rows [][]string) table.StyleFunc {
 		switch rows[row][column] {
 		case string(install.ActionInstalled), string(install.ActionPruned), string(install.ActionRepaired), string(install.StateSynced), string(manage.ReadinessReady):
 			return style.Foreground(lipgloss.Color("42"))
-		case string(install.ActionBlocked), string(install.ActionFailed), string(manage.ReadinessCollision), string(manage.ReadinessInvalid):
+		case string(install.ActionBlocked), string(install.ActionFailed), string(manage.ReadinessCollision), string(manage.ReadinessConflict), string(manage.ReadinessInvalid):
 			return style.Foreground(lipgloss.Color("196"))
 		case string(install.StateDrifted), string(install.StateMissing):
 			return style.Foreground(lipgloss.Color("214"))
-		case string(install.ActionDisabled):
+		case string(install.ActionDisabled), string(install.ActionInactive):
 			return style.Faint(true)
 		default:
 			return style
@@ -197,6 +229,20 @@ func targetState(status manage.SkillStatus, target string) string {
 		return "-"
 	}
 	return string(state)
+}
+
+func profilesCell(profiles []string) string {
+	if len(profiles) == 0 {
+		return "all"
+	}
+	return clean(strings.Join(profiles, ", "))
+}
+
+func profilesLine(profiles []string) string {
+	if len(profiles) == 0 {
+		return "(none)"
+	}
+	return clean(strings.Join(profiles, ", "))
 }
 
 func clean(value string) string {

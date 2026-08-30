@@ -124,8 +124,7 @@ func discoverSource(source Source, catalog *Catalog) {
 			continue
 		}
 		candidateRoot := filepath.Join(source.Path, name)
-		_, statErr := os.Lstat(filepath.Join(candidateRoot, "SKILL.md"))
-		if statErr != nil && os.IsNotExist(statErr) {
+		if entries, readErr := os.ReadDir(candidateRoot); readErr == nil && !containsManifest(entries) {
 			continue
 		}
 		loaded, loadErr := skill.Load(candidateRoot)
@@ -150,13 +149,24 @@ func sourceDiagnostic(source Source, err error) Diagnostic {
 	return Diagnostic{Code: CodeSourceUnavailable, Location: Location{Source: source.Name, Path: source.Path}, Err: err}
 }
 
+// containsManifest reports whether any entry occupies the manifest namespace,
+// including invalid profile variants that must surface as skill diagnostics.
+func containsManifest(entries []os.DirEntry) bool {
+	for _, entry := range entries {
+		if _, ok, err := skill.ParseManifestName(entry.Name()); ok || err != nil {
+			return true
+		}
+	}
+	return false
+}
+
 func detectCollisions(catalog *Catalog) {
 	groups := make(map[string][]int)
 	var order []string
 	for index := range catalog.Candidates {
 		candidate := &catalog.Candidates[index]
-		name := candidate.Package.Document.Name
-		if !skill.ValidIdentity(name, candidate.Location.RelativePath) {
+		name, ok := candidate.Package.Identity(candidate.Location.RelativePath)
+		if !ok {
 			continue
 		}
 		folded := strings.ToLower(name)

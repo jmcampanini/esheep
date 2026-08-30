@@ -278,7 +278,7 @@ func TestFailedReplacementRestoresPriorDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := snapshotDirectory(t, filepath.Join(request.Root, "demo"))
-	request.Package.Document.Body = []byte("changed\n")
+	request.Document.Body = []byte("changed\n")
 	fsys := defaultFilesystem
 	fsys.exchange = func(*targetRoot, string, string) error {
 		return errors.New("injected exchange failure")
@@ -310,7 +310,7 @@ func TestTargetRootReplacementCannotRedirectSwap(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := snapshotDirectory(t, filepath.Join(request.Root, "demo"))
-	request.Package.Document.Body = []byte("changed\n")
+	request.Document.Body = []byte("changed\n")
 	outside := t.TempDir()
 	originalRoot := request.Root + "-original"
 	exchanges := 0
@@ -351,7 +351,7 @@ func TestPostCommitDestinationRemovalRestoresPriorInstallation(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := snapshotDirectory(t, filepath.Join(request.Root, "demo"))
-	request.Package.Document.Body = []byte("changed\n")
+	request.Document.Body = []byte("changed\n")
 	exchanges := 0
 	fsys := defaultFilesystem
 	fsys.exchange = func(root *targetRoot, oldName, newName string) error {
@@ -381,7 +381,7 @@ func TestPostCommitRootReplacementRestoresPriorInstallation(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := snapshotDirectory(t, filepath.Join(request.Root, "demo"))
-	request.Package.Document.Body = []byte("changed\n")
+	request.Document.Body = []byte("changed\n")
 	outside := t.TempDir()
 	originalRoot := request.Root + "-original"
 	exchanges := 0
@@ -442,7 +442,7 @@ func TestPostCommitCleanupFailureKeepsReplacement(t *testing.T) {
 	if _, err := Reconcile(context.Background(), request); err != nil {
 		t.Fatal(err)
 	}
-	request.Package.Document.Body = []byte("changed\n")
+	request.Document.Body = []byte("changed\n")
 	fsys := defaultFilesystem
 	fsys.removeAll = func(*os.Root, string) error { return errors.New("injected cleanup failure") }
 
@@ -571,6 +571,7 @@ func installRequest(t *testing.T, targetRoot string) Request {
 		t.Fatal(err)
 	}
 	return Request{
+		Document: loaded.Manifests[0].Document,
 		Identity: Identity{Source: "personal", Skill: "demo", Target: render.TargetClaude},
 		Package:  loaded,
 		Root:     targetRoot,
