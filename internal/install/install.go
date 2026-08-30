@@ -59,12 +59,14 @@ type Result struct {
 }
 
 type filesystem struct {
+	exchange  func(*targetRoot, string, string) error
 	noReplace func(*targetRoot, string, string) error
 	removeAll func(*os.Root, string) error
 	rename    func(*os.Root, string, string) error
 }
 
 var defaultFilesystem = filesystem{
+	exchange:  func(root *targetRoot, oldName, newName string) error { return root.renameExchange(oldName, newName) },
 	noReplace: func(root *targetRoot, oldName, newName string) error { return root.renameNoReplace(oldName, newName) },
 	removeAll: func(root *os.Root, name string) error { return root.RemoveAll(name) },
 	rename:    func(root *os.Root, oldName, newName string) error { return root.Rename(oldName, newName) },
@@ -397,7 +399,6 @@ func installFresh(result Result, root *targetRoot, stagingName string, stagingIn
 }
 
 func replaceOwned(result Result, root *targetRoot, installed destination, stagingName string, stagingInfo os.FileInfo, transactionName string, fsys filesystem) (Result, error) {
-	backupName := filepath.Join(transactionName, "backup")
 	if err := root.verifyPath(); err != nil {
 		result.Action = ActionFailed
 		return result, errors.Join(err, cleanupTransaction(fsys, root, transactionName))
@@ -410,47 +411,37 @@ func replaceOwned(result Result, root *targetRoot, installed destination, stagin
 		result.Action = ActionFailed
 		return result, errors.Join(err, cleanupTransaction(fsys, root, transactionName))
 	}
-	if err := fsys.rename(root.handle, result.Identity.Skill, backupName); err != nil {
-		result.Action = ActionFailed
-		result.Detail = err.Error()
-		return result, errors.Join(fmt.Errorf("backup installed skill: %w", err), cleanupTransaction(fsys, root, transactionName))
-	}
-	if err := root.verifyEntry(backupName, installed.info); err != nil {
-		rollbackErr := fsys.noReplace(root, backupName, result.Identity.Skill)
-		result.Action = ActionFailed
-		return result, errors.Join(err, rollbackErr)
-	}
-	owned, ownershipErr := root.ownedAt(backupName, result.Identity)
+	owned, ownershipErr := root.ownedAt(result.Identity.Skill, result.Identity)
 	if ownershipErr != nil || !owned {
-		rollbackErr := fsys.noReplace(root, backupName, result.Identity.Skill)
 		result.Action = ActionFailed
-		return result, errors.Join(fmt.Errorf("verify backed-up ownership: ownership changed"), ownershipErr, rollbackErr)
+		return result, errors.Join(fmt.Errorf("verify installed ownership: ownership changed"), ownershipErr, cleanupTransaction(fsys, root, transactionName))
 	}
 	if err := root.verifyPath(); err != nil {
-		rollbackErr := fsys.noReplace(root, backupName, result.Identity.Skill)
 		result.Action = ActionFailed
-		return result, errors.Join(err, rollbackErr)
+		return result, errors.Join(err, cleanupTransaction(fsys, root, transactionName))
 	}
-	if err := fsys.noReplace(root, stagingName, result.Identity.Skill); err != nil {
-		rollbackErr := fsys.noReplace(root, backupName, result.Identity.Skill)
+	if err := fsys.exchange(root, stagingName, result.Identity.Skill); err != nil {
 		result.Action = ActionFailed
 		result.Detail = err.Error()
-		if errors.Is(err, os.ErrExist) {
-			result.Action = ActionBlocked
-			result.Detail = "destination appeared during installation"
-		}
-		if rollbackErr != nil {
-			return result, errors.Join(fmt.Errorf("install staged skill: %w", err), fmt.Errorf("restore installed skill: %w", rollbackErr))
-		}
-		return result, errors.Join(fmt.Errorf("install staged skill: %w", err), cleanupTransaction(fsys, root, transactionName))
+		return result, errors.Join(fmt.Errorf("exchange installed skill: %w", err), cleanupTransaction(fsys, root, transactionName))
 	}
 	if err := root.verifyEntry(result.Identity.Skill, stagingInfo); err != nil {
 		result.Action = ActionFailed
-		return result, rollbackCommitted(root, result.Identity.Skill, backupName, stagingInfo, transactionName, fsys, err)
+		return result, rollbackExchanged(root, result.Identity.Skill, stagingName, installed.info, stagingInfo, transactionName, fsys, err)
+	}
+	if err := root.verifyEntry(stagingName, installed.info); err != nil {
+		result.Action = ActionFailed
+		return result, rollbackExchanged(root, result.Identity.Skill, stagingName, installed.info, stagingInfo, transactionName, fsys, err)
+	}
+	owned, ownershipErr = root.ownedAt(stagingName, result.Identity)
+	if ownershipErr != nil || !owned {
+		result.Action = ActionFailed
+		cause := errors.Join(fmt.Errorf("verify displaced ownership: ownership changed"), ownershipErr)
+		return result, rollbackExchanged(root, result.Identity.Skill, stagingName, installed.info, stagingInfo, transactionName, fsys, cause)
 	}
 	if err := root.verifyPath(); err != nil {
 		result.Action = ActionFailed
-		return result, rollbackCommitted(root, result.Identity.Skill, backupName, stagingInfo, transactionName, fsys, err)
+		return result, rollbackExchanged(root, result.Identity.Skill, stagingName, installed.info, stagingInfo, transactionName, fsys, err)
 	}
 
 	result.Action = ActionRepaired
@@ -458,10 +449,14 @@ func replaceOwned(result Result, root *targetRoot, installed destination, stagin
 	return result, cleanupTransaction(fsys, root, transactionName)
 }
 
-func rollbackCommitted(root *targetRoot, skillName, backupName string, stagingInfo os.FileInfo, transactionName string, fsys filesystem, cause error) error {
+func rollbackExchanged(root *targetRoot, skillName, displacedName string, installedInfo, stagingInfo os.FileInfo, transactionName string, fsys filesystem, cause error) error {
 	current, err := root.handle.Lstat(skillName)
 	if errors.Is(err, os.ErrNotExist) {
-		if restoreErr := fsys.noReplace(root, backupName, skillName); restoreErr != nil {
+		displaced, displacedErr := root.handle.Lstat(displacedName)
+		if displacedErr != nil || !os.SameFile(installedInfo, displaced) {
+			return errors.Join(cause, fmt.Errorf("restore installed skill: displaced installation was replaced"), displacedErr)
+		}
+		if restoreErr := fsys.noReplace(root, displacedName, skillName); restoreErr != nil {
 			return errors.Join(cause, fmt.Errorf("restore installed skill: %w", restoreErr))
 		}
 		return errors.Join(cause, cleanupTransaction(fsys, root, transactionName))
@@ -469,16 +464,15 @@ func rollbackCommitted(root *targetRoot, skillName, backupName string, stagingIn
 	if err != nil || !os.SameFile(stagingInfo, current) {
 		return errors.Join(cause, fmt.Errorf("restore installed skill: committed destination was replaced"), err)
 	}
-	failedName := filepath.Join(transactionName, "failed")
-	if err := fsys.rename(root.handle, skillName, failedName); err != nil {
-		return errors.Join(cause, fmt.Errorf("quarantine failed installation: %w", err))
+	displaced, err := root.handle.Lstat(displacedName)
+	if err != nil || !os.SameFile(installedInfo, displaced) {
+		return errors.Join(cause, fmt.Errorf("restore installed skill: displaced installation was replaced"), err)
 	}
-	if err := fsys.noReplace(root, backupName, skillName); err != nil {
-		restoreErr := fmt.Errorf("restore installed skill: %w", err)
-		if reinstateErr := fsys.noReplace(root, failedName, skillName); reinstateErr != nil {
-			return errors.Join(cause, restoreErr, fmt.Errorf("reinstate failed installation: %w", reinstateErr))
-		}
-		return errors.Join(cause, restoreErr)
+	if err := fsys.exchange(root, skillName, displacedName); err != nil {
+		return errors.Join(cause, fmt.Errorf("restore installed skill: %w", err))
+	}
+	if err := root.verifyEntry(skillName, installedInfo); err != nil {
+		return errors.Join(cause, fmt.Errorf("verify restored skill: %w", err))
 	}
 	return errors.Join(cause, cleanupTransaction(fsys, root, transactionName))
 }

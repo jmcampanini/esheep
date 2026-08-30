@@ -129,6 +129,10 @@ func (root *targetRoot) verifyPath() error {
 	return closeErr
 }
 
+func (root *targetRoot) renameExchange(oldName, newName string) error {
+	return renameExchangeAt(root.directory, oldName, newName)
+}
+
 func (root *targetRoot) renameNoReplace(oldName, newName string) error {
 	return renameNoReplaceAt(root.directory, oldName, newName)
 }

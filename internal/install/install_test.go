@@ -279,14 +279,9 @@ func TestFailedReplacementRestoresPriorDirectory(t *testing.T) {
 	}
 	before := snapshotDirectory(t, filepath.Join(request.Root, "demo"))
 	request.Package.Document.Body = []byte("changed\n")
-	commits := 0
 	fsys := defaultFilesystem
-	fsys.noReplace = func(root *targetRoot, oldName, newName string) error {
-		commits++
-		if commits == 1 {
-			return errors.New("injected staged rename failure")
-		}
-		return root.renameNoReplace(oldName, newName)
+	fsys.exchange = func(*targetRoot, string, string) error {
+		return errors.New("injected exchange failure")
 	}
 
 	result, err := reconcile(context.Background(), request, fsys)
@@ -318,11 +313,11 @@ func TestTargetRootReplacementCannotRedirectSwap(t *testing.T) {
 	request.Package.Document.Body = []byte("changed\n")
 	outside := t.TempDir()
 	originalRoot := request.Root + "-original"
-	renames := 0
+	exchanges := 0
 	fsys := defaultFilesystem
-	fsys.rename = func(root *os.Root, oldName, newName string) error {
-		renames++
-		if renames == 1 {
+	fsys.exchange = func(root *targetRoot, oldName, newName string) error {
+		exchanges++
+		if exchanges == 1 {
 			if err := os.Rename(request.Root, originalRoot); err != nil {
 				t.Fatal(err)
 			}
@@ -330,7 +325,7 @@ func TestTargetRootReplacementCannotRedirectSwap(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		return root.Rename(oldName, newName)
+		return root.renameExchange(oldName, newName)
 	}
 
 	result, err := reconcile(context.Background(), request, fsys)
@@ -357,12 +352,12 @@ func TestPostCommitDestinationRemovalRestoresPriorInstallation(t *testing.T) {
 	}
 	before := snapshotDirectory(t, filepath.Join(request.Root, "demo"))
 	request.Package.Document.Body = []byte("changed\n")
-	commits := 0
+	exchanges := 0
 	fsys := defaultFilesystem
-	fsys.noReplace = func(root *targetRoot, oldName, newName string) error {
-		commits++
-		err := root.renameNoReplace(oldName, newName)
-		if err == nil && commits == 1 {
+	fsys.exchange = func(root *targetRoot, oldName, newName string) error {
+		exchanges++
+		err := root.renameExchange(oldName, newName)
+		if err == nil && exchanges == 1 {
 			if err := root.handle.RemoveAll(newName); err != nil {
 				t.Fatal(err)
 			}
@@ -389,12 +384,12 @@ func TestPostCommitRootReplacementRestoresPriorInstallation(t *testing.T) {
 	request.Package.Document.Body = []byte("changed\n")
 	outside := t.TempDir()
 	originalRoot := request.Root + "-original"
-	commits := 0
+	exchanges := 0
 	fsys := defaultFilesystem
-	fsys.noReplace = func(root *targetRoot, oldName, newName string) error {
-		commits++
-		err := root.renameNoReplace(oldName, newName)
-		if err == nil && commits == 1 {
+	fsys.exchange = func(root *targetRoot, oldName, newName string) error {
+		exchanges++
+		err := root.renameExchange(oldName, newName)
+		if err == nil && exchanges == 1 {
 			if err := os.Rename(request.Root, originalRoot); err != nil {
 				t.Fatal(err)
 			}
