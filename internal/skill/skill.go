@@ -515,12 +515,9 @@ func parseTargetEntry(item *yaml.Node) (string, []string, []Diagnostic) {
 		item.Content[0].Kind != yaml.ScalarNode || item.Content[0].Tag != "!!str" {
 		return "", nil, []Diagnostic{{Code: CodeInvalidValue, Field: "esheep-targets", Detail: "entry must be a target name or a single target-to-profiles pair"}}
 	}
-	gate, diagnostics := parseTargetGate(item.Content[0].Value, item.Content[1])
-	return item.Content[0].Value, gate, diagnostics
-}
-
-func parseTargetGate(target string, node *yaml.Node) ([]string, []Diagnostic) {
-	return parseProfileList(node, "esheep-targets."+target)
+	target := item.Content[0].Value
+	gate, diagnostics := parseProfileList(item.Content[1], "esheep-targets."+target)
+	return target, gate, diagnostics
 }
 
 func validateOnlyProfiles(node *yaml.Node) []Diagnostic {
