@@ -87,15 +87,24 @@ type Targets struct {
 	Agents TargetOptions
 }
 
+// ExtraField is a frontmatter field esheep does not interpret, preserved in
+// source order for verbatim pass-through to every rendered target.
+type ExtraField struct {
+	Key   string
+	Value *yaml.Node
+}
+
 // Document is a parsed SKILL.md and its byte-exact Markdown body.
 type Document struct {
-	Name          string
-	Description   string
-	License       *string
-	Compatibility *string
-	Metadata      map[string]string
-	Targets       Targets
-	Body          []byte
+	Name                   string
+	Description            string
+	License                *string
+	Compatibility          *string
+	Metadata               map[string]string
+	DisableModelInvocation bool
+	Extra                  []ExtraField
+	Targets                Targets
+	Body                   []byte
 }
 
 // File is a regular supporting file. Path always uses slash separators.
@@ -116,15 +125,16 @@ type Package struct {
 }
 
 type rawDocument struct {
-	Name          string            `yaml:"name"`
-	Description   string            `yaml:"description"`
-	License       *string           `yaml:"license"`
-	Compatibility *string           `yaml:"compatibility"`
-	Metadata      map[string]string `yaml:"metadata"`
-	Claude        rawTarget         `yaml:"claude"`
-	Pi            rawTarget         `yaml:"pi"`
-	Codex         rawTarget         `yaml:"codex"`
-	Agents        rawTarget         `yaml:"agents"`
+	Name                   string            `yaml:"name"`
+	Description            string            `yaml:"description"`
+	License                *string           `yaml:"license"`
+	Compatibility          *string           `yaml:"compatibility"`
+	Metadata               map[string]string `yaml:"metadata"`
+	DisableModelInvocation bool              `yaml:"disable-model-invocation"`
+	Claude                 rawTarget         `yaml:"claude"`
+	Pi                     rawTarget         `yaml:"pi"`
+	Codex                  rawTarget         `yaml:"codex"`
+	Agents                 rawTarget         `yaml:"agents"`
 }
 
 type rawTarget struct {
@@ -132,14 +142,11 @@ type rawTarget struct {
 	ArgumentHint *string `yaml:"argument-hint"`
 }
 
-var commonFields = map[string]struct{}{
-	"name": {}, "description": {}, "license": {}, "compatibility": {}, "metadata": {},
-	"claude": {}, "pi": {}, "codex": {}, "agents": {},
-}
-
 // Parse parses frontmatter, preserves the Markdown body, and validates the
-// approved declarative subset. It returns a partially decoded document with a
-// ValidationError when possible so discovery can still classify identities.
+// fields esheep interprets. Fields it does not interpret are preserved in
+// order for pass-through rendering. It returns a partially decoded document
+// with a ValidationError when possible so discovery can still classify
+// identities.
 func Parse(data []byte, directoryName string) (Document, error) {
 	frontmatter, body, splitErr := split(data)
 	if splitErr != nil {
@@ -156,7 +163,7 @@ func Parse(data []byte, directoryName string) (Document, error) {
 		return Document{Body: body}, &ValidationError{Diagnostics: []Diagnostic{{Code: CodeYAML, Path: "SKILL.md", Err: mappingErr}}}
 	}
 
-	diagnostics := validateShape(mapping)
+	extra, diagnostics := validateShape(mapping)
 	if unmarshalErr != nil {
 		diagnostics = append(diagnostics, Diagnostic{Code: CodeYAML, Path: "SKILL.md", Err: unmarshalErr})
 	}
@@ -168,11 +175,13 @@ func Parse(data []byte, directoryName string) (Document, error) {
 		raw.Name = scalarField(mapping, "name")
 	}
 	document := Document{
-		Name:          raw.Name,
-		Description:   raw.Description,
-		License:       raw.License,
-		Compatibility: raw.Compatibility,
-		Metadata:      raw.Metadata,
+		Name:                   raw.Name,
+		Description:            raw.Description,
+		License:                raw.License,
+		Compatibility:          raw.Compatibility,
+		Metadata:               raw.Metadata,
+		DisableModelInvocation: raw.DisableModelInvocation,
+		Extra:                  extra,
 		Targets: Targets{
 			Claude: TargetOptions{Disabled: raw.Claude.Disabled, ArgumentHint: raw.Claude.ArgumentHint},
 			Pi:     TargetOptions{Disabled: raw.Pi.Disabled, ArgumentHint: raw.Pi.ArgumentHint},
@@ -245,15 +254,30 @@ func scalarField(mapping *yaml.Node, field string) string {
 	return ""
 }
 
-func validateShape(mapping *yaml.Node) []Diagnostic {
-	diagnostics := validateMapping(mapping, commonFields, "")
-	for index := 0; index < len(mapping.Content); index += 2 {
-		key := mapping.Content[index].Value
+func validateShape(mapping *yaml.Node) ([]ExtraField, []Diagnostic) {
+	var extra []ExtraField
+	var diagnostics []Diagnostic
+	seen := make(map[string]struct{}, len(mapping.Content)/2)
+	for index := 0; index+1 < len(mapping.Content); index += 2 {
+		keyNode := mapping.Content[index]
 		value := mapping.Content[index+1]
+		if keyNode.Kind != yaml.ScalarNode || keyNode.Tag != "!!str" {
+			diagnostics = append(diagnostics, Diagnostic{Code: CodeInvalidValue, Path: "SKILL.md", Detail: "frontmatter keys must be strings"})
+			continue
+		}
+		key := keyNode.Value
+		if _, duplicate := seen[key]; duplicate {
+			diagnostics = append(diagnostics, Diagnostic{Code: CodeInvalidValue, Path: "SKILL.md", Field: key, Detail: "duplicate field"})
+		}
+		seen[key] = struct{}{}
 		switch key {
 		case "name", "description", "license", "compatibility":
 			if value.Kind != yaml.ScalarNode || value.Tag != "!!str" {
 				diagnostics = append(diagnostics, invalidType(key, "string"))
+			}
+		case "disable-model-invocation":
+			if value.Kind != yaml.ScalarNode || value.Tag != "!!bool" {
+				diagnostics = append(diagnostics, invalidType(key, "boolean"))
 			}
 		case "metadata":
 			diagnostics = append(diagnostics, validateMetadata(value)...)
@@ -261,9 +285,11 @@ func validateShape(mapping *yaml.Node) []Diagnostic {
 			diagnostics = append(diagnostics, validateTarget(value, key, true)...)
 		case "codex", "agents":
 			diagnostics = append(diagnostics, validateTarget(value, key, false)...)
+		default:
+			extra = append(extra, ExtraField{Key: key, Value: value})
 		}
 	}
-	return diagnostics
+	return extra, diagnostics
 }
 
 func validateMetadata(node *yaml.Node) []Diagnostic {

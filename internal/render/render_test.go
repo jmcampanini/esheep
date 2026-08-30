@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jmcampanini/esheep/internal/skill"
+	"go.yaml.in/yaml/v3"
 )
 
 func TestRenderExactTargetTrees(t *testing.T) {
@@ -29,11 +30,16 @@ func TestRenderExactTargetTrees(t *testing.T) {
 		t.Fatal(err)
 	}
 	source.Document = skill.Document{
-		Name:          "demo",
-		Description:   "A demo",
-		License:       stringPointer("MIT"),
-		Compatibility: stringPointer("macOS and Linux"),
-		Metadata:      map[string]string{"z": "last", "a": "first"},
+		Name:                   "demo",
+		Description:            "A demo",
+		License:                stringPointer("MIT"),
+		Compatibility:          stringPointer("macOS and Linux"),
+		Metadata:               map[string]string{"z": "last", "a": "first"},
+		DisableModelInvocation: true,
+		Extra: []skill.ExtraField{
+			{Key: "allowed-tools", Value: yamlValue(t, "Bash")},
+			{Key: "hooks", Value: yamlValue(t, "PreToolUse:\n  - matcher: Bash\n")},
+		},
 		Targets: skill.Targets{
 			Claude: skill.TargetOptions{ArgumentHint: stringPointer("CLAUDE-ARG")},
 			Pi:     skill.TargetOptions{ArgumentHint: stringPointer("PI-ARG")},
@@ -41,12 +47,13 @@ func TestRenderExactTargetTrees(t *testing.T) {
 		Body: []byte("# Body\r\nexact\x00"),
 	}
 	tests := []struct {
-		target Target
-		golden string
+		target      Target
+		golden      string
+		codexPolicy bool
 	}{
 		{target: TargetClaude, golden: "claude.golden"},
 		{target: TargetPi, golden: "pi.golden"},
-		{target: TargetCodex, golden: "common.golden"},
+		{target: TargetCodex, golden: "common.golden", codexPolicy: true},
 		{target: TargetAgents, golden: "common.golden"},
 	}
 	for _, test := range tests {
@@ -71,8 +78,26 @@ func TestRenderExactTargetTrees(t *testing.T) {
 			if string(got) != string(want) {
 				t.Fatalf("SKILL.md bytes:\n got %q\nwant %q", got, want)
 			}
+			policy, err := os.ReadFile(filepath.Join(staging, "agents", "openai.yaml"))
+			if test.codexPolicy {
+				if err != nil || string(policy) != "policy:\n  allow_implicit_invocation: false\n" {
+					t.Fatalf("codex policy = %q, %v", policy, err)
+				}
+			} else if !os.IsNotExist(err) {
+				t.Fatalf("unexpected codex policy file: %q, %v", policy, err)
+			}
 		})
 	}
+}
+
+// yamlValue parses text and returns its root value node for pass-through tests.
+func yamlValue(t *testing.T, text string) *yaml.Node {
+	t.Helper()
+	var node yaml.Node
+	if err := yaml.Unmarshal([]byte(text), &node); err != nil {
+		t.Fatal(err)
+	}
+	return node.Content[0]
 }
 
 func TestRenderPreservesEmptyOptionalFields(t *testing.T) {
