@@ -520,14 +520,22 @@ func parseTargetEntry(item *yaml.Node) (string, []string, []Diagnostic) {
 }
 
 func parseTargetGate(target string, node *yaml.Node) ([]string, []Diagnostic) {
-	field := "esheep-targets." + target
+	return parseProfileList(node, "esheep-targets."+target)
+}
+
+func validateOnlyProfiles(node *yaml.Node) []Diagnostic {
+	_, diagnostics := parseProfileList(node, "esheep-only-profiles")
+	return diagnostics
+}
+
+func parseProfileList(node *yaml.Node, field string) ([]string, []Diagnostic) {
 	if node.Kind != yaml.SequenceNode {
 		return nil, []Diagnostic{invalidType(field, "list of strings")}
 	}
 	if len(node.Content) == 0 {
 		return nil, []Diagnostic{{Code: CodeInvalidValue, Field: field, Detail: "value must not be empty"}}
 	}
-	var gate []string
+	var profiles []string
 	var diagnostics []Diagnostic
 	seen := make(map[string]struct{}, len(node.Content))
 	for _, item := range node.Content {
@@ -544,35 +552,9 @@ func parseTargetGate(target string, node *yaml.Node) ([]string, []Diagnostic) {
 			continue
 		}
 		seen[item.Value] = struct{}{}
-		gate = append(gate, item.Value)
+		profiles = append(profiles, item.Value)
 	}
-	return gate, diagnostics
-}
-
-func validateOnlyProfiles(node *yaml.Node) []Diagnostic {
-	if node.Kind != yaml.SequenceNode {
-		return []Diagnostic{invalidType("esheep-only-profiles", "list of strings")}
-	}
-	if len(node.Content) == 0 {
-		return []Diagnostic{{Code: CodeInvalidValue, Field: "esheep-only-profiles", Detail: "value must not be empty"}}
-	}
-	var diagnostics []Diagnostic
-	seen := make(map[string]struct{}, len(node.Content))
-	for _, item := range node.Content {
-		if item.Kind != yaml.ScalarNode || item.Tag != "!!str" {
-			diagnostics = append(diagnostics, invalidType("esheep-only-profiles", "list of strings"))
-			continue
-		}
-		if err := naming.ValidateProfileName(item.Value); err != nil {
-			diagnostics = append(diagnostics, Diagnostic{Code: CodeInvalidProfile, Field: "esheep-only-profiles", Err: err})
-			continue
-		}
-		if _, duplicate := seen[item.Value]; duplicate {
-			diagnostics = append(diagnostics, Diagnostic{Code: CodeInvalidValue, Field: "esheep-only-profiles", Detail: fmt.Sprintf("duplicate profile %q", item.Value)})
-		}
-		seen[item.Value] = struct{}{}
-	}
-	return diagnostics
+	return profiles, diagnostics
 }
 
 func validateMetadata(node *yaml.Node) []Diagnostic {
