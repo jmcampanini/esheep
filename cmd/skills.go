@@ -41,7 +41,7 @@ sources or targets.
 
 Readiness is ready, invalid, collision, or conflict; validation and
 collision diagnostics do not hide known entries. The profile gate column
-shows when a skill applies: all means every profile, and - means no manifest
+shows when a manifest applies: all means every profile, and - means no manifest
 was loadable. The command exits nonzero only when configuration or
 filesystem failures prevent complete discovery.
 
@@ -49,7 +49,7 @@ filesystem failures prevent complete discovery.
 
 ` + jsonContractHelp + ` List JSON includes "complete" and
 "effective_profiles". Each skill's optional "profile_gate" lists the profiles
-that limit it.`,
+that limit manifest selection.`,
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			loaded, err := loadConfiguration(command, load)
@@ -92,8 +92,9 @@ effective profiles.
 
 Each ready skill is synced, drifted, missing, inactive, disabled, or
 blocked for every target; blocked means a destination or target cannot be
-inspected or managed safely, and inactive means no manifest applies under
-the active profiles. Every enabled target is inspected even when no skills
+inspected or managed safely, inactive means no manifest applies under the
+active profiles, and disabled means target configuration or esheep-targets
+excludes installation. Every enabled target is inspected even when no skills
 are discovered; missing and valid empty targets remain healthy.
 
 Status is a health check: it exits 0 only when every source skill is ready
@@ -103,7 +104,7 @@ and every target is synced, inactive, or disabled.
 
 ` + jsonContractHelp + ` Status JSON includes "healthy" and
 "effective_profiles". Each skill's optional "profile_gate" lists the profiles
-that limit it.`,
+that limit manifest selection.`,
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			loaded, err := loadConfiguration(command, load)

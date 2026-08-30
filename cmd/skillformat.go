@@ -45,10 +45,14 @@ Interpreted fields:
                             automatically.
   esheep-only-profiles      Optional nonempty list of profile names. Limits
                             the manifest to the named profiles.
-  esheep-claude-disabled    Optional booleans, one per target. When true,
-  esheep-pi-disabled        the skill is not installed for that target.
-  esheep-codex-disabled
-  esheep-agents-disabled
+  esheep-targets            Required nonempty list naming where the skill
+                            installs: claude, pi, codex, agents. Each entry
+                            is a target name, or a single-pair mapping from
+                            a target name to a nonempty list of profile
+                            names that limits that target to those
+                            profiles. Unlisted targets and targets whose
+                            profile list matches no active profile are not
+                            installed.
 
 The esheep- key prefix is reserved: interpreted esheep- keys configure
 esheep and are never rendered, and any other esheep- key is an error.

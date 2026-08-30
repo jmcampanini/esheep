@@ -74,9 +74,21 @@ func (e *ValidationError) Unwrap() []error {
 	return causes
 }
 
-// TargetOptions contains declarative target-specific settings.
+// TargetOptions contains the declarative esheep-targets settings for one
+// render target.
 type TargetOptions struct {
-	Disabled bool
+	Listed       bool
+	OnlyProfiles []string
+}
+
+// Applies reports whether the target is listed in esheep-targets and its
+// profile gate matches the active profiles. An empty gate matches every
+// profile.
+func (options TargetOptions) Applies(profiles []string) bool {
+	if !options.Listed {
+		return false
+	}
+	return len(options.OnlyProfiles) == 0 || intersects(options.OnlyProfiles, profiles)
 }
 
 // Targets contains settings for every supported target.
@@ -85,6 +97,24 @@ type Targets struct {
 	Pi     TargetOptions
 	Codex  TargetOptions
 	Agents TargetOptions
+}
+
+func (targets *Targets) options(name string) *TargetOptions {
+	switch name {
+	case "claude":
+		return &targets.Claude
+	case "pi":
+		return &targets.Pi
+	case "codex":
+		return &targets.Codex
+	case "agents":
+		return &targets.Agents
+	}
+	return nil
+}
+
+func (targets Targets) all() []TargetOptions {
+	return []TargetOptions{targets.Claude, targets.Pi, targets.Codex, targets.Agents}
 }
 
 // ExtraField is a frontmatter field esheep does not interpret, preserved in
@@ -189,15 +219,21 @@ func (source Package) Gate() []string {
 }
 
 // ReferencedProfiles returns every valid profile name any manifest gates on,
-// sorted.
+// including per-target esheep-targets gates, sorted.
 func (source Package) ReferencedProfiles() []string {
 	union := make(map[string]struct{})
-	for _, manifest := range source.Manifests {
-		for _, profile := range manifestGate(manifest) {
+	collect := func(profiles []string) {
+		for _, profile := range profiles {
 			if naming.ValidateProfileName(profile) != nil {
 				continue
 			}
 			union[profile] = struct{}{}
+		}
+	}
+	for _, manifest := range source.Manifests {
+		collect(manifestGate(manifest))
+		for _, options := range manifest.Document.Targets.all() {
+			collect(options.OnlyProfiles)
 		}
 	}
 
@@ -259,10 +295,6 @@ type rawDocument struct {
 	Metadata               map[string]string `yaml:"metadata"`
 	DisableModelInvocation bool              `yaml:"disable-model-invocation"`
 	OnlyProfiles           []string          `yaml:"esheep-only-profiles"`
-	ClaudeDisabled         bool              `yaml:"esheep-claude-disabled"`
-	PiDisabled             bool              `yaml:"esheep-pi-disabled"`
-	CodexDisabled          bool              `yaml:"esheep-codex-disabled"`
-	AgentsDisabled         bool              `yaml:"esheep-agents-disabled"`
 }
 
 // Parse parses frontmatter, preserves the Markdown body, and validates the
@@ -299,9 +331,12 @@ func parse(data []byte, directoryName string) (Document, []Diagnostic) {
 		return Document{Body: body}, []Diagnostic{{Code: CodeYAML, Err: mappingErr}}
 	}
 
-	extra, diagnostics := validateShape(mapping)
+	extra, targets, targetsSeen, diagnostics := validateShape(mapping)
 	if unmarshalErr != nil {
 		diagnostics = append(diagnostics, Diagnostic{Code: CodeYAML, Err: unmarshalErr})
+	}
+	if !targetsSeen {
+		diagnostics = append(diagnostics, Diagnostic{Code: CodeRequiredField, Field: "esheep-targets"})
 	}
 	var raw rawDocument
 	if err := mapping.Decode(&raw); err != nil {
@@ -319,13 +354,8 @@ func parse(data []byte, directoryName string) (Document, []Diagnostic) {
 		DisableModelInvocation: raw.DisableModelInvocation,
 		OnlyProfiles:           raw.OnlyProfiles,
 		Extra:                  extra,
-		Targets: Targets{
-			Claude: TargetOptions{Disabled: raw.ClaudeDisabled},
-			Pi:     TargetOptions{Disabled: raw.PiDisabled},
-			Codex:  TargetOptions{Disabled: raw.CodexDisabled},
-			Agents: TargetOptions{Disabled: raw.AgentsDisabled},
-		},
-		Body: body,
+		Targets:                targets,
+		Body:                   body,
 	}
 	diagnostics = append(diagnostics, validateValues(document, directoryName)...)
 	return document, diagnostics
@@ -388,8 +418,10 @@ func scalarField(mapping *yaml.Node, field string) string {
 	return ""
 }
 
-func validateShape(mapping *yaml.Node) ([]ExtraField, []Diagnostic) {
+func validateShape(mapping *yaml.Node) ([]ExtraField, Targets, bool, []Diagnostic) {
 	var extra []ExtraField
+	var targets Targets
+	var targetsSeen bool
 	var diagnostics []Diagnostic
 	seen := make(map[string]struct{}, len(mapping.Content)/2)
 	for index := 0; index+1 < len(mapping.Content); index += 2 {
@@ -409,7 +441,7 @@ func validateShape(mapping *yaml.Node) ([]ExtraField, []Diagnostic) {
 			if value.Kind != yaml.ScalarNode || value.Tag != "!!str" {
 				diagnostics = append(diagnostics, invalidType(key, "string"))
 			}
-		case "disable-model-invocation", "esheep-claude-disabled", "esheep-pi-disabled", "esheep-codex-disabled", "esheep-agents-disabled":
+		case "disable-model-invocation":
 			if value.Kind != yaml.ScalarNode || value.Tag != "!!bool" {
 				diagnostics = append(diagnostics, invalidType(key, "boolean"))
 			}
@@ -417,6 +449,11 @@ func validateShape(mapping *yaml.Node) ([]ExtraField, []Diagnostic) {
 			diagnostics = append(diagnostics, validateMetadata(value)...)
 		case "esheep-only-profiles":
 			diagnostics = append(diagnostics, validateOnlyProfiles(value)...)
+		case "esheep-targets":
+			targetsSeen = true
+			var targetDiagnostics []Diagnostic
+			targets, targetDiagnostics = parseTargets(value)
+			diagnostics = append(diagnostics, targetDiagnostics...)
 		default:
 			if strings.HasPrefix(key, "esheep-") {
 				diagnostics = append(diagnostics, Diagnostic{Code: CodeUnknownField, Field: key, Detail: "the esheep- prefix is reserved"})
@@ -425,33 +462,90 @@ func validateShape(mapping *yaml.Node) ([]ExtraField, []Diagnostic) {
 			extra = append(extra, ExtraField{Key: key, Value: value})
 		}
 	}
-	return extra, diagnostics
+	return extra, targets, targetsSeen, diagnostics
 }
 
-func validateOnlyProfiles(node *yaml.Node) []Diagnostic {
+// parseTargets decodes the esheep-targets sequence, where each entry is a
+// target name or a single-pair mapping from a target name to its profile gate.
+func parseTargets(node *yaml.Node) (Targets, []Diagnostic) {
+	var targets Targets
 	if node.Kind != yaml.SequenceNode {
-		return []Diagnostic{invalidType("esheep-only-profiles", "list of strings")}
+		return targets, []Diagnostic{invalidType("esheep-targets", "list of target entries")}
 	}
 	if len(node.Content) == 0 {
-		return []Diagnostic{{Code: CodeInvalidValue, Field: "esheep-only-profiles", Detail: "value must not be empty"}}
+		return targets, []Diagnostic{{Code: CodeInvalidValue, Field: "esheep-targets", Detail: "value must not be empty"}}
 	}
 	var diagnostics []Diagnostic
 	seen := make(map[string]struct{}, len(node.Content))
 	for _, item := range node.Content {
+		name, gate, entryDiagnostics := parseTargetEntry(item)
+		diagnostics = append(diagnostics, entryDiagnostics...)
+		if name == "" && len(entryDiagnostics) != 0 {
+			continue
+		}
+		options := targets.options(name)
+		if options == nil {
+			diagnostics = append(diagnostics, Diagnostic{Code: CodeInvalidValue, Field: "esheep-targets", Detail: fmt.Sprintf("unknown target %q", name)})
+			continue
+		}
+		if _, duplicate := seen[name]; duplicate {
+			diagnostics = append(diagnostics, Diagnostic{Code: CodeInvalidValue, Field: "esheep-targets", Detail: fmt.Sprintf("duplicate target %q", name)})
+			continue
+		}
+		seen[name] = struct{}{}
+		options.Listed = true
+		options.OnlyProfiles = gate
+	}
+	return targets, diagnostics
+}
+
+// parseTargetEntry decodes one esheep-targets entry. Invalid entry shapes
+// return a diagnostic.
+func parseTargetEntry(item *yaml.Node) (string, []string, []Diagnostic) {
+	if item.Kind == yaml.ScalarNode && item.Tag == "!!str" {
+		return item.Value, nil, nil
+	}
+	if item.Kind != yaml.MappingNode || len(item.Content) != 2 ||
+		item.Content[0].Kind != yaml.ScalarNode || item.Content[0].Tag != "!!str" {
+		return "", nil, []Diagnostic{{Code: CodeInvalidValue, Field: "esheep-targets", Detail: "entry must be a target name or a single target-to-profiles pair"}}
+	}
+	target := item.Content[0].Value
+	gate, diagnostics := parseProfileList(item.Content[1], "esheep-targets."+target)
+	return target, gate, diagnostics
+}
+
+func validateOnlyProfiles(node *yaml.Node) []Diagnostic {
+	_, diagnostics := parseProfileList(node, "esheep-only-profiles")
+	return diagnostics
+}
+
+func parseProfileList(node *yaml.Node, field string) ([]string, []Diagnostic) {
+	if node.Kind != yaml.SequenceNode {
+		return nil, []Diagnostic{invalidType(field, "list of strings")}
+	}
+	if len(node.Content) == 0 {
+		return nil, []Diagnostic{{Code: CodeInvalidValue, Field: field, Detail: "value must not be empty"}}
+	}
+	var profiles []string
+	var diagnostics []Diagnostic
+	seen := make(map[string]struct{}, len(node.Content))
+	for _, item := range node.Content {
 		if item.Kind != yaml.ScalarNode || item.Tag != "!!str" {
-			diagnostics = append(diagnostics, invalidType("esheep-only-profiles", "list of strings"))
+			diagnostics = append(diagnostics, invalidType(field, "list of strings"))
 			continue
 		}
 		if err := naming.ValidateProfileName(item.Value); err != nil {
-			diagnostics = append(diagnostics, Diagnostic{Code: CodeInvalidProfile, Field: "esheep-only-profiles", Err: err})
+			diagnostics = append(diagnostics, Diagnostic{Code: CodeInvalidProfile, Field: field, Err: err})
 			continue
 		}
 		if _, duplicate := seen[item.Value]; duplicate {
-			diagnostics = append(diagnostics, Diagnostic{Code: CodeInvalidValue, Field: "esheep-only-profiles", Detail: fmt.Sprintf("duplicate profile %q", item.Value)})
+			diagnostics = append(diagnostics, Diagnostic{Code: CodeInvalidValue, Field: field, Detail: fmt.Sprintf("duplicate profile %q", item.Value)})
+			continue
 		}
 		seen[item.Value] = struct{}{}
+		profiles = append(profiles, item.Value)
 	}
-	return diagnostics
+	return profiles, diagnostics
 }
 
 func validateMetadata(node *yaml.Node) []Diagnostic {

@@ -27,17 +27,18 @@ const (
 	TargetAgents Target = "agents"
 )
 
-// Disabled reports whether a manifest disables a target.
-func Disabled(document skill.Document, target Target) (bool, error) {
+// Disabled reports whether the manifest's esheep-targets list excludes a
+// target under the active profiles.
+func Disabled(document skill.Document, target Target, profiles []string) (bool, error) {
 	switch target {
 	case TargetClaude:
-		return document.Targets.Claude.Disabled, nil
+		return !document.Targets.Claude.Applies(profiles), nil
 	case TargetPi:
-		return document.Targets.Pi.Disabled, nil
+		return !document.Targets.Pi.Applies(profiles), nil
 	case TargetCodex:
-		return document.Targets.Codex.Disabled, nil
+		return !document.Targets.Codex.Applies(profiles), nil
 	case TargetAgents:
-		return document.Targets.Agents.Disabled, nil
+		return !document.Targets.Agents.Applies(profiles), nil
 	default:
 		return false, fmt.Errorf("render: unsupported target %q", target)
 	}
@@ -45,9 +46,9 @@ func Disabled(document skill.Document, target Target) (bool, error) {
 
 // Render writes a skill into an existing empty staging directory using the
 // selected manifest document. A false result means the document disabled this
-// target and the directory was untouched.
-func Render(staging string, source skill.Package, document skill.Document, target Target) (bool, error) {
-	disabled, err := Disabled(document, target)
+// target under the active profiles and the directory was untouched.
+func Render(staging string, source skill.Package, document skill.Document, target Target, profiles []string) (bool, error) {
+	disabled, err := Disabled(document, target, profiles)
 	if err != nil {
 		return false, err
 	}

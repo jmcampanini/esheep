@@ -72,7 +72,7 @@ func TestMilestoneWorkflow(t *testing.T) {
 		}
 	}
 	writeE2ESkill(t, personal, "alpha", "Alpha skill", "argument-hint: SHARED-ARG\n", map[string]string{"data.txt": "alpha data"})
-	writeE2ESkill(t, personal, "local-only", "Local skill", "disable-model-invocation: true\nallowed-tools: Bash\nesheep-pi-disabled: true\n", nil)
+	writeE2ESkill(t, personal, "local-only", "Local skill", "disable-model-invocation: true\nallowed-tools: Bash\nesheep-targets: [claude, codex, agents]\n", nil)
 	writeE2ESkill(t, personal, "same", "Personal collision", "", nil)
 	writeE2ESkill(t, personal, "unsafe", "Unsafe skill", "metadata: no\n", nil)
 	writeE2ESkill(t, work, "beta", "Beta skill", "", nil)
@@ -182,7 +182,7 @@ func TestMilestoneWorkflow(t *testing.T) {
 	assertManifestMetadata(t, filepath.Join(pi, "alpha", "SKILL.md"), "argument-hint: SHARED-ARG", true)
 	assertManifestMetadata(t, filepath.Join(codex, "alpha", "SKILL.md"), "argument-hint: SHARED-ARG", true)
 	assertManifestMetadata(t, filepath.Join(agents, "alpha", "SKILL.md"), "argument-hint: SHARED-ARG", true)
-	assertManifestMetadata(t, filepath.Join(claude, "local-only", "SKILL.md"), "esheep-pi-disabled", false)
+	assertManifestMetadata(t, filepath.Join(claude, "local-only", "SKILL.md"), "esheep-targets", false)
 	assertManifestMetadata(t, filepath.Join(claude, "local-only", "SKILL.md"), "disable-model-invocation: true", true)
 	assertManifestMetadata(t, filepath.Join(claude, "local-only", "SKILL.md"), "allowed-tools: Bash", true)
 	assertManifestMetadata(t, filepath.Join(agents, "local-only", "SKILL.md"), "allowed-tools: Bash", true)
@@ -258,6 +258,7 @@ func TestProfileWorkflow(t *testing.T) {
 	}
 	writeE2ESkill(t, skills, "everywhere", "Everywhere skill", "", nil)
 	writeE2ESkill(t, skills, "gated", "Gated skill", "esheep-only-profiles: [work]\n", nil)
+	writeE2ESkill(t, skills, "target-gated", "Target gated skill", "esheep-targets: [claude: [work]]\n", nil)
 	writeE2ESkill(t, skills, "variant", "Base variant", "", nil)
 	writeE2EVariantManifest(t, skills, "variant", "work", "Work variant")
 	settingsPath := filepath.Join(configHome, "esheep", "esheep.toml")
@@ -295,6 +296,9 @@ enabled = false
 	if _, err := os.Stat(filepath.Join(claude, "gated")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("inactive gated skill was installed: %v", err)
 	}
+	if _, err := os.Stat(filepath.Join(claude, "target-gated")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("target-gated skill was installed without its profile: %v", err)
+	}
 	assertManifestMetadata(t, filepath.Join(claude, "variant", "SKILL.md"), "Base variant", true)
 
 	profilesReport := runEsheep(t, baseEnvironment, "profiles")
@@ -318,11 +322,13 @@ enabled = false
 
 	withProfiles := runEsheep(t, workEnvironment, "sync")
 	assertSuccess(t, withProfiles)
-	if !strings.Contains(withProfiles.stdout, "installed=1") || !strings.Contains(withProfiles.stdout, "repaired=1") {
+	if !strings.Contains(withProfiles.stdout, "installed=2") || !strings.Contains(withProfiles.stdout, "repaired=1") {
 		t.Fatalf("work-profile sync stdout = %s", withProfiles.stdout)
 	}
 	assertMarker(t, claude, "claude", "skills", "gated")
+	assertMarker(t, claude, "claude", "skills", "target-gated")
 	assertManifestMetadata(t, filepath.Join(claude, "gated", "SKILL.md"), "esheep-only-profiles", false)
+	assertManifestMetadata(t, filepath.Join(claude, "target-gated", "SKILL.md"), "esheep-targets", false)
 	assertManifestMetadata(t, filepath.Join(claude, "variant", "SKILL.md"), "Work variant", true)
 
 	status := runEsheep(t, workEnvironment, "skills", "status")
@@ -359,11 +365,14 @@ enabled = false
 
 	switchedBack := runEsheep(t, baseEnvironment, "sync")
 	assertSuccess(t, switchedBack)
-	if !strings.Contains(switchedBack.stdout, "pruned=1") || !strings.Contains(switchedBack.stdout, "inactive=1") {
+	if !strings.Contains(switchedBack.stdout, "pruned=2") || !strings.Contains(switchedBack.stdout, "inactive=1") {
 		t.Fatalf("switch-back sync stdout = %s", switchedBack.stdout)
 	}
 	if _, err := os.Stat(filepath.Join(claude, "gated")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("gated skill survived deactivation: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(claude, "target-gated")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("target-gated skill survived deactivation: %v", err)
 	}
 	assertManifestMetadata(t, filepath.Join(claude, "variant", "SKILL.md"), "Base variant", true)
 	finalStatus := runEsheep(t, baseEnvironment, "skills", "status", "--json")
@@ -591,7 +600,11 @@ func writeE2ESkill(t *testing.T, source, name, description, extra string, suppor
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	manifest := "---\nname: " + name + "\ndescription: '" + description + "'\n" + extra + "---\n# Body\n"
+	manifest := "---\nname: " + name + "\ndescription: '" + description + "'\n"
+	if !strings.Contains(extra, "esheep-targets:") {
+		manifest += "esheep-targets: [claude, pi, codex, agents]\n"
+	}
+	manifest += extra + "---\n# Body\n"
 	if err := os.WriteFile(filepath.Join(root, "SKILL.md"), []byte(manifest), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -612,7 +625,7 @@ func writeE2EVariantManifest(t *testing.T, source, name, profile, description st
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	manifest := "---\nname: " + name + "\ndescription: '" + description + "'\n---\n# Body\n"
+	manifest := "---\nname: " + name + "\ndescription: '" + description + "'\nesheep-targets: [claude, pi, codex, agents]\n---\n# Body\n"
 	if err := os.WriteFile(filepath.Join(root, "SKILL."+profile+".md"), []byte(manifest), 0o600); err != nil {
 		t.Fatal(err)
 	}

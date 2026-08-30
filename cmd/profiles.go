@@ -21,8 +21,8 @@ discovered in configured sources.
 Effective is the resolved active profile list: the profiles setting from
 flags, ESHEEP_PROFILES, or the TOML file, appended with the comma-separated
 values of every environment variable named by env_profiles, deduplicated in
-first-seen order. Referenced is the sorted union of valid profile names that
-manifest filenames and esheep-only-profiles fields gate on; invalid gates
+first-seen order. Referenced is the sorted union of valid profile names gated
+by manifest filenames, esheep-only-profiles, and esheep-targets. Invalid gates
 remain diagnostics but are excluded from Referenced. The command exits
 nonzero only when configuration or filesystem failures prevent complete
 discovery.
