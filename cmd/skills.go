@@ -41,7 +41,7 @@ sources or targets.
 
 Readiness is ready, invalid, collision, or conflict; validation and
 collision diagnostics do not hide known entries. The profile gate column
-shows when a skill applies: all means every profile, and - means no manifest
+shows when a manifest applies: all means every profile, and - means no manifest
 was loadable. The command exits nonzero only when configuration or
 filesystem failures prevent complete discovery.
 
@@ -49,7 +49,7 @@ filesystem failures prevent complete discovery.
 
 ` + jsonContractHelp + ` List JSON includes "complete" and
 "effective_profiles". Each skill's optional "profile_gate" lists the profiles
-that limit it.`,
+that limit manifest selection.`,
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			loaded, err := loadConfiguration(command, load)
@@ -103,7 +103,7 @@ and every target is synced, inactive, or disabled.
 
 ` + jsonContractHelp + ` Status JSON includes "healthy" and
 "effective_profiles". Each skill's optional "profile_gate" lists the profiles
-that limit it.`,
+that limit manifest selection.`,
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			loaded, err := loadConfiguration(command, load)
