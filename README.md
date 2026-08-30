@@ -2,7 +2,7 @@
 
 esheep manages Agent Skills from human-maintained source directories and renders them for Claude Code, Pi, Codex, and the shared Agent Skills directory. It never accesses the network and never creates, updates, or deletes source directories.
 
-Milestone 1 is delivered incrementally. The current command surface provides versioning, completion, effective-configuration reporting, source inventory, ownership-safe synchronization, and deployment health inspection. Linting arrives in the final chunk.
+The command surface provides versioning, completion, effective-configuration reporting, source inventory, ownership-safe synchronization, and deployment health inspection.
 
 ## Platform support
 
@@ -16,19 +16,32 @@ go install github.com/jmcampanini/esheep@main
 
 ## Commands
 
-```sh
-esheep --version
-esheep completion zsh
-esheep config
-esheep config --provenance
-esheep skills list
-esheep skills list --json
-esheep sync
-esheep skills status
-esheep skills status --json
-```
+| Command | Result |
+|---|---|
+| `esheep` or `esheep --help` | Show root help. |
+| `esheep help [command]` or `esheep <command> --help` | Show command help. |
+| `esheep --version` | Print the build version. |
+| `esheep completion <bash\|zsh\|fish\|powershell>` | Write a shell completion script. |
+| `esheep config [--provenance]` | Write the effective configuration and resolved paths. |
+| `esheep skills` | Show help for skill inspection. |
+| `esheep skills list [--json]` | Inventory skills in every configured source. |
+| `esheep sync` | Reconcile enabled targets with configured sources. |
+| `esheep skills status [--json]` | Report source readiness and per-target deployment health. |
 
-Commands never prompt. Payloads are written to stdout and diagnostics are written to stderr. Exit status `0` means success, `1` means a valid command failed because of application state or input, and `2` means invalid command usage or command wiring failure. Human inspection and synchronization output use color only on terminals and honor `NO_COLOR`; redirected and JSON output contains no terminal escapes.
+`--config`, the target flags documented below, and `--help` are available on subcommands. Help, version, and completion do not load configuration. For example, `esheep completion zsh` writes Zsh completion. Commands accept only the arguments shown and never prompt.
+
+Command payloads, help, and completion scripts go to stdout. Human-readable diagnostics and final error messages go to stderr; synchronization action rows and its summary remain payload on stdout. JSON inspection writes one complete document, including structured diagnostics, to stdout and does not duplicate an unsuccessful report as a stderr error. Human inspection and synchronization output use color only on terminals and honor `NO_COLOR`; redirected and JSON output contains no terminal escapes.
+
+Exit status `0` means success. Exit status `1` means configuration, source input, target state, or output prevented a valid command from succeeding. Exit status `2` means invalid command usage or command wiring failure.
+
+## Local-source workflow
+
+1. Run `esheep config --provenance` to inspect the settings, precedence, and resolved paths without requiring source directories to exist.
+2. Run `esheep skills list` to inspect each discovered skill's readiness without changing sources or targets. Use `--json` for automation.
+3. Run `esheep sync` to install, repair, and prune esheep-owned output on enabled targets. The command continues unrelated work after individual skill or target failures and returns exit status `1` when its final summary contains failures.
+4. Run `esheep skills status` as a deployment health check. Use `--json` for automation; drift, missing output, blocked destinations, invalid skills, and collisions make status unhealthy.
+
+After changing a source, rerun `sync` and then `skills status`. Esheep reads only local settings and source content and never accesses the network.
 
 ## Configuration
 
@@ -67,15 +80,15 @@ enabled = false
 path = "~/.agents/skills"
 ```
 
-Each target has matching flags such as `--claude-enabled=false` and `--claude-path PATH`, and environment variables such as `ESHEEP_CLAUDE_ENABLED` and `ESHEEP_CLAUDE_PATH`.
+The target prefixes are `claude`, `pi`, `codex`, and `agents`. Each has `--<target>-enabled=<bool>` and `--<target>-path PATH` flags plus matching `ESHEEP_<TARGET>_ENABLED` and `ESHEEP_<TARGET>_PATH` environment variables. For example, `--claude-enabled=false` overrides `ESHEEP_CLAUDE_ENABLED` and TOML for that invocation.
 
-Source and target paths must be absolute, exactly `~`, or begin with `~/`; boundary rules still reject the home directory itself as a target. Source roots must be distinct and non-nested. Enabled target roots must also be distinct and non-nested, may not overlap a source root, and may not be `/` or the home directory. Esheep never creates, updates, or deletes source directories; users choose how those directories are maintained.
+Source names are case-insensitively unique safe slash-separated identifiers. Source and target paths must be absolute, exactly `~`, or begin with `~/`; boundary rules still reject the home directory itself as a target. Source roots must be distinct and non-nested. Enabled target roots must also be distinct and non-nested, may not be symlinks, may not overlap a source root, and may not be `/` or the home directory. Users own the settings file and source directories and choose how both are maintained. Esheep never creates, updates, or deletes either one.
 
-`esheep config` emits redirectable TOML followed by comments showing resolved configuration, source, and target paths. `--provenance` adds the source of each setting. The command reads but never creates or modifies `esheep.toml`.
+`esheep config` emits redirectable TOML followed by comments showing resolved configuration, source, and target paths. `--provenance` adds the source of each setting. The command reads but never creates or modifies `esheep.toml`. Invalid configuration or an explicitly selected file that cannot be loaded fails before any skill or target processing.
 
 ## Skill discovery and rendering
 
-Each source is a collection of top-level skill directories. Discovery inspects only immediate non-symlink child directories containing `SKILL.md`; the source root and grouping directories are not skills. Dot-directories and `node_modules` are skipped. Recognized skill contents are traversed to validate supporting files. Supporting paths must be unique under case-insensitive Unicode-normalized comparison, and absolute, escaping, cyclic, and directory symlinks are rejected.
+Each source is a read-only collection of top-level skill directories. Discovery inspects only immediate non-symlink child directories containing `SKILL.md`; the source root and grouping directories are not skills. Dot-directories and `node_modules` are skipped. Recognized skill contents are traversed to validate supporting files. Supporting paths must be unique under case-insensitive Unicode-normalized comparison, and absolute, escaping, cyclic, and directory symlinks are rejected. A missing, unreadable, or non-directory source makes source-consuming commands fail; help, version, completion, and `config` do not require sources to exist.
 
 Skills use declarative YAML frontmatter and a Markdown body. Command hooks, `allowed-tools`, and policies that grant or broaden execution permissions are rejected. Every `claude`, `pi`, `codex`, or `agents` target block may disable that render. Claude and Pi also support the inert `argument-hint` field; Codex and agents support no additional metadata in Milestone 1.
 
@@ -93,7 +106,7 @@ skill = "review-pr"
 target = "claude"
 ```
 
-Synchronization never modifies an unmarked, mismatched, or symlinked destination. It stages replacements on the target filesystem, restores the prior directory when a swap fails before commit, detects skill and destination collisions case-insensitively, and prunes only validly marked stale output. Invalid, colliding, or unavailable configured source skills protect existing output because that output is not proven stale. Disabled targets remain entirely untouched.
+Esheep owns only an installed directory whose regular `.esheep.toml` marker exactly matches its source, skill, and target. Synchronization never modifies an unmarked, mismatched, or symlinked destination. It stages replacements on the target filesystem, restores the prior directory when a swap fails before commit, detects skill and destination collisions case-insensitively, and prunes only validly marked stale output. Invalid, colliding, or unavailable configured source skills protect existing output because that output is not proven stale. Disabled targets remain entirely untouched. A blocked destination, validation failure, unavailable source, collision, installation failure, or pruning failure appears in the final report and makes `sync` exit `1` after unrelated work is attempted.
 
 `esheep skills status` reports each ready skill as `synced`, `drifted`, `missing`, `disabled`, or `blocked` for every target. Invalid and colliding source skills have no target state. `blocked` means a destination or target cannot be inspected or managed safely. Status is a health check: it exits `0` only when every source skill is ready and every target is synced or disabled.
 

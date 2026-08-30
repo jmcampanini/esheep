@@ -5,7 +5,7 @@
 - [x] Chunk 1 — Foundation and local source configuration
 - [x] Chunk 2 — Discovery, validation, and rendering
 - [x] Chunk 3 — Ownership-safe synchronization and inspection
-- [ ] Chunk 4 — Linting, documentation, and milestone verification
+- [x] Chunk 4 — Documentation and milestone verification
 
 ## Goal
 
@@ -20,7 +20,6 @@ esheep config
 esheep skills list
 esheep sync
 esheep skills status
-esheep lint
 ```
 
 ## Settled behavior
@@ -94,7 +93,7 @@ The Markdown body is preserved byte-for-byte. Rendering is deterministic:
 
 ### Collisions
 
-Skill names compare case-insensitively across all sources. A collision installs nothing for that name, reports every source, continues processing unrelated skills, and causes a nonzero final status. `lint` reports the same collision.
+Skill names compare case-insensitively across all sources. A collision installs nothing for that name, reports every source, continues processing unrelated skills, and causes a nonzero final status.
 
 ### Installation and ownership
 
@@ -128,7 +127,6 @@ Commands are:
 - `esheep sync`;
 - `esheep skills list [--json]`;
 - `esheep skills status [--json]`;
-- `esheep lint`;
 - `esheep completion <bash|zsh|fish|powershell>`;
 - `esheep --version`.
 
@@ -137,8 +135,6 @@ Commands are:
 `skills list` inventories every discovered source skill with `ready`, `invalid`, or `collision` readiness. It is observational and exits nonzero only when configuration or filesystem failures prevent complete discovery.
 
 `skills status` reports source readiness and each target's `synced`, `drifted`, `missing`, `disabled`, or `blocked` state. Invalid and colliding source skills have no target state. It exits nonzero unless every source skill is ready and every target is synced or disabled. An occupied unowned, mismatched, symlinked, or case-colliding destination, or a target that cannot be inspected safely, is blocked. `--json` emits one complete uncolored document with structured diagnostics for either inspection command.
-
-`lint` reports compiler-style diagnostics; errors exit nonzero and warnings exit zero.
 
 ### Build and distribution
 
@@ -231,22 +227,42 @@ Human proof: inventory and synchronize two local fixture sources into isolated C
 
 Agent verification: run installation and command tests; execute the complete isolated real-binary lifecycle proof; inspect every target and marker; then run `make check`.
 
-## Chunk 4 — Linting, documentation, and milestone verification
+## Chunk 4 — Documentation and milestone verification
 
-**Human outcome:** Users can diagnose all configured sources without installation, and documentation matches the complete local-source workflow.
+**Human outcome:** Documentation matches the complete local-source workflow, command surface, ownership boundaries, streams, exit statuses, and failure behavior.
+
+This is a review-only slice because final documentation and milestone acceptance reconciliation depend on the completed behavior from Chunks 1–3. It produces no chunk demo.
 
 Implementation:
 
-- Add `lint` with all parser, declarative-subset, symlink, name, and collision diagnostics.
-- Complete README command, configuration, ownership, and failure documentation.
-- Complete durable e2e coverage and reconcile milestone documents.
+- Complete README command, local-source workflow, configuration, ownership, stream, exit-status, and failure documentation.
+- Reconcile the milestone acceptance boundary and roadmap with the delivered command surface.
+- Confirm the existing focused and built-binary coverage forms the milestone verification workflow.
 
-Primary tests:
+Primary verification:
 
-- Linter tests own diagnostic semantics and exit behavior.
-- Documentation/link checks own command and path consistency.
-- Durable e2e owns the representative `config → skills list → sync → skills status → lint` workflow.
+- Documentation tests and review own command, link, path, ownership, stream, exit-status, and failure consistency with CLI help and observable behavior.
+- Focused configuration, discovery, validation, rendering, installation, management, command, and UI tests own their settled contracts.
+- Durable e2e owns the built-binary `config → skills list → sync → skills status` workflow, isolated HOME/XDG behavior, validation and collision failure and recovery, every target render variant, settings and source immutability, target ownership boundaries, drift repair, exact pruning, and disabled-target preservation.
 
-Human proof: run lint against fixtures containing each error category, repair them, rerun the complete lifecycle, and confirm all commands succeed.
+Human proof:
 
-Agent verification: run lint and documentation checks, execute the complete milestone workflow from a clean isolated HOME/XDG environment using the real built binary, verify source directories remain byte-for-byte unchanged and target ownership boundaries hold, run `make check`, and confirm the tracked working tree is unchanged by verification.
+```sh
+set -eu
+before=".sandbox/$(namo --prefix m1-c4-status-before).txt"
+after=".sandbox/$(namo --prefix m1-c4-status-after).txt"
+git status --short >"$before"
+make check
+./build/esheep --help
+./build/esheep completion --help
+./build/esheep config --help
+./build/esheep skills --help
+./build/esheep skills list --help
+./build/esheep skills status --help
+./build/esheep sync --help
+git diff --check
+git status --short >"$after"
+diff -u "$before" "$after"
+```
+
+Agent verification: run the exact human proof, inspect the documentation-test and real-binary e2e results within `make check`, and confirm the help output, documented command surface, local-source workflow, and tracked working tree remain consistent.

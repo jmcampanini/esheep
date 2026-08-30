@@ -15,10 +15,9 @@ temporary executable implementation plan. Both are retired at consolidation.
 Milestone 1 establishes the complete local skill-management loop: a Go CLI
 scaffold and build/release baseline; human-owned local source and target
 configuration; skill discovery, declarative Agent Skills validation, per-harness
-rendering, atomic installation, ownership-safe pruning, drift inspection, and
-linting. Its acceptance boundary
-is defined in [`MILESTONE_1.md`](MILESTONE_1.md), with implementation and
-verification in the temporary root [`PLAN.md`](../PLAN.md).
+rendering, atomic installation, ownership-safe pruning, and drift inspection.
+Its acceptance boundary is defined in [`MILESTONE_1.md`](MILESTONE_1.md), with
+implementation and verification in the temporary root [`PLAN.md`](../PLAN.md).
 
 ## Later, unplanned
 
