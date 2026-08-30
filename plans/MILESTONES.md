@@ -2,7 +2,7 @@
 
 `plans/PROCESS.md` is the workflow contract. The active milestone file is
 authoritative for product outcomes and acceptance; root `PLAN.md` is the
-temporary executable implementation plan. Both are retired at consolidation.
+temporary executable implementation plan. Both are retired in the consolidation phase's post-review wrap-up.
 
 ## Active
 

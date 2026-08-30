@@ -107,7 +107,7 @@ target = "claude"
 
 A directory is owned only when its marker is a regular file with valid fields matching the expected source, skill, and target. Symlinked destination directories or markers are unowned. Esheep never modifies or removes an unowned or mismatched directory.
 
-Target roots may not be symlinks. Render each skill into a temporary directory under its target root, then perform a rollback-capable same-filesystem swap. Failed installation restores the prior directory and cleans temporary state. Fresh renders determine drift; no content hashes are stored.
+Target roots may not be symlinks. Render each skill into a temporary directory under its target root, then perform a rollback-capable same-filesystem swap. A failure before commit restores the prior visible directory. Once the intended visible state is committed and verified, a transaction-cleanup failure preserves that state, returns a specific nonzero error naming the leftover transaction, and does not attempt a second risky rollback. Fresh renders determine drift; no content hashes are stored.
 
 Prune only validly marked installations whose source skill is missing, disabled for that target, or removed from configuration. Pruning applies only to enabled targets. Concurrent mutating commands are unsupported in Milestone 1.
 
@@ -134,7 +134,7 @@ Commands are:
 
 `skills list` inventories every discovered source skill with `ready`, `invalid`, or `collision` readiness. It is observational and exits nonzero only when configuration or filesystem failures prevent complete discovery.
 
-`skills status` reports source readiness and each target's `synced`, `drifted`, `missing`, `disabled`, or `blocked` state. Invalid and colliding source skills have no target state. It exits nonzero unless every source skill is ready and every target is synced or disabled. An occupied unowned, mismatched, symlinked, or case-colliding destination, or a target that cannot be inspected safely, is blocked. `--json` emits one complete uncolored document with structured diagnostics for either inspection command.
+`skills status` reports source readiness and each target's `synced`, `drifted`, `missing`, `disabled`, or `blocked` state. Invalid and colliding source skills have no target state. It independently inspects every enabled target even when no skills are discovered, while missing and valid empty targets remain healthy. It exits nonzero unless every source skill is ready and every target is synced or disabled. An occupied unowned, mismatched, symlinked, or case-colliding destination, or a target that cannot be inspected safely, is blocked. `--json` emits one complete uncolored document with structured diagnostics for either inspection command.
 
 ### Build and distribution
 

@@ -58,6 +58,37 @@ type Result struct {
 	Identity Identity
 }
 
+// CleanupError reports a transaction directory that could not be removed.
+type CleanupError struct {
+	Err  error
+	Path string
+}
+
+func (e *CleanupError) Error() string {
+	return fmt.Sprintf("clean target transaction %q: %v", e.Path, e.Err)
+}
+
+// Unwrap returns the underlying filesystem error.
+func (e *CleanupError) Unwrap() error {
+	return e.Err
+}
+
+// TargetRootError reports an operation that failed before a skill destination
+// could be inspected or changed.
+type TargetRootError struct {
+	Err  error
+	Path string
+}
+
+func (e *TargetRootError) Error() string {
+	return e.Err.Error()
+}
+
+// Unwrap returns the underlying target-root error.
+func (e *TargetRootError) Unwrap() error {
+	return e.Err
+}
+
 type filesystem struct {
 	exchange  func(*targetRoot, string, string) error
 	noReplace func(*targetRoot, string, string) error
@@ -70,6 +101,26 @@ var defaultFilesystem = filesystem{
 	noReplace: (*targetRoot).renameNoReplace,
 	removeAll: (*os.Root).RemoveAll,
 	rename:    (*os.Root).Rename,
+}
+
+// InspectTarget verifies that an existing target root can be inspected safely
+// without creating or modifying it. A missing target is safe.
+func InspectTarget(ctx context.Context, path string) (resultErr error) {
+	if path == "" {
+		return fmt.Errorf("inspect target: invalid path")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	root, exists, err := openTargetRoot(path, false)
+	if err != nil || !exists {
+		return err
+	}
+	defer func() { resultErr = errors.Join(resultErr, root.close()) }()
+
+	_, err = root.readDir()
+	return err
 }
 
 // Inspect compares an expected skill with its target installation without
@@ -92,7 +143,7 @@ func Inspect(ctx context.Context, request Request) (state State, resultErr error
 
 	root, exists, err := openTargetRoot(request.Root, false)
 	if err != nil {
-		return "", err
+		return "", &TargetRootError{Err: err, Path: request.Root}
 	}
 	if !exists {
 		return StateMissing, nil
@@ -151,7 +202,7 @@ func reconcile(ctx context.Context, request Request, fsys filesystem) (result Re
 	root, _, err := openTargetRoot(request.Root, true)
 	if err != nil {
 		result.Action = ActionFailed
-		return result, err
+		return result, &TargetRootError{Err: err, Path: request.Root}
 	}
 	defer func() { resultErr = errors.Join(resultErr, root.close()) }()
 
@@ -169,7 +220,7 @@ func reconcile(ctx context.Context, request Request, fsys filesystem) (result Re
 	transactionName, transactionPath, err := root.createTransaction(".esheep-txn-")
 	if err != nil {
 		result.Action = ActionFailed
-		return result, err
+		return result, &TargetRootError{Err: err, Path: request.Root}
 	}
 	stagingPath, err := renderInTransaction(transactionPath, request)
 	if err != nil {
@@ -208,7 +259,11 @@ func reconcile(ctx context.Context, request Request, fsys filesystem) (result Re
 }
 
 // Prune removes validly owned installations selected by stale.
-func Prune(ctx context.Context, path string, target render.Target, stale func(Marker) bool) (results []Result, resultErr error) {
+func Prune(ctx context.Context, path string, target render.Target, stale func(Marker) bool) ([]Result, error) {
+	return prune(ctx, path, target, stale, defaultFilesystem)
+}
+
+func prune(ctx context.Context, path string, target render.Target, stale func(Marker) bool, fsys filesystem) (results []Result, resultErr error) {
 	if path == "" || !validTarget(target) || stale == nil {
 		return nil, fmt.Errorf("prune target: invalid request")
 	}
@@ -228,7 +283,7 @@ func Prune(ctx context.Context, path string, target render.Target, stale func(Ma
 	}
 	for _, entry := range entries {
 		if err := ctx.Err(); err != nil {
-			return results, err
+			return results, errors.Join(resultErr, err)
 		}
 		if !stale(entry.marker) {
 			continue
@@ -239,16 +294,19 @@ func Prune(ctx context.Context, path string, target render.Target, stale func(Ma
 			Identity: Identity{Skill: entry.marker.Skill, Source: entry.marker.Source, Target: target},
 		}
 		transactionName, _, err := root.createTransaction(".esheep-prune-")
+		committed := false
 		if err == nil {
-			err = pruneOwned(root, entry, transactionName, defaultFilesystem)
+			committed, err = pruneOwned(root, entry, transactionName, fsys)
 		}
-		if err != nil {
+		if err != nil && committed {
+			resultErr = errors.Join(resultErr, err)
+		} else if err != nil {
 			result.Action = ActionFailed
 			result.Detail = err.Error()
 		}
 		results = append(results, result)
 	}
-	return results, nil
+	return results, resultErr
 }
 
 func validateRequest(request Request) error {
@@ -358,7 +416,6 @@ func verifyDestination(root *targetRoot, identity Identity, expected destination
 }
 
 func installFresh(result Result, root *targetRoot, stagingName string, stagingInfo os.FileInfo, transactionName string, fsys filesystem) (Result, error) {
-	result.Action = ActionInstalled
 	result.Detail = "new installation"
 	if err := root.verifyPath(); err != nil {
 		result.Action = ActionFailed
@@ -393,8 +450,12 @@ func installFresh(result Result, root *targetRoot, stagingName string, stagingIn
 		return result, errors.Join(err, cleanupTransaction(fsys, root, transactionName))
 	}
 	if err := root.verifyPath(); err != nil {
+		result.Action = ActionFailed
+		result.Detail = err.Error()
 		return result, errors.Join(err, cleanupTransaction(fsys, root, transactionName))
 	}
+
+	result.Action = ActionInstalled
 	return result, cleanupTransaction(fsys, root, transactionName)
 }
 
@@ -477,37 +538,37 @@ func rollbackExchanged(root *targetRoot, skillName, displacedName string, instal
 	return errors.Join(cause, cleanupTransaction(fsys, root, transactionName))
 }
 
-func pruneOwned(root *targetRoot, entry ownedInstallation, transactionName string, fsys filesystem) error {
+func pruneOwned(root *targetRoot, entry ownedInstallation, transactionName string, fsys filesystem) (bool, error) {
 	backupName := filepath.Join(transactionName, "backup")
 	if err := root.verifyPath(); err != nil {
-		return errors.Join(err, cleanupTransaction(fsys, root, transactionName))
+		return false, errors.Join(err, cleanupTransaction(fsys, root, transactionName))
 	}
 	if err := root.verifyEntry(entry.name, entry.info); err != nil {
-		return errors.Join(err, cleanupTransaction(fsys, root, transactionName))
+		return false, errors.Join(err, cleanupTransaction(fsys, root, transactionName))
 	}
 	if err := fsys.rename(root.handle, entry.name, backupName); err != nil {
-		return errors.Join(fmt.Errorf("stage stale installation: %w", err), cleanupTransaction(fsys, root, transactionName))
+		return false, errors.Join(fmt.Errorf("stage stale installation: %w", err), cleanupTransaction(fsys, root, transactionName))
 	}
 	if err := root.verifyEntry(backupName, entry.info); err != nil {
 		rollbackErr := fsys.noReplace(root, backupName, entry.name)
-		return errors.Join(err, rollbackErr)
+		return false, errors.Join(err, rollbackErr)
 	}
 	identity := Identity{Skill: entry.marker.Skill, Source: entry.marker.Source, Target: entry.marker.Target}
 	owned, ownershipErr := root.ownedAt(backupName, identity)
 	if ownershipErr != nil || !owned {
 		rollbackErr := fsys.noReplace(root, backupName, entry.name)
-		return errors.Join(fmt.Errorf("verify staged ownership: ownership changed"), ownershipErr, rollbackErr)
+		return false, errors.Join(fmt.Errorf("verify staged ownership: ownership changed"), ownershipErr, rollbackErr)
 	}
 	if err := root.verifyPath(); err != nil {
 		rollbackErr := fsys.noReplace(root, backupName, entry.name)
-		return errors.Join(err, rollbackErr)
+		return false, errors.Join(err, rollbackErr)
 	}
-	return cleanupTransaction(fsys, root, transactionName)
+	return true, cleanupTransaction(fsys, root, transactionName)
 }
 
 func cleanupTransaction(fsys filesystem, root *targetRoot, transactionName string) error {
 	if err := fsys.removeAll(root.handle, transactionName); err != nil {
-		return fmt.Errorf("clean target transaction %q: %w", filepath.Join(root.path, transactionName), err)
+		return &CleanupError{Err: err, Path: filepath.Join(root.path, transactionName)}
 	}
 	return nil
 }

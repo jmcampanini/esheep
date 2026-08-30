@@ -73,6 +73,116 @@ func TestStatusReportsInspectionFailureAsBlocked(t *testing.T) {
 	if report.Healthy || status.Targets["claude"] != install.StateBlocked || len(report.Diagnostics) != 1 {
 		t.Fatalf("report = %#v", report)
 	}
+	wantPath := loaded.ResolvedTargets.Claude
+	if diagnostic := report.Diagnostics[0]; diagnostic.Path != wantPath || diagnostic.Target != "claude" {
+		t.Fatalf("diagnostic = %#v, want target root %q", diagnostic, wantPath)
+	}
+}
+
+func TestStatusInspectsEnabledTargetsWithoutSkills(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	source := filepath.Join(root, "source")
+	if err := os.Mkdir(source, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	claude := filepath.Join(root, "claude")
+	if err := os.WriteFile(claude, []byte("not a target directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded := testConfig(source, "", claude, filepath.Join(root, "pi"), filepath.Join(root, "codex"), filepath.Join(root, "agents"))
+	loaded.Config.Targets.Pi.Enabled = false
+	loaded.ResolvedSources = []config.ResolvedSource{{Name: "source", Path: source}}
+
+	report := Status(context.Background(), loaded)
+	if report.Healthy || len(report.Skills) != 0 || len(report.Diagnostics) != 1 {
+		t.Fatalf("report = %#v", report)
+	}
+	wantPath := loaded.ResolvedTargets.Claude
+	if diagnostic := report.Diagnostics[0]; diagnostic.Code != "target-inspection" || diagnostic.Path != wantPath || diagnostic.Target != "claude" {
+		t.Fatalf("diagnostic = %#v, want blocked target root %q", diagnostic, wantPath)
+	}
+}
+
+func TestSyncReportsTargetDestinationPath(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	source := filepath.Join(root, "source")
+	writeSourceSkill(t, source, "demo", "Ready", "")
+	claude := filepath.Join(root, "claude")
+	if err := os.MkdirAll(filepath.Join(claude, "demo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	loaded := testConfig(source, "", claude, filepath.Join(root, "pi"), filepath.Join(root, "codex"), filepath.Join(root, "agents"))
+	loaded.Config.Targets.Pi.Enabled = false
+	loaded.ResolvedSources = []config.ResolvedSource{{Name: "source", Path: source}}
+
+	report := Sync(context.Background(), loaded)
+	if report.Summary.Blocked != 1 || len(report.Diagnostics) != 1 {
+		t.Fatalf("report = %#v", report)
+	}
+	wantPath := filepath.Join(loaded.ResolvedTargets.Claude, "demo")
+	if diagnostic := report.Diagnostics[0]; diagnostic.Code != "synchronization" || diagnostic.Path != wantPath {
+		t.Fatalf("diagnostic = %#v, want destination %q", diagnostic, wantPath)
+	}
+}
+
+func TestSyncReportsTargetRootPathOnce(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	source := filepath.Join(root, "source")
+	writeSourceSkill(t, source, "demo", "Ready", "")
+	claude := filepath.Join(root, "claude")
+	if err := os.WriteFile(claude, []byte("not a target directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded := testConfig(source, "", claude, filepath.Join(root, "pi"), filepath.Join(root, "codex"), filepath.Join(root, "agents"))
+	loaded.Config.Targets.Pi.Enabled = false
+	loaded.ResolvedSources = []config.ResolvedSource{{Name: "source", Path: source}}
+
+	report := Sync(context.Background(), loaded)
+	if report.Summary.Failed != 1 || len(report.Diagnostics) != 1 {
+		t.Fatalf("report = %#v", report)
+	}
+	wantPath := loaded.ResolvedTargets.Claude
+	if diagnostic := report.Diagnostics[0]; diagnostic.Code != "target-inspection" || diagnostic.Path != wantPath || diagnostic.Target != "claude" {
+		t.Fatalf("diagnostic = %#v, want target root %q", diagnostic, wantPath)
+	}
+}
+
+func TestSyncReportsTargetRootWriteFailureOnce(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	source := filepath.Join(root, "source")
+	writeSourceSkill(t, source, "first", "First", "")
+	writeSourceSkill(t, source, "second", "Second", "")
+	claude := filepath.Join(root, "claude")
+	if err := os.Mkdir(claude, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(claude, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(claude, 0o755) })
+	probe := filepath.Join(claude, "write-probe")
+	if err := os.Mkdir(probe, 0o755); err == nil {
+		_ = os.Remove(probe)
+		t.Skip("process privileges bypass target directory permissions")
+	} else if !errors.Is(err, os.ErrPermission) {
+		t.Fatalf("probe target write permission: %v", err)
+	}
+	loaded := testConfig(source, "", claude, filepath.Join(root, "pi"), filepath.Join(root, "codex"), filepath.Join(root, "agents"))
+	loaded.Config.Targets.Pi.Enabled = false
+	loaded.ResolvedSources = []config.ResolvedSource{{Name: "source", Path: source}}
+
+	report := Sync(context.Background(), loaded)
+	if report.Summary.Failed != 1 || len(report.Diagnostics) != 1 {
+		t.Fatalf("report = %#v", report)
+	}
+	wantPath := loaded.ResolvedTargets.Claude
+	if diagnostic := report.Diagnostics[0]; diagnostic.Code != "synchronization" || diagnostic.Path != wantPath || diagnostic.Target != "claude" {
+		t.Fatalf("diagnostic = %#v, want target root %q", diagnostic, wantPath)
+	}
 }
 
 func TestSyncContinuesUnrelatedInstallationAfterCollision(t *testing.T) {

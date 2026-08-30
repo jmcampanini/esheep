@@ -429,6 +429,28 @@ func TestPostCommitCleanupFailureKeepsNewInstallation(t *testing.T) {
 	if err == nil || result.Action != ActionInstalled {
 		t.Fatalf("reconcile() = %#v, %v, want committed cleanup error", result, err)
 	}
+	requireCleanupError(t, err, request.Root, ".esheep-txn-")
+	state, inspectErr := Inspect(context.Background(), request)
+	if inspectErr != nil || state != StateSynced {
+		t.Fatalf("Inspect() = %q, %v, want %q", state, inspectErr, StateSynced)
+	}
+}
+
+func TestPostCommitCleanupFailureKeepsReplacement(t *testing.T) {
+	t.Parallel()
+	request := installRequest(t, t.TempDir())
+	if _, err := Reconcile(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	request.Package.Document.Body = []byte("changed\n")
+	fsys := defaultFilesystem
+	fsys.removeAll = func(*os.Root, string) error { return errors.New("injected cleanup failure") }
+
+	result, err := reconcile(context.Background(), request, fsys)
+	if err == nil || result.Action != ActionRepaired {
+		t.Fatalf("reconcile() = %#v, %v, want committed cleanup error", result, err)
+	}
+	requireCleanupError(t, err, request.Root, ".esheep-txn-")
 	state, inspectErr := Inspect(context.Background(), request)
 	if inspectErr != nil || state != StateSynced {
 		t.Fatalf("Inspect() = %q, %v, want %q", state, inspectErr, StateSynced)
@@ -469,6 +491,23 @@ func TestTreeComparisonStreamsLargeRegularFilesExactly(t *testing.T) {
 	}
 }
 
+func TestPostCommitCleanupFailureKeepsPrune(t *testing.T) {
+	t.Parallel()
+	root := canonicalTestPath(t, t.TempDir())
+	writeOwned(t, root, Marker{Source: "removed", Skill: "stale", Target: render.TargetClaude})
+	fsys := defaultFilesystem
+	fsys.removeAll = func(*os.Root, string) error { return errors.New("injected cleanup failure") }
+
+	results, err := prune(context.Background(), root, render.TargetClaude, func(Marker) bool { return true }, fsys)
+	if len(results) != 1 || results[0].Action != ActionPruned || results[0].Identity.Skill != "stale" {
+		t.Fatalf("prune() results = %#v, want committed prune", results)
+	}
+	requireCleanupError(t, err, root, ".esheep-prune-")
+	if _, statErr := os.Stat(filepath.Join(root, "stale")); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("committed prune destination still exists: %v", statErr)
+	}
+}
+
 func TestPruneRemovesOnlyExactlyOwnedStaleInstallations(t *testing.T) {
 	t.Parallel()
 	root := canonicalTestPath(t, t.TempDir())
@@ -502,6 +541,17 @@ func TestPruneRemovesOnlyExactlyOwnedStaleInstallations(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, "stale")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("stale directory still exists: %v", err)
+	}
+}
+
+func requireCleanupError(t *testing.T, err error, root, transactionPrefix string) {
+	t.Helper()
+	var cleanupErr *CleanupError
+	if !errors.As(err, &cleanupErr) {
+		t.Fatalf("error = %v, want *CleanupError", err)
+	}
+	if filepath.Dir(cleanupErr.Path) != root || !strings.HasPrefix(filepath.Base(cleanupErr.Path), transactionPrefix) {
+		t.Fatalf("cleanup path = %q, want %q transaction under %q", cleanupErr.Path, transactionPrefix, root)
 	}
 }
 
