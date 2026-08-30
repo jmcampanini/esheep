@@ -8,10 +8,28 @@ The command surface provides versioning, completion, effective-configuration rep
 
 esheep supports macOS and Linux.
 
-## Install or upgrade from HEAD
+## Install
+
+esheep distributes from HEAD only; there is no stable release channel.
+
+### Homebrew
 
 ```sh
-go install github.com/jmcampanini/esheep@main
+brew tap jmcampanini/esheep https://github.com/jmcampanini/esheep
+brew install --HEAD jmcampanini/esheep/esheep
+```
+
+Upgrade to the latest commit:
+
+```sh
+brew upgrade --fetch-HEAD esheep
+```
+
+### From source
+
+```sh
+make build
+# then copy ./build/esheep to a directory on your PATH
 ```
 
 ## Commands
