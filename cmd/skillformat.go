@@ -11,9 +11,9 @@ func newSkillFormatTopic() *cobra.Command {
 		Long: `Each source is a read-only collection of top-level skill directories: an
 immediate child directory containing a manifest is a skill. Dot-entries and
 node_modules are skipped. Sources are trusted: symlinks anywhere beneath a
-source are followed wherever they resolve, and a link that does not resolve
-is an error. Supporting files are validated and rendered as non-executable
-data, and supporting paths must be unique under case-insensitive
+source are followed wherever they resolve. A link that does not resolve or
+produces a directory cycle is an error. Supporting files are validated and
+rendered as non-executable data, and supporting paths must be unique under case-insensitive
 Unicode-normalized comparison. The root .esheep.toml name is reserved for
 ownership metadata.
 
