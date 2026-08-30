@@ -366,10 +366,14 @@ func installFresh(result Result, root *targetRoot, stagingName string, stagingIn
 		result.Action = ActionFailed
 		return result, errors.Join(err, cleanupTransaction(fsys, root, transactionName))
 	}
-	if _, err := root.handle.Lstat(result.Identity.Skill); !errors.Is(err, os.ErrNotExist) {
+	if _, err := root.handle.Lstat(result.Identity.Skill); err == nil {
 		result.Action = ActionBlocked
 		result.Detail = "destination appeared during installation"
 		return result, errors.Join(fmt.Errorf("install staged skill: %s", result.Detail), cleanupTransaction(fsys, root, transactionName))
+	} else if !errors.Is(err, os.ErrNotExist) {
+		result.Action = ActionFailed
+		result.Detail = err.Error()
+		return result, errors.Join(fmt.Errorf("inspect installation destination: %w", err), cleanupTransaction(fsys, root, transactionName))
 	}
 	if err := fsys.noReplace(root, stagingName, result.Identity.Skill); err != nil {
 		if errors.Is(err, os.ErrExist) {
@@ -382,7 +386,9 @@ func installFresh(result Result, root *targetRoot, stagingName string, stagingIn
 		return result, errors.Join(fmt.Errorf("install staged skill: %w", err), cleanupTransaction(fsys, root, transactionName))
 	}
 	if err := root.verifyEntry(result.Identity.Skill, stagingInfo); err != nil {
-		return result, err
+		result.Action = ActionFailed
+		result.Detail = err.Error()
+		return result, errors.Join(err, cleanupTransaction(fsys, root, transactionName))
 	}
 	if err := root.verifyPath(); err != nil {
 		return result, errors.Join(err, cleanupTransaction(fsys, root, transactionName))

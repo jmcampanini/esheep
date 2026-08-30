@@ -46,7 +46,7 @@ type KnownSkill struct {
 
 // ListReport is the complete known-skill inventory.
 type ListReport struct {
-	Complete    bool         `json:"-"`
+	Complete    bool         `json:"complete"`
 	Diagnostics []Diagnostic `json:"diagnostics"`
 	Skills      []KnownSkill `json:"skills"`
 }

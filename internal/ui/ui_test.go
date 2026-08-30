@@ -13,7 +13,7 @@ func TestHumanOutputRemovesTerminalControlsFromSourceData(t *testing.T) {
 	report := manage.ListReport{
 		Complete: true,
 		Skills: []manage.KnownSkill{{
-			Description: "safe\x1b[31m\nnext",
+			Description: "safe\x1b[31m\nnext\u202espoof",
 			Directory:   "demo\rskill",
 			Readiness:   manage.ReadinessReady,
 			Source:      "local",
@@ -24,7 +24,7 @@ func TestHumanOutputRemovesTerminalControlsFromSourceData(t *testing.T) {
 	if err := WriteList(&output, report, false); err != nil {
 		t.Fatal(err)
 	}
-	if strings.ContainsRune(output.String(), '\x1b') || strings.ContainsRune(output.String(), '\r') {
+	if strings.ContainsRune(output.String(), '\x1b') || strings.ContainsRune(output.String(), '\r') || strings.ContainsRune(output.String(), '\u202e') {
 		t.Fatalf("output contains terminal controls: %q", output.String())
 	}
 	if !strings.Contains(output.String(), "safe [31m next") {

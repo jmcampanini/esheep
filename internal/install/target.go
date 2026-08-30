@@ -229,6 +229,8 @@ func (root *targetRoot) ownedAt(directory string, identity Identity) (bool, erro
 }
 
 func readMarker(root *os.Root, path string, expected os.FileInfo) (data []byte, same bool, resultErr error) {
+	const maxMarkerSize = 64 << 10
+
 	file, err := root.OpenFile(path, os.O_RDONLY, 0)
 	if err != nil {
 		return nil, false, err
@@ -241,9 +243,12 @@ func readMarker(root *os.Root, path string, expected os.FileInfo) (data []byte, 
 	if !info.Mode().IsRegular() || !os.SameFile(expected, info) {
 		return nil, false, nil
 	}
-	data, err = io.ReadAll(file)
+	data, err = io.ReadAll(io.LimitReader(file, maxMarkerSize+1))
 	if err != nil {
 		return nil, false, err
+	}
+	if len(data) > maxMarkerSize {
+		return nil, false, nil
 	}
 	return data, true, nil
 }

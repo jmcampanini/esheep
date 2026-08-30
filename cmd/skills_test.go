@@ -60,13 +60,14 @@ func TestSkillsListJSONReturnsCompleteDocumentForIncompleteInventory(t *testing.
 		t.Fatalf("stderr = %q, want empty", stderr)
 	}
 	var document struct {
+		Complete    *bool               `json:"complete"`
 		Diagnostics []manage.Diagnostic `json:"diagnostics"`
 		Skills      []manage.KnownSkill `json:"skills"`
 	}
 	if err := json.Unmarshal([]byte(stdout), &document); err != nil {
 		t.Fatalf("stdout is not one JSON document: %v\n%s", err, stdout)
 	}
-	if len(document.Diagnostics) != 1 || document.Diagnostics[0].Code != "source-unavailable" || document.Skills == nil {
+	if document.Complete == nil || *document.Complete || len(document.Diagnostics) != 1 || document.Diagnostics[0].Code != "source-unavailable" || document.Skills == nil {
 		t.Fatalf("document = %#v", document)
 	}
 }

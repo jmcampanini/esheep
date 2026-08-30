@@ -201,7 +201,7 @@ func targetState(status manage.SkillStatus, target string) string {
 
 func clean(value string) string {
 	value = strings.Map(func(character rune) rune {
-		if unicode.IsControl(character) {
+		if unicode.IsControl(character) || unicode.Is(unicode.Cf, character) {
 			return ' '
 		}
 		return character

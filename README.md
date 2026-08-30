@@ -97,4 +97,4 @@ Synchronization never modifies an unmarked, mismatched, or symlinked destination
 
 `esheep skills status` reports each ready skill as `synced`, `drifted`, `missing`, `disabled`, or `blocked` for every target. Invalid and colliding source skills have no target state. `blocked` means a destination or target cannot be inspected or managed safely. Status is a health check: it exits `0` only when every source skill is ready and every target is synced or disabled.
 
-`--json` on `skills list` and `skills status` emits one complete document with structured diagnostics. JSON status still uses the process exit status to report health.
+`--json` on `skills list` and `skills status` emits one complete document with structured diagnostics. List JSON includes `complete`, and status JSON includes `healthy`; both commands still use the process exit status to report failure.
