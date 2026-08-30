@@ -19,7 +19,7 @@
 - Use Cobra `RunE` handlers and explicit argument validators on every command.
 - Keep payloads on stdout and diagnostics or progress on stderr.
 - Avoid unexpected prompts and return actionable nonzero errors.
-- Keep `--help`, README documentation, and observable behavior consistent.
+- Keep command help the canonical documentation of user-facing contracts, keep the README a landing page, and keep both consistent with observable behavior.
 
 ## Skill synchronization
 
