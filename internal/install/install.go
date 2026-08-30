@@ -177,6 +177,18 @@ func Reconcile(ctx context.Context, request Request) (Result, error) {
 	return reconcile(ctx, request, defaultFilesystem)
 }
 
+// The mutating flows below (reconcile, installFresh, replaceOwned,
+// rollbackExchanged, pruneOwned) share a verification protocol. External
+// processes can mutate the target between any two steps, so each captured
+// os.FileInfo identity (target root, destination, staging) is re-verified with
+// verifyPath, verifyEntry, and ownedAt immediately before and after every
+// rename or exchange. Checks that look redundant are pinning an identity
+// across a fresh race window; removing one widens the window to more than a
+// single syscall. Once an intended visible state has been committed and
+// verified, recovery never attempts a second swap: a later failure preserves
+// the committed state and at most reports the leftover transaction directory
+// through CleanupError.
+
 func reconcile(ctx context.Context, request Request, fsys filesystem) (result Result, resultErr error) {
 	result.Identity = request.Identity
 	if err := validateRequest(request); err != nil {

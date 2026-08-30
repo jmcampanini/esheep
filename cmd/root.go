@@ -53,7 +53,7 @@ func Execute() int {
 
 func execute(root *cobra.Command, args []string) int {
 	root.SetArgs(args)
-	err := root.Execute()
+	failed, err := root.ExecuteC()
 	if err == nil {
 		return 0
 	}
@@ -67,6 +67,9 @@ func execute(root *cobra.Command, args []string) int {
 		}
 	}
 	_, _ = fmt.Fprintf(root.ErrOrStderr(), "Error: %v\n", err)
+	if exitCode == 2 && failed != nil {
+		_, _ = fmt.Fprintf(root.ErrOrStderr(), "Run '%s --help' for usage.\n", failed.CommandPath())
+	}
 	return exitCode
 }
 
