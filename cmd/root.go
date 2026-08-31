@@ -9,6 +9,7 @@ import (
 
 	"github.com/jmcampanini/esheep/internal/config"
 	"github.com/jmcampanini/esheep/internal/manage"
+	"github.com/jmcampanini/esheep/internal/session"
 	"github.com/spf13/cobra"
 )
 
@@ -28,10 +29,12 @@ func effectiveVersion() string {
 type configLoader func(config.LoadOptions) (config.LoadResult, error)
 
 type commandOperations struct {
-	list     func(context.Context, config.LoadResult) manage.ListReport
-	profiles func(context.Context, config.LoadResult) manage.ProfilesReport
-	status   func(context.Context, config.LoadResult) manage.StatusReport
-	sync     func(context.Context, config.LoadResult) manage.SyncReport
+	list          func(context.Context, config.LoadResult) manage.ListReport
+	profiles      func(context.Context, config.LoadResult) manage.ProfilesReport
+	sessionList   func(context.Context, session.Roots, session.Filter) session.ListReport
+	sessionSearch func(context.Context, session.Roots, session.Filter, session.SearchQuery) session.SearchReport
+	status        func(context.Context, config.LoadResult) manage.StatusReport
+	sync          func(context.Context, config.LoadResult) manage.SyncReport
 }
 
 type applicationError struct {
@@ -76,10 +79,12 @@ func execute(root *cobra.Command, args []string) int {
 
 func newRootCommand(load configLoader) *cobra.Command {
 	return newRootCommandWithOperations(load, commandOperations{
-		list:     manage.List,
-		profiles: manage.Profiles,
-		status:   manage.Status,
-		sync:     manage.Sync,
+		list:          manage.List,
+		profiles:      manage.Profiles,
+		sessionList:   session.List,
+		sessionSearch: session.Search,
+		status:        manage.Status,
+		sync:          manage.Sync,
 	})
 }
 
@@ -93,6 +98,10 @@ esheep reads skills from configured sources and renders them for the Claude,
 Pi, Codex, and shared agents targets. It never accesses the network, never
 executes source content, and never creates, updates, or deletes source
 directories. Commands accept only the arguments shown and never prompt.
+
+'esheep sessions list' and 'esheep sessions search' find historical harness
+session transcripts, reading the harness-owned files in place and never
+modifying them.
 
 Run 'esheep config' to inspect the effective configuration and resolved
 paths, 'esheep help skill-format' for the authoring format, and
@@ -113,6 +122,7 @@ paths, 'esheep help skill-format' for the authoring format, and
 		newConfigCommand(load),
 		newExitCodesTopic(),
 		newProfilesCommand(load, operations.profiles),
+		newSessionsCommand(load, operations),
 		newSkillFormatTopic(),
 		newSkillsCommand(load, operations),
 		newSyncCommand(load, operations.sync),
