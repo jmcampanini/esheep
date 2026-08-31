@@ -41,18 +41,17 @@ func forEachLine(path string, visit func(line int, data []byte) bool) error {
 	}
 }
 
-// walkRules parameterizes transcript discovery for one harness grammar.
+// walkRules parameterizes JSONL transcript discovery for one harness grammar.
 type walkRules struct {
-	// classify reports whether a regular file is a transcript and whether it
-	// belongs to a subagent.
-	classify func(path string) (include bool, subagent bool)
+	// isSubagent reports whether a transcript belongs to a subagent.
+	isSubagent func(path string) bool
 	// skipDir reports whether a directory subtree holds no wanted transcripts.
 	skipDir func(entry fs.DirEntry) bool
 }
 
-// walkTranscripts discovers transcript files under root, tolerating and
+// walkJSONLTranscripts discovers transcript files under root, tolerating and
 // recording per-entry failures instead of aborting.
-func walkTranscripts(root string, rules walkRules) ([]transcript, []Diagnostic) {
+func walkJSONLTranscripts(root string, rules walkRules) ([]transcript, []Diagnostic) {
 	var transcripts []transcript
 	var diagnostics []Diagnostic
 	_ = filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
@@ -66,13 +65,10 @@ func walkTranscripts(root string, rules walkRules) ([]transcript, []Diagnostic) 
 			}
 			return nil
 		}
-		if !entry.Type().IsRegular() {
+		if !entry.Type().IsRegular() || filepath.Ext(path) != ".jsonl" {
 			return nil
 		}
-		include, subagent := rules.classify(path)
-		if !include {
-			return nil
-		}
+		subagent := rules.isSubagent != nil && rules.isSubagent(path)
 		info, infoErr := entry.Info()
 		if infoErr != nil {
 			diagnostics = append(diagnostics, Diagnostic{Code: codeWalk, Message: infoErr.Error(), Path: path})

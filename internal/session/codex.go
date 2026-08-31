@@ -19,11 +19,7 @@ type codexEnvelope struct {
 }
 
 func (codexAdapter) discover(root string, _ bool) ([]transcript, []Diagnostic) {
-	return walkTranscripts(root, walkRules{
-		classify: func(path string) (bool, bool) {
-			return filepath.Ext(path) == ".jsonl", false
-		},
-	})
+	return walkJSONLTranscripts(root, walkRules{})
 }
 
 func (codexAdapter) meta(t transcript) (Session, error) {

@@ -14,12 +14,9 @@ import (
 type piAdapter struct{}
 
 func (piAdapter) discover(root string, _ bool) ([]transcript, []Diagnostic) {
-	return walkTranscripts(root, walkRules{
-		classify: func(path string) (bool, bool) {
-			if filepath.Ext(path) != ".jsonl" {
-				return false, false
-			}
-			return true, fileExists(path + ".meta")
+	return walkJSONLTranscripts(root, walkRules{
+		isSubagent: func(path string) bool {
+			return fileExists(path + ".meta")
 		},
 		skipDir: func(entry fs.DirEntry) bool {
 			return entry.Name() == "artifacts"

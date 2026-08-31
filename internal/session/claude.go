@@ -15,12 +15,9 @@ import (
 type claudeAdapter struct{}
 
 func (claudeAdapter) discover(root string, includeSubagents bool) ([]transcript, []Diagnostic) {
-	return walkTranscripts(root, walkRules{
-		classify: func(path string) (bool, bool) {
-			if filepath.Ext(path) != ".jsonl" {
-				return false, false
-			}
-			return true, filepath.Base(filepath.Dir(path)) == "subagents"
+	return walkJSONLTranscripts(root, walkRules{
+		isSubagent: func(path string) bool {
+			return filepath.Base(filepath.Dir(path)) == "subagents"
 		},
 		skipDir: func(entry fs.DirEntry) bool {
 			return !includeSubagents && entry.Name() == "subagents"
