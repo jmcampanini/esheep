@@ -129,10 +129,10 @@ type catalogResult struct {
 }
 
 type targetSpec struct {
-	agentsMD string
-	enabled  bool
-	name     render.Target
-	root     string
+	agentsMDPath string
+	enabled      bool
+	name         render.Target
+	skillsPath   string
 }
 
 // List inventories every discovered source skill.
@@ -228,7 +228,7 @@ func Status(ctx context.Context, loaded config.LoadResult) StatusReport {
 				Identity: install.Identity{Skill: known.Directory, Source: known.Source, Target: target.name},
 				Package:  candidate.Package,
 				Profiles: loaded.EffectiveProfiles,
-				Root:     target.root,
+				Root:     target.skillsPath,
 			})
 			if err != nil {
 				row.Targets[string(target.name)] = install.StateBlocked
@@ -318,7 +318,7 @@ func Sync(ctx context.Context, loaded config.LoadResult) SyncReport {
 				Identity: install.Identity{Skill: known.Directory, Source: known.Source, Target: target.name},
 				Package:  candidate.Package,
 				Profiles: loaded.EffectiveProfiles,
-				Root:     target.root,
+				Root:     target.skillsPath,
 			})
 			record(&report, result, err)
 			if err == nil {
@@ -412,17 +412,16 @@ func describe(candidate discovery.Candidate, selection skill.Selection) string {
 
 func configuredTargets(loaded config.LoadResult) []targetSpec {
 	return []targetSpec{
-		{agentsMD: loaded.ResolvedTargets.Claude.AgentsMD, enabled: loaded.Config.Targets.Claude.Enabled, name: render.TargetClaude, root: loaded.ResolvedTargets.Claude.Skills},
-		{agentsMD: loaded.ResolvedTargets.Pi.AgentsMD, enabled: loaded.Config.Targets.Pi.Enabled, name: render.TargetPi, root: loaded.ResolvedTargets.Pi.Skills},
-		{agentsMD: loaded.ResolvedTargets.Codex.AgentsMD, enabled: loaded.Config.Targets.Codex.Enabled, name: render.TargetCodex, root: loaded.ResolvedTargets.Codex.Skills},
-		{agentsMD: loaded.ResolvedTargets.Agents.AgentsMD, enabled: loaded.Config.Targets.Agents.Enabled, name: render.TargetAgents, root: loaded.ResolvedTargets.Agents.Skills},
+		{agentsMDPath: loaded.ResolvedTargets.Claude.AgentsMD, enabled: loaded.Config.Targets.Claude.Enabled, name: render.TargetClaude, skillsPath: loaded.ResolvedTargets.Claude.Skills},
+		{agentsMDPath: loaded.ResolvedTargets.Pi.AgentsMD, enabled: loaded.Config.Targets.Pi.Enabled, name: render.TargetPi, skillsPath: loaded.ResolvedTargets.Pi.Skills},
+		{agentsMDPath: loaded.ResolvedTargets.Codex.AgentsMD, enabled: loaded.Config.Targets.Codex.Enabled, name: render.TargetCodex, skillsPath: loaded.ResolvedTargets.Codex.Skills},
+		{agentsMDPath: loaded.ResolvedTargets.Agents.AgentsMD, enabled: loaded.Config.Targets.Agents.Enabled, name: render.TargetAgents, skillsPath: loaded.ResolvedTargets.Agents.Skills},
 	}
 }
 
 type agentsFilePlan struct {
 	content     []byte
 	diagnostics []Diagnostic
-	failed      bool
 	selection   agentsfile.Selection
 }
 
@@ -436,12 +435,10 @@ func planAgentsFile(loaded config.LoadResult, catalog catalogResult) agentsFileP
 	candidates, discoveryDiagnostics := agentsfile.Discover(agentsSources(loaded))
 	plan := agentsFilePlan{diagnostics: convertAgentsDiagnostics(discoveryDiagnostics)}
 	if len(plan.diagnostics) != 0 {
-		plan.failed = true
 		return plan
 	}
 	selection, err := agentsfile.Select(candidates, loaded.EffectiveProfiles)
 	if err != nil {
-		plan.failed = true
 		plan.diagnostics = append(plan.diagnostics, Diagnostic{Code: "agents-file-selection", Message: err.Error()})
 		return plan
 	}
@@ -451,7 +448,6 @@ func planAgentsFile(loaded config.LoadResult, catalog catalogResult) agentsFileP
 	}
 	content, err := os.ReadFile(selection.Candidate.Path)
 	if err != nil {
-		plan.failed = true
 		plan.diagnostics = append(plan.diagnostics, Diagnostic{
 			Code: "agents-file-selection", Message: err.Error(), Path: selection.Candidate.Path, Source: selection.Candidate.Source,
 		})
@@ -464,7 +460,7 @@ func planAgentsFile(loaded config.LoadResult, catalog catalogResult) agentsFileP
 func syncAgentsFile(ctx context.Context, loaded config.LoadResult, catalog catalogResult, targets []targetSpec, report *SyncReport) {
 	plan := planAgentsFile(loaded, catalog)
 	report.Diagnostics = append(report.Diagnostics, plan.diagnostics...)
-	if plan.failed {
+	if len(plan.diagnostics) != 0 {
 		identity := install.Identity{Skill: agentsfile.BaseName}
 		if plan.selection.Found {
 			identity.Skill = plan.selection.Candidate.FileName()
@@ -484,11 +480,11 @@ func syncAgentsFile(ctx context.Context, loaded config.LoadResult, catalog catal
 			record(report, install.Result{Action: install.ActionDisabled, Detail: "target disabled", Identity: identity}, nil)
 			continue
 		}
-		outcome, err := agentsfile.Deploy(ctx, plan.content, target.agentsMD)
+		outcome, err := agentsfile.Deploy(ctx, plan.content, target.agentsMDPath)
 		if err != nil {
 			record(report, install.Result{Action: install.ActionFailed, Detail: err.Error(), Identity: identity}, nil)
 			report.Diagnostics = append(report.Diagnostics, Diagnostic{
-				Code: "synchronization", Message: fmt.Sprintf("%v", err), Path: target.agentsMD,
+				Code: "synchronization", Message: fmt.Sprintf("%v", err), Path: target.agentsMDPath,
 				Skill: identity.Skill, Source: identity.Source, Target: string(target.name),
 			})
 			continue
@@ -512,7 +508,7 @@ func syncAgentsFile(ctx context.Context, loaded config.LoadResult, catalog catal
 func statusAgentsFile(ctx context.Context, loaded config.LoadResult, catalog catalogResult, targets []targetSpec, report *StatusReport) {
 	plan := planAgentsFile(loaded, catalog)
 	report.Diagnostics = append(report.Diagnostics, plan.diagnostics...)
-	if plan.failed {
+	if len(plan.diagnostics) != 0 {
 		report.Healthy = false
 		return
 	}
@@ -532,11 +528,11 @@ func statusAgentsFile(ctx context.Context, loaded config.LoadResult, catalog cat
 			row.Targets[string(target.name)] = agentsfile.StateDisabled
 			continue
 		}
-		state, err := agentsfile.Inspect(ctx, plan.content, target.agentsMD)
+		state, err := agentsfile.Inspect(ctx, plan.content, target.agentsMDPath)
 		if err != nil {
 			row.Targets[string(target.name)] = agentsfile.StateBlocked
 			report.Diagnostics = append(report.Diagnostics, Diagnostic{
-				Code: "target-inspection", Message: fmt.Sprintf("%v", err), Path: target.agentsMD,
+				Code: "target-inspection", Message: fmt.Sprintf("%v", err), Path: target.agentsMDPath,
 				Skill: candidate.FileName(), Source: candidate.Source, Target: string(target.name),
 			})
 			report.Healthy = false
@@ -584,9 +580,9 @@ func inspectTargets(ctx context.Context, targets []targetSpec) (map[render.Targe
 		if !target.enabled {
 			continue
 		}
-		if err := install.InspectTarget(ctx, target.root); err != nil {
+		if err := install.InspectTarget(ctx, target.skillsPath); err != nil {
 			diagnostic := Diagnostic{
-				Code: "target-inspection", Message: fmt.Sprintf("%v", err), Path: target.root, Target: string(target.name),
+				Code: "target-inspection", Message: fmt.Sprintf("%v", err), Path: target.skillsPath, Target: string(target.name),
 			}
 			blocked[target.name] = diagnostic
 			diagnostics = append(diagnostics, diagnostic)
@@ -627,7 +623,7 @@ func pruneStale(
 			continue
 		}
 
-		results, err := install.Prune(ctx, target.root, target.name, func(marker install.Marker) bool {
+		results, err := install.Prune(ctx, target.skillsPath, target.name, func(marker install.Marker) bool {
 			if _, found := unavailable[marker.Source]; found {
 				return false
 			}
@@ -651,7 +647,7 @@ func pruneStale(
 			record(report, result, nil)
 			if result.Action == install.ActionFailed {
 				report.Diagnostics = append(report.Diagnostics, Diagnostic{
-					Code: "pruning", Message: result.Detail, Path: target.root,
+					Code: "pruning", Message: result.Detail, Path: target.skillsPath,
 					Skill: result.Identity.Skill, Source: result.Identity.Source, Target: string(target.name),
 				})
 			}
@@ -664,7 +660,7 @@ func pruneStale(
 			}
 			record(report, result, nil)
 			report.Diagnostics = append(report.Diagnostics, Diagnostic{
-				Code: "pruning", Message: err.Error(), Path: target.root, Target: string(target.name),
+				Code: "pruning", Message: err.Error(), Path: target.skillsPath, Target: string(target.name),
 			})
 		}
 	}
@@ -737,7 +733,7 @@ func convertDiagnostic(diagnostic discovery.Diagnostic) Diagnostic {
 
 func targetDiagnostic(code string, known KnownSkill, target targetSpec, err error) Diagnostic {
 	return Diagnostic{
-		Code: code, Message: fmt.Sprintf("%v", err), Path: filepath.Join(target.root, filepath.FromSlash(known.Directory)),
+		Code: code, Message: fmt.Sprintf("%v", err), Path: filepath.Join(target.skillsPath, filepath.FromSlash(known.Directory)),
 		Skill: known.Directory, Source: known.Source, Target: string(target.name),
 	}
 }
