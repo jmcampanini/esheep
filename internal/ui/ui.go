@@ -6,11 +6,14 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"unicode"
 
 	"charm.land/lipgloss/v2"
 	"charm.land/lipgloss/v2/table"
+	"github.com/jmcampanini/esheep/internal/agentsfile"
+	"github.com/jmcampanini/esheep/internal/doctor"
 	"github.com/jmcampanini/esheep/internal/install"
 	"github.com/jmcampanini/esheep/internal/manage"
 	"github.com/jmcampanini/esheep/internal/session"
@@ -70,10 +73,22 @@ func WriteStatus(writer io.Writer, report manage.StatusReport, color bool) error
 			targetState(status, "claude"),
 			targetState(status, "pi"),
 			targetState(status, "codex"),
-			targetState(status, "agents"),
 		})
 	}
-	return writeTable(writer, []string{"SOURCE", "SKILL", "READINESS", "PROFILE GATE", "CLAUDE", "PI", "CODEX", "AGENTS"}, rows, color)
+	if err := writeTable(writer, []string{"SOURCE", "SKILL", "READINESS", "PROFILE GATE", "CLAUDE", "PI", "CODEX"}, rows, color); err != nil {
+		return err
+	}
+	if report.AgentsFile == nil {
+		return nil
+	}
+	agentsRow := []string{
+		clean(report.AgentsFile.Source),
+		clean(filepath.Base(report.AgentsFile.Path)),
+		agentsFileState(report.AgentsFile, "claude"),
+		agentsFileState(report.AgentsFile, "pi"),
+		agentsFileState(report.AgentsFile, "codex"),
+	}
+	return writeTable(writer, []string{"SOURCE", "AGENTS FILE", "CLAUDE", "PI", "CODEX"}, [][]string{agentsRow}, color)
 }
 
 // WriteStatusJSON writes one complete deployment-status JSON document.
@@ -144,6 +159,15 @@ func WriteSync(writer io.Writer, report manage.SyncReport, color bool) error {
 		report.Summary.Failed,
 	)
 	return err
+}
+
+// WriteDoctor writes a human environment-check table.
+func WriteDoctor(writer io.Writer, report doctor.Report, color bool) error {
+	rows := make([][]string, 0, len(report.Checks))
+	for _, check := range report.Checks {
+		rows = append(rows, []string{clean(check.Name), string(check.Status), clean(check.Detail)})
+	}
+	return writeTable(writer, []string{"CHECK", "RESULT", "DETAIL"}, rows, color)
 }
 
 // WriteSessionList writes a human session inventory table.
@@ -322,13 +346,13 @@ func tableStyles(color bool, rows [][]string) table.StyleFunc {
 			return style
 		}
 		switch rows[row][column] {
-		case string(install.ActionInstalled), string(install.ActionPruned), string(install.ActionRepaired), string(install.StateSynced), string(manage.ReadinessReady):
+		case string(doctor.StatusPass), string(install.ActionInstalled), string(install.ActionPruned), string(install.ActionRepaired), string(install.StateSynced), string(manage.ReadinessReady):
 			return style.Foreground(lipgloss.Color("42"))
-		case string(install.ActionBlocked), string(install.ActionFailed), string(manage.ReadinessCollision), string(manage.ReadinessConflict), string(manage.ReadinessInvalid):
+		case string(doctor.StatusFail), string(install.ActionBlocked), string(install.ActionFailed), string(manage.ReadinessCollision), string(manage.ReadinessConflict), string(manage.ReadinessInvalid):
 			return style.Foreground(lipgloss.Color("196"))
-		case string(install.StateDrifted), string(install.StateMissing):
+		case string(install.StateDrifted), string(install.StateMissing), string(agentsfile.StateStale):
 			return style.Foreground(lipgloss.Color("214"))
-		case string(install.ActionDisabled), string(install.ActionInactive):
+		case string(doctor.StatusSkipped), string(install.ActionDisabled), string(install.ActionInactive):
 			return style.Faint(true)
 		default:
 			return style
@@ -344,6 +368,14 @@ func writeJSON(writer io.Writer, value any) error {
 }
 
 func targetState(status manage.SkillStatus, target string) string {
+	state, exists := status.Targets[target]
+	if !exists {
+		return "-"
+	}
+	return string(state)
+}
+
+func agentsFileState(status *manage.AgentsFileStatus, target string) string {
 	state, exists := status.Targets[target]
 	if !exists {
 		return "-"

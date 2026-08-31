@@ -562,7 +562,7 @@ func installRequest(t *testing.T, targetRoot string) Request {
 	if err := os.Mkdir(sourceRoot, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	manifest := "---\nname: demo\ndescription: Demo skill\nesheep-targets: [claude, pi, codex, agents]\n---\nbody\n"
+	manifest := "---\nname: demo\ndescription: Demo skill\nesheep-targets: [claude, pi, codex]\n---\nbody\n"
 	if err := os.WriteFile(filepath.Join(sourceRoot, "SKILL.md"), []byte(manifest), 0o600); err != nil {
 		t.Fatal(err)
 	}

@@ -66,7 +66,7 @@ func MarshalMarker(marker Marker) ([]byte, error) {
 
 func validTarget(target render.Target) bool {
 	switch target {
-	case render.TargetAgents, render.TargetClaude, render.TargetCodex, render.TargetPi:
+	case render.TargetClaude, render.TargetCodex, render.TargetPi:
 		return true
 	default:
 		return false

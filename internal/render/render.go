@@ -24,7 +24,6 @@ const (
 	TargetClaude Target = "claude"
 	TargetPi     Target = "pi"
 	TargetCodex  Target = "codex"
-	TargetAgents Target = "agents"
 )
 
 // Disabled reports whether the manifest's esheep-targets list excludes a
@@ -37,8 +36,6 @@ func Disabled(document skill.Document, target Target, profiles []string) (bool, 
 		return !document.Targets.Pi.Applies(profiles), nil
 	case TargetCodex:
 		return !document.Targets.Codex.Applies(profiles), nil
-	case TargetAgents:
-		return !document.Targets.Agents.Applies(profiles), nil
 	default:
 		return false, fmt.Errorf("render: unsupported target %q", target)
 	}

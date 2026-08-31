@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jmcampanini/esheep/internal/agentsfile"
 	"github.com/jmcampanini/esheep/internal/manage"
 	"github.com/jmcampanini/esheep/internal/session"
 )
@@ -58,6 +59,34 @@ func TestWriteStatusNamesEffectiveProfilesAndShowsProfileGateColumn(t *testing.T
 	}
 	if !strings.Contains(text, "PROFILE GATE") || !strings.Contains(text, "all") || !strings.Contains(text, "work") {
 		t.Fatalf("output = %q, want PROFILE GATE column with all and work", text)
+	}
+}
+
+func TestWriteStatusRendersAgentsFileSection(t *testing.T) {
+	t.Parallel()
+	report := manage.StatusReport{
+		AgentsFile: &manage.AgentsFileStatus{
+			Path:    "/sources/personal/AGENTS.work.md",
+			Profile: "work",
+			Source:  "personal",
+			Targets: map[string]agentsfile.State{
+				"claude": agentsfile.StateSynced,
+				"pi":     agentsfile.StateStale,
+				"codex":  agentsfile.StateDisabled,
+			},
+		},
+	}
+	var output bytes.Buffer
+
+	if err := WriteStatus(&output, report, false); err != nil {
+		t.Fatal(err)
+	}
+
+	text := output.String()
+	for _, want := range []string{"AGENTS FILE", "AGENTS.work.md", "personal", "stale"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("output = %q, want it to contain %q", text, want)
+		}
 	}
 }
 

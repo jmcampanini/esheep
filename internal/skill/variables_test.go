@@ -76,17 +76,17 @@ func TestParseRejectsInvalidBodyVariables(t *testing.T) {
 
 func TestExpandVariablesReplacesSourcesList(t *testing.T) {
 	t.Parallel()
-	variables := Variables{Sources: []string{"/alpha/skills", "/beta/skills"}}
+	variables := Variables{Sources: []string{"/alpha", "/beta"}}
 	tests := []struct {
 		name string
 		body string
 		want string
 	}{
 		{name: "no variable", body: "plain body", want: "plain body"},
-		{name: "between lines", body: "before\n{{esheep.sources}}\nafter", want: "before\n- /alpha/skills\n- /beta/skills\nafter"},
-		{name: "at end without newline", body: "before\n{{esheep.sources}}", want: "before\n- /alpha/skills\n- /beta/skills"},
-		{name: "crlf line", body: "{{esheep.sources}}\r\nafter", want: "- /alpha/skills\n- /beta/skills\r\nafter"},
-		{name: "repeated", body: "{{esheep.sources}}\n\n{{esheep.sources}}\n", want: "- /alpha/skills\n- /beta/skills\n\n- /alpha/skills\n- /beta/skills\n"},
+		{name: "between lines", body: "before\n{{esheep.sources}}\nafter", want: "before\n- /alpha\n- /beta\nafter"},
+		{name: "at end without newline", body: "before\n{{esheep.sources}}", want: "before\n- /alpha\n- /beta"},
+		{name: "crlf line", body: "{{esheep.sources}}\r\nafter", want: "- /alpha\n- /beta\r\nafter"},
+		{name: "repeated", body: "{{esheep.sources}}\n\n{{esheep.sources}}\n", want: "- /alpha\n- /beta\n\n- /alpha\n- /beta\n"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

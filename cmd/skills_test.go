@@ -81,7 +81,6 @@ func TestSkillsStatusIsAHealthCheckInHumanAndJSONModes(t *testing.T) {
 			Skills: []manage.SkillStatus{{
 				Directory: "demo", HasManifest: true, Path: "/source/demo", Readiness: manage.ReadinessReady, Source: "local",
 				Targets: map[string]install.State{
-					"agents": install.StateDisabled,
 					"claude": install.StateSynced,
 					"codex":  install.StateMissing,
 					"pi":     install.StateDrifted,

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jmcampanini/esheep/internal/agentsfile"
 	"github.com/jmcampanini/esheep/internal/config"
 	"github.com/jmcampanini/esheep/internal/install"
 	"github.com/jmcampanini/esheep/internal/render"
@@ -18,15 +19,14 @@ func TestStatusListsEveryKnownSkillWithoutCreatingDisabledOrMissingTargets(t *te
 	root := t.TempDir()
 	first := filepath.Join(root, "first")
 	second := filepath.Join(root, "second")
-	writeSourceSkill(t, first, "ready", "Ready", "esheep-targets: [claude, codex, agents]\n")
+	writeSourceSkill(t, first, "ready", "Ready", "esheep-targets: [claude, codex]\n")
 	writeSourceSkill(t, first, "broken", "   ", "")
 	writeSourceSkill(t, first, "same", "First", "")
 	writeSourceSkill(t, second, "same", "Second", "")
 	claude := filepath.Join(root, "targets", "claude")
 	pi := filepath.Join(root, "targets", "pi")
 	codex := filepath.Join(root, "targets", "codex")
-	agents := filepath.Join(root, "targets", "agents")
-	loaded := testConfig(first, second, claude, pi, codex, agents)
+	loaded := testConfig(first, second, claude, pi, codex)
 
 	report := Status(context.Background(), loaded)
 	if report.Healthy {
@@ -37,8 +37,7 @@ func TestStatusListsEveryKnownSkillWithoutCreatingDisabledOrMissingTargets(t *te
 	}
 	ready := findStatus(t, report, "first", "ready")
 	if ready.Readiness != ReadinessReady || ready.Targets["claude"] != install.StateMissing ||
-		ready.Targets["pi"] != install.StateDisabled || ready.Targets["codex"] != install.StateDisabled ||
-		ready.Targets["agents"] != install.StateDisabled {
+		ready.Targets["pi"] != install.StateDisabled || ready.Targets["codex"] != install.StateDisabled {
 		t.Fatalf("ready status = %#v", ready)
 	}
 	if broken := findStatus(t, report, "first", "broken"); broken.Readiness != ReadinessInvalid || len(broken.Targets) != 0 {
@@ -49,7 +48,7 @@ func TestStatusListsEveryKnownSkillWithoutCreatingDisabledOrMissingTargets(t *te
 			t.Fatalf("collision status = %#v", same)
 		}
 	}
-	for _, target := range []string{claude, pi, codex, agents} {
+	for _, target := range []string{claude, pi, codex} {
 		if _, err := os.Stat(target); !errors.Is(err, os.ErrNotExist) {
 			t.Fatalf("status created target %q: %v", target, err)
 		}
@@ -65,7 +64,7 @@ func TestStatusReportsInspectionFailureAsBlocked(t *testing.T) {
 	if err := os.WriteFile(claude, []byte("not a target directory"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	loaded := testConfig(source, "", claude, filepath.Join(root, "pi"), filepath.Join(root, "codex"), filepath.Join(root, "agents"))
+	loaded := testConfig(source, "", claude, filepath.Join(root, "pi"), filepath.Join(root, "codex"))
 	loaded.Config.Targets.Pi.Enabled = false
 	loaded.ResolvedSources = []config.ResolvedSource{{Name: "source", Path: source}}
 
@@ -74,7 +73,7 @@ func TestStatusReportsInspectionFailureAsBlocked(t *testing.T) {
 	if report.Healthy || status.Targets["claude"] != install.StateBlocked || len(report.Diagnostics) != 1 {
 		t.Fatalf("report = %#v", report)
 	}
-	wantPath := loaded.ResolvedTargets.Claude
+	wantPath := loaded.ResolvedTargets.Claude.Skills
 	if diagnostic := report.Diagnostics[0]; diagnostic.Path != wantPath || diagnostic.Target != "claude" {
 		t.Fatalf("diagnostic = %#v, want target root %q", diagnostic, wantPath)
 	}
@@ -91,7 +90,7 @@ func TestStatusInspectsEnabledTargetsWithoutSkills(t *testing.T) {
 	if err := os.WriteFile(claude, []byte("not a target directory"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	loaded := testConfig(source, "", claude, filepath.Join(root, "pi"), filepath.Join(root, "codex"), filepath.Join(root, "agents"))
+	loaded := testConfig(source, "", claude, filepath.Join(root, "pi"), filepath.Join(root, "codex"))
 	loaded.Config.Targets.Pi.Enabled = false
 	loaded.ResolvedSources = []config.ResolvedSource{{Name: "source", Path: source}}
 
@@ -99,7 +98,7 @@ func TestStatusInspectsEnabledTargetsWithoutSkills(t *testing.T) {
 	if report.Healthy || len(report.Skills) != 0 || len(report.Diagnostics) != 1 {
 		t.Fatalf("report = %#v", report)
 	}
-	wantPath := loaded.ResolvedTargets.Claude
+	wantPath := loaded.ResolvedTargets.Claude.Skills
 	if diagnostic := report.Diagnostics[0]; diagnostic.Code != "target-inspection" || diagnostic.Path != wantPath || diagnostic.Target != "claude" {
 		t.Fatalf("diagnostic = %#v, want blocked target root %q", diagnostic, wantPath)
 	}
@@ -114,7 +113,7 @@ func TestSyncReportsTargetDestinationPath(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(claude, "demo"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	loaded := testConfig(source, "", claude, filepath.Join(root, "pi"), filepath.Join(root, "codex"), filepath.Join(root, "agents"))
+	loaded := testConfig(source, "", claude, filepath.Join(root, "pi"), filepath.Join(root, "codex"))
 	loaded.Config.Targets.Pi.Enabled = false
 	loaded.ResolvedSources = []config.ResolvedSource{{Name: "source", Path: source}}
 
@@ -122,7 +121,7 @@ func TestSyncReportsTargetDestinationPath(t *testing.T) {
 	if report.Summary.Blocked != 1 || len(report.Diagnostics) != 1 {
 		t.Fatalf("report = %#v", report)
 	}
-	wantPath := filepath.Join(loaded.ResolvedTargets.Claude, "demo")
+	wantPath := filepath.Join(loaded.ResolvedTargets.Claude.Skills, "demo")
 	if diagnostic := report.Diagnostics[0]; diagnostic.Code != "synchronization" || diagnostic.Path != wantPath {
 		t.Fatalf("diagnostic = %#v, want destination %q", diagnostic, wantPath)
 	}
@@ -137,7 +136,7 @@ func TestSyncReportsTargetRootPathOnce(t *testing.T) {
 	if err := os.WriteFile(claude, []byte("not a target directory"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	loaded := testConfig(source, "", claude, filepath.Join(root, "pi"), filepath.Join(root, "codex"), filepath.Join(root, "agents"))
+	loaded := testConfig(source, "", claude, filepath.Join(root, "pi"), filepath.Join(root, "codex"))
 	loaded.Config.Targets.Pi.Enabled = false
 	loaded.ResolvedSources = []config.ResolvedSource{{Name: "source", Path: source}}
 
@@ -145,7 +144,7 @@ func TestSyncReportsTargetRootPathOnce(t *testing.T) {
 	if report.Summary.Failed != 1 || len(report.Diagnostics) != 1 {
 		t.Fatalf("report = %#v", report)
 	}
-	wantPath := loaded.ResolvedTargets.Claude
+	wantPath := loaded.ResolvedTargets.Claude.Skills
 	if diagnostic := report.Diagnostics[0]; diagnostic.Code != "target-inspection" || diagnostic.Path != wantPath || diagnostic.Target != "claude" {
 		t.Fatalf("diagnostic = %#v, want target root %q", diagnostic, wantPath)
 	}
@@ -172,7 +171,7 @@ func TestSyncReportsTargetRootWriteFailureOnce(t *testing.T) {
 	} else if !errors.Is(err, os.ErrPermission) {
 		t.Fatalf("probe target write permission: %v", err)
 	}
-	loaded := testConfig(source, "", claude, filepath.Join(root, "pi"), filepath.Join(root, "codex"), filepath.Join(root, "agents"))
+	loaded := testConfig(source, "", claude, filepath.Join(root, "pi"), filepath.Join(root, "codex"))
 	loaded.Config.Targets.Pi.Enabled = false
 	loaded.ResolvedSources = []config.ResolvedSource{{Name: "source", Path: source}}
 
@@ -180,7 +179,7 @@ func TestSyncReportsTargetRootWriteFailureOnce(t *testing.T) {
 	if report.Summary.Failed != 1 || len(report.Diagnostics) != 1 {
 		t.Fatalf("report = %#v", report)
 	}
-	wantPath := loaded.ResolvedTargets.Claude
+	wantPath := loaded.ResolvedTargets.Claude.Skills
 	if diagnostic := report.Diagnostics[0]; diagnostic.Code != "synchronization" || diagnostic.Path != wantPath || diagnostic.Target != "claude" {
 		t.Fatalf("diagnostic = %#v, want target root %q", diagnostic, wantPath)
 	}
@@ -195,7 +194,7 @@ func TestSyncContinuesUnrelatedInstallationAfterCollision(t *testing.T) {
 	writeSourceSkill(t, first, "unrelated", "Ready", "")
 	writeSourceSkill(t, second, "same", "Second", "")
 	claude := filepath.Join(root, "claude")
-	loaded := testConfig(first, second, claude, filepath.Join(root, "pi"), filepath.Join(root, "codex"), filepath.Join(root, "agents"))
+	loaded := testConfig(first, second, claude, filepath.Join(root, "pi"), filepath.Join(root, "codex"))
 	loaded.Config.Targets.Pi.Enabled = false
 
 	report := Sync(context.Background(), loaded)
@@ -215,6 +214,12 @@ func TestSyncPrunesOnlyDefinitivelyStaleOwnership(t *testing.T) {
 	root := t.TempDir()
 	personal := filepath.Join(root, "personal")
 	offline := filepath.Join(root, "offline")
+	if err := os.Mkdir(offline, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("missing", filepath.Join(offline, "skills")); err != nil {
+		t.Fatal(err)
+	}
 	writeSourceSkill(t, personal, "keep", "Ready", "")
 	writeSourceSkill(t, personal, "broken", "   ", "")
 	claude := filepath.Join(root, "claude")
@@ -222,7 +227,7 @@ func TestSyncPrunesOnlyDefinitivelyStaleOwnership(t *testing.T) {
 	writeOwnedSkill(t, claude, install.Marker{Source: "personal", Skill: "broken", Target: render.TargetClaude})
 	writeOwnedSkill(t, claude, install.Marker{Source: "offline", Skill: "held", Target: render.TargetClaude})
 	writeOwnedSkill(t, claude, install.Marker{Source: "old", Skill: "orphan", Target: render.TargetClaude})
-	loaded := testConfig(personal, offline, claude, filepath.Join(root, "pi"), filepath.Join(root, "codex"), filepath.Join(root, "agents"))
+	loaded := testConfig(personal, offline, claude, filepath.Join(root, "pi"), filepath.Join(root, "codex"))
 	loaded.Config.Targets.Pi.Enabled = false
 	loaded.ResolvedSources = []config.ResolvedSource{{Name: "personal", Path: personal}, {Name: "offline", Path: offline}}
 
@@ -246,21 +251,21 @@ func TestSyncPrunesSkillDisabledForEnabledTarget(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	source := filepath.Join(root, "source")
-	writeSourceSkill(t, source, "demo", "Ready", "esheep-targets: [pi, codex, agents]\n")
+	writeSourceSkill(t, source, "demo", "Ready", "esheep-targets: [pi, codex]\n")
 	claude := filepath.Join(root, "claude")
 	writeOwnedSkill(t, claude, install.Marker{Source: "source", Skill: "demo", Target: render.TargetClaude})
-	loaded := testConfig(source, "", claude, filepath.Join(root, "pi"), filepath.Join(root, "codex"), filepath.Join(root, "agents"))
+	loaded := testConfig(source, "", claude, filepath.Join(root, "pi"), filepath.Join(root, "codex"))
 	loaded.Config.Targets.Pi.Enabled = false
 	loaded.ResolvedSources = []config.ResolvedSource{{Name: "source", Path: source}}
 
 	report := Sync(context.Background(), loaded)
-	if report.Summary.Pruned != 1 || report.Summary.Disabled != 4 || report.Summary.Failed != 0 {
+	if report.Summary.Pruned != 1 || report.Summary.Disabled != 3 || report.Summary.Failed != 0 {
 		t.Fatalf("summary = %#v", report.Summary)
 	}
 	if _, err := os.Stat(filepath.Join(claude, "demo")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("target-disabled skill remains: %v", err)
 	}
-	for _, target := range []string{loaded.ResolvedTargets.Pi, loaded.ResolvedTargets.Codex, loaded.ResolvedTargets.Agents} {
+	for _, target := range []string{loaded.ResolvedTargets.Pi.Skills, loaded.ResolvedTargets.Codex.Skills} {
 		if _, err := os.Stat(target); !errors.Is(err, os.ErrNotExist) {
 			t.Fatalf("sync created disabled target %q: %v", target, err)
 		}
@@ -276,7 +281,7 @@ func TestSyncSelectsVariantsAndPrunesInactiveProfileSkills(t *testing.T) {
 	writeSourceSkill(t, source, "variant", "Base", "")
 	writeVariantManifest(t, source, "variant", "work", "Work")
 	claude := filepath.Join(root, "claude")
-	loaded := testConfig(source, "", claude, filepath.Join(root, "pi"), filepath.Join(root, "codex"), filepath.Join(root, "agents"))
+	loaded := testConfig(source, "", claude, filepath.Join(root, "pi"), filepath.Join(root, "codex"))
 	loaded.Config.Targets.Pi.Enabled = false
 	loaded.ResolvedSources = []config.ResolvedSource{{Name: "source", Path: source}}
 	loaded.EffectiveProfiles = []string{"work"}
@@ -307,7 +312,7 @@ func TestSyncBlocksProfileConflictAndProtectsInstalledOutput(t *testing.T) {
 	writeVariantManifest(t, source, "both", "client", "Client")
 	claude := filepath.Join(root, "claude")
 	writeOwnedSkill(t, claude, install.Marker{Source: "source", Skill: "both", Target: render.TargetClaude})
-	loaded := testConfig(source, "", claude, filepath.Join(root, "pi"), filepath.Join(root, "codex"), filepath.Join(root, "agents"))
+	loaded := testConfig(source, "", claude, filepath.Join(root, "pi"), filepath.Join(root, "codex"))
 	loaded.Config.Targets.Pi.Enabled = false
 	loaded.ResolvedSources = []config.ResolvedSource{{Name: "source", Path: source}}
 	loaded.EffectiveProfiles = []string{"client", "work"}
@@ -337,7 +342,7 @@ func TestListTracksWhetherAnyManifestLoaded(t *testing.T) {
 	source := filepath.Join(root, "source")
 	writeSourceSkill(t, source, "everywhere", "Everywhere", "")
 	writeVariantManifest(t, source, "invalid", "base", "Invalid")
-	loaded := testConfig(source, "", filepath.Join(root, "claude"), filepath.Join(root, "pi"), filepath.Join(root, "codex"), filepath.Join(root, "agents"))
+	loaded := testConfig(source, "", filepath.Join(root, "claude"), filepath.Join(root, "pi"), filepath.Join(root, "codex"))
 	loaded.ResolvedSources = []config.ResolvedSource{{Name: "source", Path: source}}
 
 	report := List(context.Background(), loaded)
@@ -357,7 +362,7 @@ func TestStatusReportsInactiveSkillsAsHealthy(t *testing.T) {
 	root := t.TempDir()
 	source := filepath.Join(root, "source")
 	writeSourceSkill(t, source, "gated", "Gated", "esheep-only-profiles: [work]\n")
-	loaded := testConfig(source, "", filepath.Join(root, "claude"), filepath.Join(root, "pi"), filepath.Join(root, "codex"), filepath.Join(root, "agents"))
+	loaded := testConfig(source, "", filepath.Join(root, "claude"), filepath.Join(root, "pi"), filepath.Join(root, "codex"))
 	loaded.Config.Targets.Pi.Enabled = false
 	loaded.ResolvedSources = []config.ResolvedSource{{Name: "source", Path: source}}
 
@@ -384,7 +389,8 @@ func TestProfilesUnionsReferencedGates(t *testing.T) {
 	writeSourceSkill(t, source, "invalid", "Invalid", "esheep-only-profiles: [Work]\n")
 	writeSourceSkill(t, source, "variant", "Base", "")
 	writeVariantManifest(t, source, "variant", "work", "Work")
-	loaded := testConfig(source, "", filepath.Join(root, "claude"), filepath.Join(root, "pi"), filepath.Join(root, "codex"), filepath.Join(root, "agents"))
+	writeSourceAgentsFile(t, source, "AGENTS.ops.md", "ops instructions\n")
+	loaded := testConfig(source, "", filepath.Join(root, "claude"), filepath.Join(root, "pi"), filepath.Join(root, "codex"))
 	loaded.ResolvedSources = []config.ResolvedSource{{Name: "source", Path: source}}
 	loaded.EffectiveProfiles = []string{"work"}
 
@@ -396,31 +402,176 @@ func TestProfilesUnionsReferencedGates(t *testing.T) {
 	if len(report.Effective) != 1 || report.Effective[0] != "work" {
 		t.Fatalf("effective = %#v, want [work]", report.Effective)
 	}
-	if len(report.Referenced) != 2 || report.Referenced[0] != "client" || report.Referenced[1] != "work" {
-		t.Fatalf("referenced = %#v, want [client work]", report.Referenced)
+	if len(report.Referenced) != 3 || report.Referenced[0] != "client" || report.Referenced[1] != "ops" || report.Referenced[2] != "work" {
+		t.Fatalf("referenced = %#v, want [client ops work]", report.Referenced)
 	}
 	if len(report.Diagnostics) != 1 || report.Diagnostics[0].Code != "invalid-profile" {
 		t.Fatalf("diagnostics = %#v, want invalid-profile", report.Diagnostics)
 	}
 }
 
-func testConfig(first, second, claude, pi, codex, agents string) config.LoadResult {
+func TestSyncDeploysAgentsFileWriteOnly(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	source := filepath.Join(root, "source")
+	writeSourceAgentsFile(t, source, "AGENTS.md", "global instructions\n")
+	loaded := testConfig(source, "", filepath.Join(root, "claude"), filepath.Join(root, "pi"), filepath.Join(root, "codex"))
+	loaded.Config.Targets.Pi.Enabled = false
+	loaded.ResolvedSources = []config.ResolvedSource{{Name: "source", Path: source}}
+	destination := loaded.ResolvedTargets.Claude.AgentsMD
+
+	report := Sync(context.Background(), loaded)
+	if report.Summary.Installed != 1 || report.Summary.Disabled != 2 || report.Summary.Failed != 0 {
+		t.Fatalf("summary = %#v", report.Summary)
+	}
+	assertManifestContains(t, destination, "global instructions")
+
+	report = Sync(context.Background(), loaded)
+	if report.Summary.Unchanged != 1 || report.Summary.Failed != 0 {
+		t.Fatalf("second summary = %#v", report.Summary)
+	}
+
+	if err := os.WriteFile(destination, []byte("hand edited\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	report = Sync(context.Background(), loaded)
+	if report.Summary.Repaired != 1 || report.Summary.Failed != 0 {
+		t.Fatalf("repair summary = %#v", report.Summary)
+	}
+	assertManifestContains(t, destination, "global instructions")
+
+	if err := os.Remove(filepath.Join(source, "AGENTS.md")); err != nil {
+		t.Fatal(err)
+	}
+	report = Sync(context.Background(), loaded)
+	if len(report.Actions) != 0 || report.Summary.Failed != 0 {
+		t.Fatalf("withdrawn summary = %#v actions = %#v", report.Summary, report.Actions)
+	}
+	assertManifestContains(t, destination, "global instructions")
+}
+
+func TestSyncSelectsAgentsFileByProfileOrder(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	source := filepath.Join(root, "source")
+	writeSourceAgentsFile(t, source, "AGENTS.md", "base instructions\n")
+	writeSourceAgentsFile(t, source, "AGENTS.work.md", "work instructions\n")
+	loaded := testConfig(source, "", filepath.Join(root, "claude"), filepath.Join(root, "pi"), filepath.Join(root, "codex"))
+	loaded.Config.Targets.Pi.Enabled = false
+	loaded.ResolvedSources = []config.ResolvedSource{{Name: "source", Path: source}}
+	loaded.EffectiveProfiles = []string{"client", "work"}
+	destination := loaded.ResolvedTargets.Claude.AgentsMD
+
+	report := Sync(context.Background(), loaded)
+	if report.Summary.Installed != 1 || report.Summary.Failed != 0 {
+		t.Fatalf("summary = %#v", report.Summary)
+	}
+	assertManifestContains(t, destination, "work instructions")
+
+	loaded.EffectiveProfiles = nil
+	report = Sync(context.Background(), loaded)
+	if report.Summary.Repaired != 1 || report.Summary.Failed != 0 {
+		t.Fatalf("base summary = %#v", report.Summary)
+	}
+	assertManifestContains(t, destination, "base instructions")
+}
+
+func TestSyncFailsAgentsFileTierCollisionWithoutWriting(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	first := filepath.Join(root, "first")
+	second := filepath.Join(root, "second")
+	writeSourceAgentsFile(t, first, "AGENTS.md", "first\n")
+	writeSourceAgentsFile(t, second, "AGENTS.md", "second\n")
+	loaded := testConfig(first, second, filepath.Join(root, "claude"), filepath.Join(root, "pi"), filepath.Join(root, "codex"))
+	loaded.Config.Targets.Pi.Enabled = false
+
+	report := Sync(context.Background(), loaded)
+
+	if report.Summary.Failed != 1 || len(report.Diagnostics) != 1 || report.Diagnostics[0].Code != "agents-file-selection" {
+		t.Fatalf("report = %#v", report)
+	}
+	if _, err := os.Stat(loaded.ResolvedTargets.Claude.AgentsMD); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("colliding agents file was written: %v", err)
+	}
+}
+
+func TestSyncSkipsAgentsFileWhileAnySourceIsUnavailable(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	first := filepath.Join(root, "first")
+	writeSourceAgentsFile(t, first, "AGENTS.md", "first\n")
+	loaded := testConfig(first, filepath.Join(root, "missing"), filepath.Join(root, "claude"), filepath.Join(root, "pi"), filepath.Join(root, "codex"))
+	loaded.Config.Targets.Pi.Enabled = false
+
+	report := Sync(context.Background(), loaded)
+
+	if report.Summary.Failed != 1 {
+		t.Fatalf("summary = %#v", report.Summary)
+	}
+	if _, err := os.Stat(loaded.ResolvedTargets.Claude.AgentsMD); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("agents file was written with an unavailable source: %v", err)
+	}
+}
+
+func TestStatusReportsAgentsFileStates(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	source := filepath.Join(root, "source")
+	writeSourceAgentsFile(t, source, "AGENTS.md", "instructions\n")
+	loaded := testConfig(source, "", filepath.Join(root, "claude"), filepath.Join(root, "pi"), filepath.Join(root, "codex"))
+	loaded.Config.Targets.Pi.Enabled = false
+	loaded.ResolvedSources = []config.ResolvedSource{{Name: "source", Path: source}}
+	destination := loaded.ResolvedTargets.Claude.AgentsMD
+
+	report := Status(context.Background(), loaded)
+	if report.Healthy || report.AgentsFile == nil {
+		t.Fatalf("report = %#v, want unhealthy with agents file section", report)
+	}
+	row := report.AgentsFile
+	if row.Source != "source" || row.Profile != "" || row.Path != filepath.Join(source, "AGENTS.md") {
+		t.Fatalf("agents file row = %#v", row)
+	}
+	if row.Targets["claude"] != agentsfile.StateMissing || row.Targets["pi"] != agentsfile.StateDisabled ||
+		row.Targets["codex"] != agentsfile.StateDisabled {
+		t.Fatalf("agents file targets = %#v", row.Targets)
+	}
+
+	if err := os.WriteFile(destination, []byte("instructions\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	report = Status(context.Background(), loaded)
+	if !report.Healthy || report.AgentsFile.Targets["claude"] != agentsfile.StateSynced {
+		t.Fatalf("synced report = %#v", report)
+	}
+
+	if err := os.WriteFile(destination, []byte("drifted\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	report = Status(context.Background(), loaded)
+	if report.Healthy || report.AgentsFile.Targets["claude"] != agentsfile.StateStale {
+		t.Fatalf("stale report = %#v", report)
+	}
+}
+
+func testConfig(first, second, claude, pi, codex string) config.LoadResult {
 	claude = canonicalManagedTestPath(claude)
 	pi = canonicalManagedTestPath(pi)
 	codex = canonicalManagedTestPath(codex)
-	agents = canonicalManagedTestPath(agents)
+	resolved := func(skills string) config.ResolvedTarget {
+		return config.ResolvedTarget{Skills: skills, AgentsMD: skills + "-AGENTS.md"}
+	}
 	return config.LoadResult{
 		Config: config.Config{
 			Sources: []config.Source{{Name: "first", Path: first}, {Name: "second", Path: second}},
 			Targets: config.Targets{
-				Claude: config.ClaudeTarget{Enabled: true, Path: claude},
-				Pi:     config.PiTarget{Enabled: true, Path: pi},
-				Codex:  config.CodexTarget{Path: codex},
-				Agents: config.AgentsTarget{Path: agents},
+				Claude: config.ClaudeTarget{Enabled: true, SkillsPath: claude, AgentsMDPath: claude + "-AGENTS.md"},
+				Pi:     config.PiTarget{Enabled: true, SkillsPath: pi, AgentsMDPath: pi + "-AGENTS.md"},
+				Codex:  config.CodexTarget{SkillsPath: codex, AgentsMDPath: codex + "-AGENTS.md"},
 			},
 		},
 		ResolvedSources: []config.ResolvedSource{{Name: "first", Path: first}, {Name: "second", Path: second}},
-		ResolvedTargets: config.ResolvedTargets{Claude: claude, Pi: pi, Codex: codex, Agents: agents},
+		ResolvedTargets: config.ResolvedTargets{Claude: resolved(claude), Pi: resolved(pi), Codex: resolved(codex)},
 	}
 }
 
@@ -444,15 +595,25 @@ func canonicalManagedTestPath(path string) string {
 	}
 }
 
+func writeSourceAgentsFile(t *testing.T, source, name, content string) {
+	t.Helper()
+	if err := os.MkdirAll(source, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, name), []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func writeSourceSkill(t *testing.T, source, name, description, extra string) {
 	t.Helper()
-	root := filepath.Join(source, name)
+	root := filepath.Join(source, "skills", name)
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	manifest := "---\nname: " + name + "\ndescription: '" + description + "'\n"
 	if !strings.Contains(extra, "esheep-targets:") {
-		manifest += "esheep-targets: [claude, pi, codex, agents]\n"
+		manifest += "esheep-targets: [claude, pi, codex]\n"
 	}
 	manifest += extra + "---\nbody\n"
 	if err := os.WriteFile(filepath.Join(root, "SKILL.md"), []byte(manifest), 0o600); err != nil {
@@ -462,11 +623,11 @@ func writeSourceSkill(t *testing.T, source, name, description, extra string) {
 
 func writeVariantManifest(t *testing.T, source, name, profile, description string) {
 	t.Helper()
-	root := filepath.Join(source, name)
+	root := filepath.Join(source, "skills", name)
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	manifest := "---\nname: " + name + "\ndescription: '" + description + "'\nesheep-targets: [claude, pi, codex, agents]\n---\nbody\n"
+	manifest := "---\nname: " + name + "\ndescription: '" + description + "'\nesheep-targets: [claude, pi, codex]\n---\nbody\n"
 	if err := os.WriteFile(filepath.Join(root, "SKILL."+profile+".md"), []byte(manifest), 0o600); err != nil {
 		t.Fatal(err)
 	}

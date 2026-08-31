@@ -50,7 +50,6 @@ func TestRenderExactTargetTrees(t *testing.T) {
 		{target: TargetClaude, golden: "common.golden"},
 		{target: TargetPi, golden: "common.golden"},
 		{target: TargetCodex, golden: "common.golden", codexPolicy: true},
-		{target: TargetAgents, golden: "common.golden"},
 	}
 	for _, test := range tests {
 		t.Run(string(test.target), func(t *testing.T) {
@@ -130,7 +129,7 @@ func TestRenderExpandsSourcesVariable(t *testing.T) {
 		Targets:     allTargetsListed(),
 		Body:        []byte("Sources:\n{{esheep.sources}}\ntail\n"),
 	}
-	variables := skill.Variables{Sources: []string{"/alpha/skills", "/beta/skills"}}
+	variables := skill.Variables{Sources: []string{"/alpha", "/beta"}}
 
 	staging := t.TempDir()
 	if _, err := Render(staging, source, document, TargetClaude, nil, variables); err != nil {
@@ -141,7 +140,7 @@ func TestRenderExpandsSourcesVariable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "---\nname: demo\ndescription: ok\n---\nSources:\n- /alpha/skills\n- /beta/skills\ntail\n"
+	want := "---\nname: demo\ndescription: ok\n---\nSources:\n- /alpha\n- /beta\ntail\n"
 	if string(manifest) != want {
 		t.Fatalf("manifest = %q, want %q", manifest, want)
 	}
@@ -442,7 +441,7 @@ func loadRenderSkill(t *testing.T) (string, skill.Package) {
 
 func writeSkillManifest(t *testing.T, root string) {
 	t.Helper()
-	if err := os.WriteFile(filepath.Join(root, "SKILL.md"), []byte("---\nname: demo\ndescription: ok\nesheep-targets: [claude, pi, codex, agents]\n---\nbody\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "SKILL.md"), []byte("---\nname: demo\ndescription: ok\nesheep-targets: [claude, pi, codex]\n---\nbody\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -452,7 +451,6 @@ func allTargetsListed() skill.Targets {
 		Claude: skill.TargetOptions{Listed: true},
 		Pi:     skill.TargetOptions{Listed: true},
 		Codex:  skill.TargetOptions{Listed: true},
-		Agents: skill.TargetOptions{Listed: true},
 	}
 }
 

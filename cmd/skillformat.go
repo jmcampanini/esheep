@@ -7,15 +7,24 @@ import (
 func newSkillFormatTopic() *cobra.Command {
 	return &cobra.Command{
 		Use:   "skill-format",
-		Short: "Skill directory layout and SKILL.md frontmatter",
-		Long: `Each source is a read-only collection of top-level skill directories: an
-immediate child directory containing a manifest is a skill. Dot-entries and
-node_modules are skipped. Sources are trusted: symlinks anywhere beneath a
-source are followed wherever they resolve. A link that does not resolve or
-produces a directory cycle is an error. Supporting files are validated and
-rendered as non-executable data, and supporting paths must be unique under case-insensitive
-Unicode-normalized comparison. The root .esheep.toml name is reserved for
-ownership metadata.
+		Short: "Source container layout, SKILL.md frontmatter, and the agents file",
+		Long: `Each source is a read-only container: skills are the immediate child
+directories of its skills/ directory that contain a manifest, and an
+optional global agents file lives at the container root as AGENTS.md or a
+profile variant AGENTS.<profile>.md. A container may provide skills, an
+agents file, or both; a container without a skills/ directory provides no
+skills. Dot-entries and node_modules are skipped. Sources are trusted:
+symlinks anywhere beneath a source are followed wherever they resolve. A
+link that does not resolve or produces a directory cycle is an error.
+Supporting files are validated and rendered as non-executable data, and
+supporting paths must be unique under case-insensitive Unicode-normalized
+comparison. The skill-root .esheep.toml name is reserved for ownership
+metadata.
+
+The agents file is opaque: esheep validates nothing inside it, copies it
+byte-identical, and an empty file is legal. Variants share the profile
+grammar of SKILL.<profile>.md below, and any other container-root file of
+the form AGENTS.<segment>.md is an error.
 
 Manifests are SKILL.md and profile variants named SKILL.<profile>.md, where
 <profile> is 1-64 characters of lowercase alphanumeric words separated by
@@ -47,9 +56,9 @@ Interpreted fields:
   esheep-only-profiles      Optional nonempty list of profile names. Limits
                             the manifest to the named profiles.
   esheep-targets            Required nonempty list naming where the skill
-                            installs: claude, pi, codex, agents. Each entry
-                            is a target name, or a single-pair mapping from
-                            a target name to a nonempty list of profile
+                            installs: claude, pi, codex. Each entry is a
+                            target name, or a single-pair mapping from a
+                            target name to a nonempty list of profile
                             names that limits that target to those
                             profiles. Unlisted targets and targets whose
                             profile list matches no active profile are not
@@ -73,7 +82,7 @@ repairs them.
 Body variables:
 
   {{esheep.sources}}        Replaced with a Markdown bullet list of the
-                            configured source directories as resolved
+                            configured source container roots as resolved
                             absolute paths, one per line, in
                             configuration order.
 

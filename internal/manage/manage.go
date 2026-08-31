@@ -5,10 +5,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
+	"github.com/jmcampanini/esheep/internal/agentsfile"
 	"github.com/jmcampanini/esheep/internal/config"
 	"github.com/jmcampanini/esheep/internal/discovery"
 	"github.com/jmcampanini/esheep/internal/install"
@@ -71,12 +73,23 @@ type SkillStatus struct {
 	Targets     map[string]install.State `json:"targets"`
 }
 
-// StatusReport is a deployment health report for known skills.
+// AgentsFileStatus reports the selected agents file and each target's
+// deployed state.
+type AgentsFileStatus struct {
+	Path    string                      `json:"path"`
+	Profile string                      `json:"profile,omitempty"`
+	Source  string                      `json:"source"`
+	Targets map[string]agentsfile.State `json:"targets"`
+}
+
+// StatusReport is a deployment health report for known skills and the
+// selected agents file.
 type StatusReport struct {
-	Diagnostics       []Diagnostic  `json:"diagnostics"`
-	EffectiveProfiles []string      `json:"effective_profiles"`
-	Healthy           bool          `json:"healthy"`
-	Skills            []SkillStatus `json:"skills"`
+	AgentsFile        *AgentsFileStatus `json:"agents_file,omitempty"`
+	Diagnostics       []Diagnostic      `json:"diagnostics"`
+	EffectiveProfiles []string          `json:"effective_profiles"`
+	Healthy           bool              `json:"healthy"`
+	Skills            []SkillStatus     `json:"skills"`
 }
 
 // ProfilesReport describes the effective profile list and every valid profile
@@ -116,9 +129,10 @@ type catalogResult struct {
 }
 
 type targetSpec struct {
-	enabled bool
-	name    render.Target
-	root    string
+	agentsMDPath string
+	enabled      bool
+	name         render.Target
+	skillsPath   string
 }
 
 // List inventories every discovered source skill.
@@ -133,13 +147,23 @@ func List(ctx context.Context, loaded config.LoadResult) ListReport {
 }
 
 // Profiles reports the effective profile list and every valid profile
-// referenced by discovered skills.
+// referenced by discovered skills and agents file variants.
 func Profiles(ctx context.Context, loaded config.LoadResult) ProfilesReport {
 	catalog := buildCatalog(ctx, loaded)
 	union := make(map[string]struct{})
 	for _, candidate := range catalog.catalog.Candidates {
 		for _, profile := range candidate.Package.ReferencedProfiles() {
 			union[profile] = struct{}{}
+		}
+	}
+	diagnostics := catalog.diagnostics
+	if sourcesAvailable(catalog) {
+		candidates, agentsDiagnostics := agentsfile.Discover(agentsSources(loaded))
+		diagnostics = append(diagnostics, convertAgentsDiagnostics(agentsDiagnostics)...)
+		for _, candidate := range candidates {
+			if candidate.Profile != "" {
+				union[candidate.Profile] = struct{}{}
+			}
 		}
 	}
 	referenced := make([]string, 0, len(union))
@@ -149,7 +173,7 @@ func Profiles(ctx context.Context, loaded config.LoadResult) ProfilesReport {
 	sort.Strings(referenced)
 	return ProfilesReport{
 		Complete:    catalog.complete,
-		Diagnostics: catalog.diagnostics,
+		Diagnostics: diagnostics,
 		Effective:   loaded.EffectiveProfiles,
 		Referenced:  referenced,
 	}
@@ -205,7 +229,7 @@ func Status(ctx context.Context, loaded config.LoadResult) StatusReport {
 				Identity:  install.Identity{Skill: known.Directory, Source: known.Source, Target: target.name},
 				Package:   candidate.Package,
 				Profiles:  loaded.EffectiveProfiles,
-				Root:      target.root,
+				Root:      target.skillsPath,
 				Variables: variables,
 			})
 			if err != nil {
@@ -230,6 +254,7 @@ func Status(ctx context.Context, loaded config.LoadResult) StatusReport {
 		}
 		report.Skills = append(report.Skills, row)
 	}
+	statusAgentsFile(ctx, loaded, catalog, targets, &report)
 	return report
 }
 
@@ -296,7 +321,7 @@ func Sync(ctx context.Context, loaded config.LoadResult) SyncReport {
 				Identity:  install.Identity{Skill: known.Directory, Source: known.Source, Target: target.name},
 				Package:   candidate.Package,
 				Profiles:  loaded.EffectiveProfiles,
-				Root:      target.root,
+				Root:      target.skillsPath,
 				Variables: variables,
 			})
 			record(&report, result, err)
@@ -316,6 +341,7 @@ func Sync(ctx context.Context, loaded config.LoadResult) SyncReport {
 			report.Diagnostics = append(report.Diagnostics, targetDiagnostic("synchronization", known, target, err))
 		}
 	}
+	syncAgentsFile(ctx, loaded, catalog, targets, &report)
 	for _, diagnostic := range catalog.catalog.Diagnostics {
 		if diagnostic.Code != discovery.CodeSourceUnavailable {
 			continue
@@ -400,11 +426,164 @@ func sourceVariables(loaded config.LoadResult) skill.Variables {
 
 func configuredTargets(loaded config.LoadResult) []targetSpec {
 	return []targetSpec{
-		{enabled: loaded.Config.Targets.Claude.Enabled, name: render.TargetClaude, root: loaded.ResolvedTargets.Claude},
-		{enabled: loaded.Config.Targets.Pi.Enabled, name: render.TargetPi, root: loaded.ResolvedTargets.Pi},
-		{enabled: loaded.Config.Targets.Codex.Enabled, name: render.TargetCodex, root: loaded.ResolvedTargets.Codex},
-		{enabled: loaded.Config.Targets.Agents.Enabled, name: render.TargetAgents, root: loaded.ResolvedTargets.Agents},
+		{agentsMDPath: loaded.ResolvedTargets.Claude.AgentsMD, enabled: loaded.Config.Targets.Claude.Enabled, name: render.TargetClaude, skillsPath: loaded.ResolvedTargets.Claude.Skills},
+		{agentsMDPath: loaded.ResolvedTargets.Pi.AgentsMD, enabled: loaded.Config.Targets.Pi.Enabled, name: render.TargetPi, skillsPath: loaded.ResolvedTargets.Pi.Skills},
+		{agentsMDPath: loaded.ResolvedTargets.Codex.AgentsMD, enabled: loaded.Config.Targets.Codex.Enabled, name: render.TargetCodex, skillsPath: loaded.ResolvedTargets.Codex.Skills},
 	}
+}
+
+type agentsFilePlan struct {
+	content     []byte
+	diagnostics []Diagnostic
+	selection   agentsfile.Selection
+}
+
+// planAgentsFile selects the agents file for the active profiles. It skips
+// selection entirely while any configured source is unavailable so a partial
+// view can never pick the wrong file.
+func planAgentsFile(loaded config.LoadResult, catalog catalogResult) agentsFilePlan {
+	if !sourcesAvailable(catalog) {
+		return agentsFilePlan{}
+	}
+	candidates, discoveryDiagnostics := agentsfile.Discover(agentsSources(loaded))
+	plan := agentsFilePlan{diagnostics: convertAgentsDiagnostics(discoveryDiagnostics)}
+	if len(plan.diagnostics) != 0 {
+		return plan
+	}
+	selection, err := agentsfile.Select(candidates, loaded.EffectiveProfiles)
+	if err != nil {
+		plan.diagnostics = append(plan.diagnostics, Diagnostic{Code: "agents-file-selection", Message: err.Error()})
+		return plan
+	}
+	plan.selection = selection
+	if !selection.Found {
+		return plan
+	}
+	content, err := os.ReadFile(selection.Candidate.Path)
+	if err != nil {
+		plan.diagnostics = append(plan.diagnostics, Diagnostic{
+			Code: "agents-file-selection", Message: err.Error(), Path: selection.Candidate.Path, Source: selection.Candidate.Source,
+		})
+		return plan
+	}
+	plan.content = content
+	return plan
+}
+
+func syncAgentsFile(ctx context.Context, loaded config.LoadResult, catalog catalogResult, targets []targetSpec, report *SyncReport) {
+	plan := planAgentsFile(loaded, catalog)
+	report.Diagnostics = append(report.Diagnostics, plan.diagnostics...)
+	if len(plan.diagnostics) != 0 {
+		identity := install.Identity{Skill: agentsfile.BaseName}
+		if plan.selection.Found {
+			identity.Skill = plan.selection.Candidate.FileName()
+			identity.Source = plan.selection.Candidate.Source
+		}
+		record(report, install.Result{Action: install.ActionFailed, Detail: "agents file selection failed", Identity: identity}, nil)
+		return
+	}
+	if !plan.selection.Found {
+		return
+	}
+
+	candidate := plan.selection.Candidate
+	for _, target := range targets {
+		identity := install.Identity{Skill: candidate.FileName(), Source: candidate.Source, Target: target.name}
+		if !target.enabled {
+			record(report, install.Result{Action: install.ActionDisabled, Detail: "target disabled", Identity: identity}, nil)
+			continue
+		}
+		outcome, err := agentsfile.Deploy(ctx, plan.content, target.agentsMDPath)
+		if err != nil {
+			record(report, install.Result{Action: install.ActionFailed, Detail: err.Error(), Identity: identity}, nil)
+			report.Diagnostics = append(report.Diagnostics, Diagnostic{
+				Code: "synchronization", Message: fmt.Sprintf("%v", err), Path: target.agentsMDPath,
+				Skill: identity.Skill, Source: identity.Source, Target: string(target.name),
+			})
+			continue
+		}
+		result := install.Result{Identity: identity}
+		switch outcome {
+		case agentsfile.OutcomeInstalled:
+			result.Action = install.ActionInstalled
+			result.Detail = "agents file installed"
+		case agentsfile.OutcomeRepaired:
+			result.Action = install.ActionRepaired
+			result.Detail = "drift repaired"
+		case agentsfile.OutcomeUnchanged:
+			result.Action = install.ActionUnchanged
+			result.Detail = "already synchronized"
+		}
+		record(report, result, nil)
+	}
+}
+
+func statusAgentsFile(ctx context.Context, loaded config.LoadResult, catalog catalogResult, targets []targetSpec, report *StatusReport) {
+	plan := planAgentsFile(loaded, catalog)
+	report.Diagnostics = append(report.Diagnostics, plan.diagnostics...)
+	if len(plan.diagnostics) != 0 {
+		report.Healthy = false
+		return
+	}
+	if !plan.selection.Found {
+		return
+	}
+
+	candidate := plan.selection.Candidate
+	row := &AgentsFileStatus{
+		Path:    candidate.Path,
+		Profile: candidate.Profile,
+		Source:  candidate.Source,
+		Targets: make(map[string]agentsfile.State),
+	}
+	for _, target := range targets {
+		if !target.enabled {
+			row.Targets[string(target.name)] = agentsfile.StateDisabled
+			continue
+		}
+		state, err := agentsfile.Inspect(ctx, plan.content, target.agentsMDPath)
+		if err != nil {
+			row.Targets[string(target.name)] = agentsfile.StateBlocked
+			report.Diagnostics = append(report.Diagnostics, Diagnostic{
+				Code: "target-inspection", Message: fmt.Sprintf("%v", err), Path: target.agentsMDPath,
+				Skill: candidate.FileName(), Source: candidate.Source, Target: string(target.name),
+			})
+			report.Healthy = false
+			continue
+		}
+		row.Targets[string(target.name)] = state
+		if state != agentsfile.StateSynced {
+			report.Healthy = false
+		}
+	}
+	report.AgentsFile = row
+}
+
+func sourcesAvailable(catalog catalogResult) bool {
+	for _, diagnostic := range catalog.catalog.Diagnostics {
+		if diagnostic.Code == discovery.CodeSourceUnavailable {
+			return false
+		}
+	}
+	return true
+}
+
+func agentsSources(loaded config.LoadResult) []agentsfile.Source {
+	sources := make([]agentsfile.Source, 0, len(loaded.ResolvedSources))
+	for _, source := range loaded.ResolvedSources {
+		sources = append(sources, agentsfile.Source{Name: source.Name, Path: source.Path})
+	}
+	return sources
+}
+
+func convertAgentsDiagnostics(diagnostics []agentsfile.Diagnostic) []Diagnostic {
+	converted := make([]Diagnostic, 0, len(diagnostics))
+	for _, diagnostic := range diagnostics {
+		converted = append(converted, Diagnostic{
+			Code: "agents-file-selection", Message: diagnostic.Err.Error(), Path: diagnostic.Path, Source: diagnostic.Source,
+		})
+	}
+	return converted
 }
 
 func inspectTargets(ctx context.Context, targets []targetSpec) (map[render.Target]Diagnostic, []Diagnostic) {
@@ -414,9 +593,9 @@ func inspectTargets(ctx context.Context, targets []targetSpec) (map[render.Targe
 		if !target.enabled {
 			continue
 		}
-		if err := install.InspectTarget(ctx, target.root); err != nil {
+		if err := install.InspectTarget(ctx, target.skillsPath); err != nil {
 			diagnostic := Diagnostic{
-				Code: "target-inspection", Message: fmt.Sprintf("%v", err), Path: target.root, Target: string(target.name),
+				Code: "target-inspection", Message: fmt.Sprintf("%v", err), Path: target.skillsPath, Target: string(target.name),
 			}
 			blocked[target.name] = diagnostic
 			diagnostics = append(diagnostics, diagnostic)
@@ -457,7 +636,7 @@ func pruneStale(
 			continue
 		}
 
-		results, err := install.Prune(ctx, target.root, target.name, func(marker install.Marker) bool {
+		results, err := install.Prune(ctx, target.skillsPath, target.name, func(marker install.Marker) bool {
 			if _, found := unavailable[marker.Source]; found {
 				return false
 			}
@@ -481,7 +660,7 @@ func pruneStale(
 			record(report, result, nil)
 			if result.Action == install.ActionFailed {
 				report.Diagnostics = append(report.Diagnostics, Diagnostic{
-					Code: "pruning", Message: result.Detail, Path: target.root,
+					Code: "pruning", Message: result.Detail, Path: target.skillsPath,
 					Skill: result.Identity.Skill, Source: result.Identity.Source, Target: string(target.name),
 				})
 			}
@@ -494,7 +673,7 @@ func pruneStale(
 			}
 			record(report, result, nil)
 			report.Diagnostics = append(report.Diagnostics, Diagnostic{
-				Code: "pruning", Message: err.Error(), Path: target.root, Target: string(target.name),
+				Code: "pruning", Message: err.Error(), Path: target.skillsPath, Target: string(target.name),
 			})
 		}
 	}
@@ -567,7 +746,7 @@ func convertDiagnostic(diagnostic discovery.Diagnostic) Diagnostic {
 
 func targetDiagnostic(code string, known KnownSkill, target targetSpec, err error) Diagnostic {
 	return Diagnostic{
-		Code: code, Message: fmt.Sprintf("%v", err), Path: filepath.Join(target.root, filepath.FromSlash(known.Directory)),
+		Code: code, Message: fmt.Sprintf("%v", err), Path: filepath.Join(target.skillsPath, filepath.FromSlash(known.Directory)),
 		Skill: known.Directory, Source: known.Source, Target: string(target.name),
 	}
 }
