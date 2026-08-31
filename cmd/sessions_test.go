@@ -64,7 +64,7 @@ func TestSessionsSearchPassesQuery(t *testing.T) {
 	}
 
 	code, _, stderr := runCommandWithOperations(t, sessionLoader(t), operations,
-		"sessions", "search", "GOMODCACHE", "--role", "user", "--tool", "Bash", "--errors")
+		"sessions", "search", "GOMODCACHE", "--role", "tool", "--tool", "Bash", "--errors")
 
 	if code != 0 {
 		t.Fatalf("exit code = %d, stderr = %q", code, stderr)
@@ -72,7 +72,7 @@ func TestSessionsSearchPassesQuery(t *testing.T) {
 	if gotQuery.Pattern == nil || !gotQuery.Pattern.MatchString("gomodcache lives here") {
 		t.Errorf("pattern = %v, want case-insensitive match", gotQuery.Pattern)
 	}
-	if gotQuery.Role != session.RoleUser || gotQuery.Tool != "Bash" || !gotQuery.ErrorsOnly || gotQuery.Raw {
+	if gotQuery.Role != session.RoleTool || gotQuery.Tool != "Bash" || !gotQuery.ErrorsOnly || gotQuery.Raw {
 		t.Errorf("query = %+v", gotQuery)
 	}
 }
@@ -84,6 +84,7 @@ func TestSessionsUsageErrorsDoNotLoadConfiguration(t *testing.T) {
 	}{
 		{name: "search without criteria", args: []string{"sessions", "search"}},
 		{name: "raw with structural filter", args: []string{"sessions", "search", "x", "--raw", "--tool", "Bash"}},
+		{name: "non-tool role with tool filter", args: []string{"sessions", "search", "x", "--role", "user", "--tool", "Bash"}},
 		{name: "unknown role", args: []string{"sessions", "search", "x", "--role", "system"}},
 		{name: "unknown harness", args: []string{"sessions", "list", "--harness", "emacs"}},
 		{name: "bad since", args: []string{"sessions", "list", "--since", "yesterday"}},

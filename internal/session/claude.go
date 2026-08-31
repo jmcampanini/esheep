@@ -31,7 +31,7 @@ func (claudeAdapter) discover(root string, includeSubagents bool) ([]transcript,
 // claudeMetaLimit bounds the metadata prescan. Bookkeeping records cluster at
 // the top of a transcript; the first conversational record carries cwd and
 // timestamp, and ai-title usually lands early.
-const claudeMetaLimit = 40
+const claudeMetaLimit = 512
 
 func (claudeAdapter) meta(t transcript) (Session, []Diagnostic) {
 	entry := Session{
@@ -59,7 +59,7 @@ func (claudeAdapter) meta(t transcript) (Session, []Diagnostic) {
 		if entry.Title == "" {
 			entry.Title = record.AiTitle
 		}
-		return line < claudeMetaLimit
+		return line < claudeMetaLimit && (entry.Project == "" || entry.StartedAt.IsZero() || entry.Title == "")
 	})
 	if err != nil {
 		return entry, []Diagnostic{{Code: codeTranscriptRead, Harness: HarnessClaude, Message: err.Error(), Path: t.path}}

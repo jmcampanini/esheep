@@ -103,8 +103,9 @@ func newSessionsListCommand(load configLoader, list func(context.Context, sessio
 recently started first, without touching the transcripts' content beyond a
 short metadata read.
 
-Each row carries the harness, start time, project directory, title where the
-grammar records one, and the canonical transcript path. Subagent and
+Each row carries the harness, recorded start time (or file modification time
+when unavailable), project directory, title where the grammar records one,
+and the canonical transcript path. Subagent and
 sidechain transcripts are excluded unless --subagents is set. --since keeps
 sessions still active at the given time; --until drops sessions started
 after it. Best-effort fields a grammar does not record appear as -.
@@ -181,6 +182,9 @@ other failing Codex tool calls cannot match. --raw drops to byte-level
 matching against the undecoded lines and cannot combine with --role, --tool,
 or --errors.
 
+Codex limitation: decoded search omits web-search events and may report one
+MCP call twice under different tool names. Use --raw to inspect those records.
+
 Unparseable transcript lines are skipped and reported as diagnostics without
 failing the search. The command exits nonzero only when filesystem failures
 prevent a complete search.
@@ -188,8 +192,8 @@ prevent a complete search.
 ` + streamContractHelp + `
 
 ` + jsonContractHelp + ` Search JSON includes "complete"; each session
-carries "hits" with "line", "role", "excerpt", and, when known, "tool",
-"error", and "timestamp".`,
+carries "hits" with "line", "role", and "excerpt"; "tool" and "timestamp"
+appear when known, and "error" appears for known failures.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
 			query := session.SearchQuery{ErrorsOnly: errorsOnly, Raw: raw, Tool: tool}
@@ -216,6 +220,10 @@ carries "hits" with "line", "role", "excerpt", and, when known, "tool",
 			if raw && query.Pattern == nil {
 				return errors.New("--raw requires a pattern")
 			}
+			if query.Role != "" && query.Role != session.RoleTool && (query.Tool != "" || query.ErrorsOnly) {
+				return errors.New("--role user or assistant cannot combine with --tool or --errors")
+			}
+
 			filter, err := filterFlags.filter(time.Now())
 			if err != nil {
 				return err

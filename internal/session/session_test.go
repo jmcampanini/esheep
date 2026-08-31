@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 func writeTranscript(t *testing.T, path string, modTime time.Time, lines ...string) {
@@ -132,6 +133,32 @@ func TestListInventoriesMainSessionsAcrossHarnesses(t *testing.T) {
 		if entry.Subagent {
 			t.Errorf("session %q marked subagent in default listing", entry.Path)
 		}
+	}
+}
+
+func TestListFindsTitlesAfterEarlyBookkeepingRecords(t *testing.T) {
+	base := t.TempDir()
+	claudePath := filepath.Join(base, "claude.jsonl")
+	claudeLines := []string{`{"type":"user","timestamp":"2026-08-20T10:00:00Z","cwd":"/project"}`}
+	piPath := filepath.Join(base, "pi.jsonl")
+	piLines := []string{`{"type":"session","id":"session-id","timestamp":"2026-08-20T10:00:00Z","cwd":"/project"}`}
+	for range 50 {
+		claudeLines = append(claudeLines, `{"type":"progress"}`)
+		piLines = append(piLines, `{"type":"message"}`)
+	}
+	claudeLines = append(claudeLines, `{"type":"ai-title","aiTitle":"Late Claude title"}`)
+	piLines = append(piLines, `{"type":"session_info","name":"Late Pi title"}`)
+	writeTranscript(t, claudePath, time.Now(), claudeLines...)
+	writeTranscript(t, piPath, time.Now(), piLines...)
+
+	claude, claudeDiagnostics := (claudeAdapter{}).meta(transcript{path: claudePath})
+	pi, piDiagnostics := (piAdapter{}).meta(transcript{path: piPath})
+
+	if len(claudeDiagnostics) != 0 || claude.Title != "Late Claude title" {
+		t.Errorf("Claude metadata = %+v, diagnostics = %+v", claude, claudeDiagnostics)
+	}
+	if len(piDiagnostics) != 0 || pi.Title != "Late Pi title" {
+		t.Errorf("Pi metadata = %+v, diagnostics = %+v", pi, piDiagnostics)
 	}
 }
 
@@ -364,13 +391,13 @@ func TestParseHarnessAndRoleRejectUnknownNames(t *testing.T) {
 }
 
 func TestExcerptWindowsAroundMatch(t *testing.T) {
-	text := strings.Repeat("a", 500) + " NEEDLE " + strings.Repeat("b", 500)
+	text := strings.Repeat("界", 167) + " NEEDLE " + strings.Repeat("界", 167)
 	pattern := regexp.MustCompile("NEEDLE")
 
 	got := excerpt(text, pattern.FindStringIndex(text))
 
-	if !strings.Contains(got, "NEEDLE") {
-		t.Fatalf("excerpt = %q, want the match included", got)
+	if !utf8.ValidString(got) || !strings.Contains(got, "NEEDLE") {
+		t.Fatalf("excerpt = %q, want valid UTF-8 containing the match", got)
 	}
 	if !strings.HasPrefix(got, "…") || !strings.HasSuffix(got, "…") {
 		t.Fatalf("excerpt = %q, want ellipses marking truncation", got)

@@ -27,7 +27,7 @@ func (piAdapter) discover(root string, _ bool) ([]transcript, []Diagnostic) {
 }
 
 // piMetaLimit bounds the title prescan; session_info records land early.
-const piMetaLimit = 40
+const piMetaLimit = 512
 
 func (piAdapter) meta(t transcript) (Session, []Diagnostic) {
 	entry := Session{Harness: HarnessPi, ModifiedAt: t.modTime, Path: t.path, Subagent: t.subagent}
@@ -52,7 +52,7 @@ func (piAdapter) meta(t transcript) (Session, []Diagnostic) {
 				entry.Title = record.Name
 			}
 		}
-		return line < piMetaLimit
+		return line < piMetaLimit && (entry.ID == "" || entry.Project == "" || entry.StartedAt.IsZero() || entry.Title == "")
 	})
 	if err != nil {
 		return entry, []Diagnostic{{Code: codeTranscriptRead, Harness: HarnessPi, Message: err.Error(), Path: t.path}}
