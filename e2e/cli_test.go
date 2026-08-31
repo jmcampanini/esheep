@@ -466,6 +466,71 @@ enabled = false
 	assertManifestMetadata(t, filepath.Join(claude, "layered", "SKILL.md"), "Layered skill", true)
 }
 
+func TestSourcesVariableWorkflow(t *testing.T) {
+	root := filepath.Join(workDir, "variables")
+	home := filepath.Join(root, "home")
+	configHome := filepath.Join(root, "config")
+	alpha := filepath.Join(root, "alpha")
+	beta := filepath.Join(root, "beta")
+	claude := filepath.Join(root, "targets", "claude")
+	pi := filepath.Join(root, "targets", "pi")
+	codex := filepath.Join(root, "targets", "codex")
+	agents := filepath.Join(root, "targets", "agents")
+	for _, directory := range []string{home, configHome, filepath.Join(alpha, "locator"), beta} {
+		if err := os.MkdirAll(directory, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	manifest := "---\nname: locator\ndescription: 'Locator skill'\nesheep-targets: [claude]\n---\n# Sources\n\n{{esheep.sources}}\n"
+	if err := os.WriteFile(filepath.Join(alpha, "locator", "SKILL.md"), []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	settingsPath := filepath.Join(configHome, "esheep", "esheep.toml")
+	writeVariablesSettings(t, settingsPath, [][2]string{{"alpha", alpha}}, claude, pi, codex, agents)
+	environment := map[string]string{"HOME": home, "XDG_CONFIG_HOME": configHome}
+	resolvedAlpha := resolvePath(t, alpha)
+	resolvedBeta := resolvePath(t, beta)
+
+	first := runEsheep(t, environment, "sync")
+	assertSuccess(t, first)
+	installed, err := os.ReadFile(filepath.Join(claude, "locator", "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "# Sources\n\n- " + resolvedAlpha + "\n"; !strings.HasSuffix(string(installed), want) {
+		t.Fatalf("installed manifest = %q, want suffix %q", installed, want)
+	}
+	if strings.Contains(string(installed), "{{esheep") {
+		t.Fatalf("installed manifest kept variable text: %q", installed)
+	}
+	healthy := runEsheep(t, environment, "skills", "status", "--json")
+	assertSuccess(t, healthy)
+	assertStatusHealth(t, healthy.stdout, true)
+
+	writeVariablesSettings(t, settingsPath, [][2]string{{"alpha", alpha}, {"beta", beta}}, claude, pi, codex, agents)
+	drifted := runEsheep(t, environment, "skills", "status", "--json")
+	if drifted.exitCode != 1 || drifted.stderr != "" {
+		t.Fatalf("drifted status = %#v", drifted)
+	}
+	assertStatusHealth(t, drifted.stdout, false)
+
+	second := runEsheep(t, environment, "sync")
+	assertSuccess(t, second)
+	if !strings.Contains(second.stdout, "repaired") {
+		t.Fatalf("second sync stdout = %s", second.stdout)
+	}
+	repaired, err := os.ReadFile(filepath.Join(claude, "locator", "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "- " + resolvedAlpha + "\n- " + resolvedBeta + "\n"; !strings.Contains(string(repaired), want) {
+		t.Fatalf("repaired manifest = %q, want %q", repaired, want)
+	}
+	final := runEsheep(t, environment, "skills", "status", "--json")
+	assertSuccess(t, final)
+	assertStatusHealth(t, final.stdout, true)
+}
+
 func TestFoundationConfigurationWorkflow(t *testing.T) {
 	root := filepath.Join(workDir, "foundation")
 	home := filepath.Join(root, "home")
@@ -629,6 +694,33 @@ func writeE2EVariantManifest(t *testing.T, source, name, profile, description st
 	if err := os.WriteFile(filepath.Join(root, "SKILL."+profile+".md"), []byte(manifest), 0o600); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func writeVariablesSettings(t *testing.T, path string, sources [][2]string, claude, pi, codex, agents string) {
+	t.Helper()
+	var settings strings.Builder
+	for _, source := range sources {
+		_, _ = fmt.Fprintf(&settings, "[[sources]]\nname = %q\npath = %q\n\n", source[0], source[1])
+	}
+	_, _ = fmt.Fprintf(&settings, "[targets.claude]\nenabled = true\npath = %q\n\n", claude)
+	_, _ = fmt.Fprintf(&settings, "[targets.pi]\nenabled = false\npath = %q\n\n", pi)
+	_, _ = fmt.Fprintf(&settings, "[targets.codex]\nenabled = false\npath = %q\n\n", codex)
+	_, _ = fmt.Fprintf(&settings, "[targets.agents]\nenabled = false\npath = %q\n", agents)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(settings.String()), 0o640); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func resolvePath(t *testing.T, path string) string {
+	t.Helper()
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resolved
 }
 
 func writeSyncSettings(t *testing.T, path, personal, work, claude, pi, codex, agents string, codexEnabled bool) {

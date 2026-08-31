@@ -45,9 +45,10 @@ func Disabled(document skill.Document, target Target, profiles []string) (bool, 
 }
 
 // Render writes a skill into an existing empty staging directory using the
-// selected manifest document. A false result means the document disabled this
+// selected manifest document, replacing esheep variables in the manifest body
+// with the supplied values. A false result means the document disabled this
 // target under the active profiles and the directory was untouched.
-func Render(staging string, source skill.Package, document skill.Document, target Target, profiles []string) (bool, error) {
+func Render(staging string, source skill.Package, document skill.Document, target Target, profiles []string, variables skill.Variables) (bool, error) {
 	disabled, err := Disabled(document, target, profiles)
 	if err != nil {
 		return false, err
@@ -63,7 +64,7 @@ func Render(staging string, source skill.Package, document skill.Document, targe
 		return false, err
 	}
 
-	manifest, err := renderManifest(document)
+	manifest, err := renderManifest(document, variables)
 	if err != nil {
 		return false, err
 	}
@@ -116,7 +117,12 @@ func hasFile(source skill.Package, path string) bool {
 	return false
 }
 
-func renderManifest(document skill.Document) ([]byte, error) {
+func renderManifest(document skill.Document, variables skill.Variables) ([]byte, error) {
+	body, err := skill.ExpandVariables(document.Body, variables)
+	if err != nil {
+		return nil, err
+	}
+
 	mapping := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
 	appendString := func(key, value string) {
 		mapping.Content = append(mapping.Content,
@@ -171,11 +177,11 @@ func renderManifest(document skill.Document) ([]byte, error) {
 	if err := encoder.Close(); err != nil {
 		return nil, err
 	}
-	result := make([]byte, 0, yamlText.Len()+len(document.Body)+8)
+	result := make([]byte, 0, yamlText.Len()+len(body)+8)
 	result = append(result, "---\n"...)
 	result = append(result, yamlText.Bytes()...)
 	result = append(result, "---\n"...)
-	result = append(result, document.Body...)
+	result = append(result, body...)
 	return result, nil
 }
 

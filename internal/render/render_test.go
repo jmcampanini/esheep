@@ -56,7 +56,7 @@ func TestRenderExactTargetTrees(t *testing.T) {
 		t.Run(string(test.target), func(t *testing.T) {
 			t.Parallel()
 			staging := t.TempDir()
-			rendered, err := Render(staging, source, document, test.target, nil)
+			rendered, err := Render(staging, source, document, test.target, nil, skill.Variables{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -108,7 +108,7 @@ func TestRenderPreservesEmptyOptionalFields(t *testing.T) {
 		Targets:       allTargetsListed(),
 	}
 	claude := t.TempDir()
-	if _, err := Render(claude, source, document, TargetClaude, nil); err != nil {
+	if _, err := Render(claude, source, document, TargetClaude, nil, skill.Variables{}); err != nil {
 		t.Fatal(err)
 	}
 	manifest, err := os.ReadFile(filepath.Join(claude, "SKILL.md"))
@@ -118,6 +118,47 @@ func TestRenderPreservesEmptyOptionalFields(t *testing.T) {
 	want := "---\nname: demo\ndescription: ok\nlicense: \"\"\ncompatibility: \"\"\nmetadata: {}\n---\n"
 	if string(manifest) != want {
 		t.Fatalf("Claude manifest = %q, want %q", manifest, want)
+	}
+}
+
+func TestRenderExpandsSourcesVariable(t *testing.T) {
+	t.Parallel()
+	source := loadManifestOnlyPackage(t)
+	document := skill.Document{
+		Name:        "demo",
+		Description: "ok",
+		Targets:     allTargetsListed(),
+		Body:        []byte("Sources:\n{{esheep.sources}}\ntail\n"),
+	}
+	variables := skill.Variables{Sources: []string{"/alpha/skills", "/beta/skills"}}
+
+	staging := t.TempDir()
+	if _, err := Render(staging, source, document, TargetClaude, nil, variables); err != nil {
+		t.Fatal(err)
+	}
+
+	manifest, err := os.ReadFile(filepath.Join(staging, "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "---\nname: demo\ndescription: ok\n---\nSources:\n- /alpha/skills\n- /beta/skills\ntail\n"
+	if string(manifest) != want {
+		t.Fatalf("manifest = %q, want %q", manifest, want)
+	}
+}
+
+func TestRenderRejectsSourcesVariableWithoutSources(t *testing.T) {
+	t.Parallel()
+	source := loadManifestOnlyPackage(t)
+	document := skill.Document{
+		Name:        "demo",
+		Description: "ok",
+		Targets:     allTargetsListed(),
+		Body:        []byte("{{esheep.sources}}\n"),
+	}
+
+	if _, err := Render(t.TempDir(), source, document, TargetClaude, nil, skill.Variables{}); err == nil {
+		t.Fatal("Render succeeded without source directories")
 	}
 }
 
@@ -136,7 +177,7 @@ func TestRenderExcludedTargetLeavesStagingUntouched(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			staging := t.TempDir()
-			rendered, err := Render(staging, skill.Package{}, test.document, TargetCodex, test.profiles)
+			rendered, err := Render(staging, skill.Package{}, test.document, TargetCodex, test.profiles, skill.Variables{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -182,7 +223,7 @@ func TestRenderRejectsInvalidConstructedTrees(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := Render(staging, source, skill.Document{Name: "demo", Description: "ok", Targets: allTargetsListed()}, TargetClaude, nil); err == nil {
+			if _, err := Render(staging, source, skill.Document{Name: "demo", Description: "ok", Targets: allTargetsListed()}, TargetClaude, nil, skill.Variables{}); err == nil {
 				t.Fatal("invalid tree rendered")
 			}
 			after, err := os.Stat(staging)
@@ -215,7 +256,7 @@ func TestRenderAllowsNestedReservedName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Render(staging, source, source.Manifests[0].Document, TargetClaude, nil); err != nil {
+	if _, err := Render(staging, source, source.Manifests[0].Document, TargetClaude, nil, skill.Variables{}); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(filepath.Join(staging, "support", ".ESHEEP.TOML"))
@@ -233,7 +274,7 @@ func TestRenderRejectsNonemptyStaging(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(staging, "existing"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Render(staging, skill.Package{}, skill.Document{Name: "demo", Description: "ok", Targets: allTargetsListed()}, TargetClaude, nil); err == nil {
+	if _, err := Render(staging, skill.Package{}, skill.Document{Name: "demo", Description: "ok", Targets: allTargetsListed()}, TargetClaude, nil, skill.Variables{}); err == nil {
 		t.Fatal("nonempty staging rendered")
 	}
 }
@@ -264,7 +305,7 @@ func TestRenderCleansStagingAndNormalizesModesDespiteUmask(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Render(staging+string(filepath.Separator), source, source.Manifests[0].Document, TargetClaude, nil); err != nil {
+	if _, err := Render(staging+string(filepath.Separator), source, source.Manifests[0].Document, TargetClaude, nil, skill.Variables{}); err != nil {
 		t.Fatal(err)
 	}
 	assertMode(t, parent, 0o700)
@@ -309,7 +350,7 @@ func TestRenderStreamsCurrentDataThroughSymlinks(t *testing.T) {
 	}
 
 	staging := t.TempDir()
-	if _, err := Render(staging, loaded, loaded.Manifests[0].Document, TargetClaude, nil); err != nil {
+	if _, err := Render(staging, loaded, loaded.Manifests[0].Document, TargetClaude, nil, skill.Variables{}); err != nil {
 		t.Fatal(err)
 	}
 	for _, relative := range []string{"data", "alias", "external"} {
@@ -337,7 +378,7 @@ func TestRenderRejectsSupportFileReplacedByDirectory(t *testing.T) {
 	if err := os.Mkdir(path, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Render(t.TempDir(), loaded, loaded.Manifests[0].Document, TargetClaude, nil); err == nil {
+	if _, err := Render(t.TempDir(), loaded, loaded.Manifests[0].Document, TargetClaude, nil, skill.Variables{}); err == nil {
 		t.Fatal("Render accepted a support file replaced by a directory")
 	}
 }
@@ -355,7 +396,7 @@ func TestRenderRejectsSupportFileReplacedByFIFOWithoutBlocking(t *testing.T) {
 	staging := t.TempDir()
 	result := make(chan error, 1)
 	go func() {
-		_, err := Render(staging, loaded, loaded.Manifests[0].Document, TargetClaude, nil)
+		_, err := Render(staging, loaded, loaded.Manifests[0].Document, TargetClaude, nil, skill.Variables{})
 		result <- err
 	}()
 	select {

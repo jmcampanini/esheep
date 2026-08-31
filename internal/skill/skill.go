@@ -34,6 +34,7 @@ const (
 	CodeInvalidName     Code = "invalid-name"
 	CodeNameMismatch    Code = "name-mismatch"
 	CodeInvalidValue    Code = "invalid-value"
+	CodeInvalidVariable Code = "invalid-variable"
 	CodeInvalidProfile  Code = "invalid-profile"
 	CodeReservedPath    Code = "reserved-path"
 	CodePathCollision   Code = "path-collision"
@@ -298,7 +299,8 @@ type rawDocument struct {
 }
 
 // Parse parses frontmatter, preserves the Markdown body, and validates the
-// fields esheep interprets. Fields it does not interpret are preserved in
+// fields esheep interprets and the esheep variables the body uses. Fields it
+// does not interpret are preserved in
 // order for pass-through rendering, except that the esheep- key prefix is a
 // reserved namespace and unknown keys within it are errors. It returns a
 // partially decoded document with a ValidationError when possible so
@@ -358,6 +360,7 @@ func parse(data []byte, directoryName string) (Document, []Diagnostic) {
 		Body:                   body,
 	}
 	diagnostics = append(diagnostics, validateValues(document, directoryName)...)
+	diagnostics = append(diagnostics, validateBody(body)...)
 	return document, diagnostics
 }
 

@@ -47,14 +47,16 @@ type Identity struct {
 }
 
 // Request contains one target reconciliation request. Document is the
-// manifest selected for the active profiles, and Profiles is the active
-// profile list that gates per-target installation.
+// manifest selected for the active profiles, Profiles is the active profile
+// list that gates per-target installation, and Variables supplies the values
+// substituted for esheep variables in the manifest body.
 type Request struct {
-	Document skill.Document
-	Identity Identity
-	Package  skill.Package
-	Profiles []string
-	Root     string
+	Document  skill.Document
+	Identity  Identity
+	Package   skill.Package
+	Profiles  []string
+	Root      string
+	Variables skill.Variables
 }
 
 // Result describes one completed or refused target operation.
@@ -360,7 +362,7 @@ func renderInTransaction(transaction string, request Request) (string, error) {
 	if err := os.Mkdir(staging, 0o700); err != nil {
 		return "", fmt.Errorf("create render staging: %w", err)
 	}
-	rendered, err := render.Render(staging, request.Package, request.Document, request.Identity.Target, request.Profiles)
+	rendered, err := render.Render(staging, request.Package, request.Document, request.Identity.Target, request.Profiles, request.Variables)
 	if err != nil {
 		return "", fmt.Errorf("render target skill: %w", err)
 	}
