@@ -3,6 +3,7 @@
 package agentsfile
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,14 +12,18 @@ import (
 	"github.com/jmcampanini/esheep/internal/naming"
 )
 
-// BaseName is the unprofiled agents file name at the root of a source
-// container.
+// DirName is the container child directory that holds managed global agents
+// files.
+const DirName = "agents-md"
+
+// BaseName is the unprofiled agents file name inside a container's agents
+// directory.
 const BaseName = "AGENTS.md"
 
-// ParseName classifies a source-root filename. It reports the profile named
-// by a variant agents file ("" for AGENTS.md), whether the name is an agents
-// file at all, and an error when the name sits in the reserved
-// AGENTS.<profile>.md namespace with an invalid profile segment.
+// ParseName classifies a filename inside the agents directory. It reports
+// the profile named by a variant agents file ("" for AGENTS.md), whether the
+// name is an agents file at all, and an error when the name sits in the
+// reserved AGENTS.<profile>.md namespace with an invalid profile segment.
 func ParseName(name string) (string, bool, error) {
 	if name == BaseName {
 		return "", true, nil
@@ -46,7 +51,7 @@ type Candidate struct {
 	Source  string
 }
 
-// FileName returns the candidate's name inside its source container.
+// FileName returns the candidate's name inside its agents directory.
 func (candidate Candidate) FileName() string {
 	return filepath.Base(candidate.Path)
 }
@@ -58,22 +63,27 @@ type Diagnostic struct {
 	Source string
 }
 
-// Discover inspects the root of each source container for agents files,
-// following symlinks wherever they resolve. Names in the reserved namespace
-// that carry an invalid profile or do not resolve to a regular file are
-// diagnostics, not candidates.
+// Discover inspects the agents directory of each source container for
+// agents files, following symlinks wherever they resolve. A container
+// without an agents directory provides no agents files. Names in the
+// reserved namespace that carry an invalid profile or do not resolve to a
+// regular file are diagnostics, not candidates.
 func Discover(sources []Source) ([]Candidate, []Diagnostic) {
 	var candidates []Candidate
 	var diagnostics []Diagnostic
 	for _, source := range sources {
-		entries, err := os.ReadDir(source.Path)
+		directory := filepath.Join(source.Path, DirName)
+		entries, ok, err := readAgentsDir(directory)
 		if err != nil {
-			diagnostics = append(diagnostics, Diagnostic{Err: err, Path: source.Path, Source: source.Name})
+			diagnostics = append(diagnostics, Diagnostic{Err: err, Path: directory, Source: source.Name})
+			continue
+		}
+		if !ok {
 			continue
 		}
 		for _, entry := range entries {
 			name := entry.Name()
-			path := filepath.Join(source.Path, name)
+			path := filepath.Join(directory, name)
 			profile, ok, nameErr := ParseName(name)
 			if nameErr != nil {
 				diagnostics = append(diagnostics, Diagnostic{Err: nameErr, Path: path, Source: source.Name})
@@ -95,6 +105,30 @@ func Discover(sources []Source) ([]Candidate, []Diagnostic) {
 		}
 	}
 	return candidates, diagnostics
+}
+
+// readAgentsDir lists an agents directory and reports whether it is
+// present. An absent path is not an error, while a present path that is
+// unreadable, not a directory, or an unresolvable link is.
+func readAgentsDir(directory string) ([]os.DirEntry, bool, error) {
+	info, err := os.Stat(directory)
+	if errors.Is(err, os.ErrNotExist) {
+		if _, lstatErr := os.Lstat(directory); errors.Is(lstatErr, os.ErrNotExist) {
+			return nil, false, nil
+		}
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	if !info.IsDir() {
+		return nil, false, fmt.Errorf("not a directory")
+	}
+
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		return nil, false, err
+	}
+	return entries, true, nil
 }
 
 // Selection is the agents file chosen under the active profiles.

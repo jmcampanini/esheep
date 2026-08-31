@@ -10,11 +10,15 @@ func newSkillFormatTopic() *cobra.Command {
 		Short: "Source container layout, SKILL.md frontmatter, and the agents file",
 		Long: `Each source is a read-only container: skills are the immediate child
 directories of its skills/ directory that contain a manifest, and an
-optional global agents file lives at the container root as AGENTS.md or a
-profile variant AGENTS.<profile>.md. A container may provide skills, an
-agents file, or both; a container without a skills/ directory provides no
-skills. Dot-entries and node_modules are skipped. Sources are trusted:
-symlinks anywhere beneath a source are followed wherever they resolve. A
+optional global agents file lives in the sibling agents-md/ directory as
+AGENTS.md or a profile variant AGENTS.<profile>.md. A container may
+provide skills, an agents file, or both; a container without a skills/
+directory provides no skills, and one without an agents-md/ directory
+provides no agents file. Container-root files, including a
+repository-local AGENTS.md, are ignored: only agents-md/ holds managed
+instruction files. Dot-entries and node_modules are skipped. Sources are
+trusted: symlinks anywhere beneath a source are followed wherever they
+resolve. A
 link that does not resolve or produces a directory cycle is an error.
 Supporting files are validated and rendered as non-executable data, and
 supporting paths must be unique under case-insensitive Unicode-normalized
@@ -23,8 +27,8 @@ metadata.
 
 The agents file is opaque: esheep validates nothing inside it, copies it
 byte-identical, and an empty file is legal. Variants share the profile
-grammar of SKILL.<profile>.md below, and any other container-root file of
-the form AGENTS.<segment>.md is an error.
+grammar of SKILL.<profile>.md below, and any other agents-md/ file of the
+form AGENTS.<segment>.md is an error.
 
 Manifests are SKILL.md and profile variants named SKILL.<profile>.md, where
 <profile> is 1-64 characters of lowercase alphanumeric words separated by
