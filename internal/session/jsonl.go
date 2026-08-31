@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -109,21 +110,7 @@ func flattenText(raw json.RawMessage) string {
 }
 
 func joinNonEmpty(parts []string) string {
-	switch len(parts) {
-	case 0:
-		return ""
-	case 1:
-		return parts[0]
-	default:
-		var b bytes.Buffer
-		for index, part := range parts {
-			if index > 0 {
-				b.WriteByte('\n')
-			}
-			b.WriteString(part)
-		}
-		return b.String()
-	}
+	return strings.Join(parts, "\n")
 }
 
 // compactJSON renders raw JSON on one line for matching and excerpts.

@@ -334,8 +334,8 @@ func collect(ctx context.Context, roots Roots, filter Filter) ([]located, []Diag
 	var diagnostics []Diagnostic
 	complete := true
 	var sessions []located
-	for _, root := range harnessRoots(roots, filter) {
-		transcripts, rootDiagnostics := discoverRoot(root)
+	for _, root := range harnessRoots(roots, filter.Harnesses) {
+		transcripts, rootDiagnostics := discoverRoot(root, filter.IncludeSubagents)
 		diagnostics = append(diagnostics, rootDiagnostics...)
 
 		kept := transcripts[:0]
@@ -363,9 +363,8 @@ func collect(ctx context.Context, roots Roots, filter Filter) ([]located, []Diag
 			}
 		}
 	}
-	for index := range diagnostics {
-		diagnostics[index].Harness = diagnosticHarness(diagnostics[index], roots)
-		if affectsCompleteness(diagnostics[index].Code) {
+	for _, diagnostic := range diagnostics {
+		if affectsCompleteness(diagnostic.Code) {
 			complete = false
 		}
 	}
@@ -393,22 +392,21 @@ type describedSession struct {
 
 type harnessRoot struct {
 	adapter adapter
-	filter  Filter
 	harness Harness
 	root    string
 }
 
-func harnessRoots(roots Roots, filter Filter) []harnessRoot {
+func harnessRoots(roots Roots, harnesses []Harness) []harnessRoot {
 	all := []harnessRoot{
-		{adapter: claudeAdapter{}, filter: filter, harness: HarnessClaude, root: roots.Claude},
-		{adapter: codexAdapter{}, filter: filter, harness: HarnessCodex, root: roots.Codex},
-		{adapter: piAdapter{}, filter: filter, harness: HarnessPi, root: roots.Pi},
+		{adapter: claudeAdapter{}, harness: HarnessClaude, root: roots.Claude},
+		{adapter: codexAdapter{}, harness: HarnessCodex, root: roots.Codex},
+		{adapter: piAdapter{}, harness: HarnessPi, root: roots.Pi},
 	}
-	if len(filter.Harnesses) == 0 {
+	if len(harnesses) == 0 {
 		return all
 	}
-	wanted := make(map[Harness]struct{}, len(filter.Harnesses))
-	for _, harness := range filter.Harnesses {
+	wanted := make(map[Harness]struct{}, len(harnesses))
+	for _, harness := range harnesses {
 		wanted[harness] = struct{}{}
 	}
 	selected := make([]harnessRoot, 0, len(all))
@@ -420,7 +418,7 @@ func harnessRoots(roots Roots, filter Filter) []harnessRoot {
 	return selected
 }
 
-func discoverRoot(root harnessRoot) ([]transcript, []Diagnostic) {
+func discoverRoot(root harnessRoot, includeSubagents bool) ([]transcript, []Diagnostic) {
 	info, err := os.Stat(root.root)
 	switch {
 	case err != nil && os.IsNotExist(err):
@@ -434,27 +432,11 @@ func discoverRoot(root harnessRoot) ([]transcript, []Diagnostic) {
 			Code: codeRootUnusable, Harness: root.harness, Message: "session root is not a directory", Path: root.root,
 		}}
 	}
-	transcripts, diagnostics := root.adapter.discover(root.root, root.filter.IncludeSubagents)
+	transcripts, diagnostics := root.adapter.discover(root.root, includeSubagents)
 	for index := range diagnostics {
 		diagnostics[index].Harness = root.harness
 	}
 	return transcripts, diagnostics
-}
-
-func diagnosticHarness(diagnostic Diagnostic, roots Roots) Harness {
-	if diagnostic.Harness != "" {
-		return diagnostic.Harness
-	}
-	switch {
-	case roots.Claude != "" && strings.HasPrefix(diagnostic.Path, roots.Claude):
-		return HarnessClaude
-	case roots.Codex != "" && strings.HasPrefix(diagnostic.Path, roots.Codex):
-		return HarnessCodex
-	case roots.Pi != "" && strings.HasPrefix(diagnostic.Path, roots.Pi):
-		return HarnessPi
-	default:
-		return ""
-	}
 }
 
 func (f Filter) matchesSession(s Session) bool {
