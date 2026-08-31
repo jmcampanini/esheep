@@ -1,7 +1,8 @@
-// Package discovery catalogs immediate child skills from configured sources.
+// Package discovery catalogs skills from configured source containers.
 package discovery
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -76,9 +77,13 @@ func (catalog Catalog) ValidCandidates() []Candidate {
 	return valid
 }
 
-// Discover inspects each source in input order and only its immediate child
-// directories, following symlinks wherever they resolve. It continues after
-// structured failures.
+// SkillsDirName is the container child directory that holds source skills.
+const SkillsDirName = "skills"
+
+// Discover inspects each source container in input order and only the
+// immediate child directories of its skills directory, following symlinks
+// wherever they resolve. A container without a skills directory provides no
+// skills. Discovery continues after structured failures.
 func Discover(sources []Source) Catalog {
 	var catalog Catalog
 	for _, source := range sources {
@@ -98,7 +103,20 @@ func discoverSource(source Source, catalog *Catalog) {
 		catalog.Diagnostics = append(catalog.Diagnostics, sourceDiagnostic(source, fmt.Errorf("not a directory")))
 		return
 	}
-	root, err := os.Open(source.Path)
+	skillsPath := filepath.Join(source.Path, SkillsDirName)
+	info, err = os.Stat(skillsPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return
+	}
+	if err != nil {
+		catalog.Diagnostics = append(catalog.Diagnostics, sourceDiagnostic(source, err))
+		return
+	}
+	if !info.IsDir() {
+		catalog.Diagnostics = append(catalog.Diagnostics, sourceDiagnostic(source, fmt.Errorf("%s is not a directory", SkillsDirName)))
+		return
+	}
+	root, err := os.Open(skillsPath)
 	if err != nil {
 		catalog.Diagnostics = append(catalog.Diagnostics, sourceDiagnostic(source, err))
 		return
@@ -124,7 +142,7 @@ func discoverSource(source Source, catalog *Catalog) {
 		if strings.HasPrefix(name, ".") || name == "node_modules" {
 			continue
 		}
-		candidateRoot := filepath.Join(source.Path, name)
+		candidateRoot := filepath.Join(skillsPath, name)
 		if child.Type()&os.ModeSymlink != 0 {
 			// A resolvable link is its target; an unresolvable one falls
 			// through so the load surfaces the failure as a diagnostic.

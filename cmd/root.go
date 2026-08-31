@@ -86,13 +86,15 @@ func newRootCommand(load configLoader) *cobra.Command {
 func newRootCommandWithOperations(load configLoader, operations commandOperations) *cobra.Command {
 	root := &cobra.Command{
 		Use:   "esheep",
-		Short: "Manage local Agent Skills across coding harnesses",
-		Long: `Manage Agent Skills from human-maintained local source directories.
+		Short: "Manage local Agent Skills and agents files across coding harnesses",
+		Long: `Manage Agent Skills and a global agents file from human-maintained local
+source directories.
 
-esheep reads skills from configured sources and renders them for the Claude,
-Pi, Codex, and shared agents targets. It never accesses the network, never
-executes source content, and never creates, updates, or deletes source
-directories. Commands accept only the arguments shown and never prompt.
+esheep reads skills and an optional agents file from configured source
+containers and renders them for the Claude, Pi, Codex, and shared agents
+targets. It never accesses the network, never executes source content, and
+never creates, updates, or deletes source directories. Commands accept
+only the arguments shown and never prompt.
 
 Run 'esheep config' to inspect the effective configuration and resolved
 paths, 'esheep help skill-format' for the authoring format, and

@@ -27,8 +27,11 @@ func TestDefaultsAndLocation(t *testing.T) {
 	if !got.Targets.Claude.Enabled || !got.Targets.Pi.Enabled || !got.Targets.Codex.Enabled || got.Targets.Agents.Enabled {
 		t.Fatalf("default enabled targets = %#v", got.Targets)
 	}
-	if got.Targets.Claude.Path != "~/.claude/skills" || got.Targets.Pi.Path != "~/.pi/agent/skills" || got.Targets.Codex.Path != "~/.codex/skills" || got.Targets.Agents.Path != "~/.agents/skills" {
-		t.Fatalf("default target paths = %#v", got.Targets)
+	if got.Targets.Claude.SkillsPath != "~/.claude/skills" || got.Targets.Pi.SkillsPath != "~/.pi/agent/skills" || got.Targets.Codex.SkillsPath != "~/.codex/skills" || got.Targets.Agents.SkillsPath != "~/.agents/skills" {
+		t.Fatalf("default target skills paths = %#v", got.Targets)
+	}
+	if got.Targets.Claude.AgentsMDPath != "~/.claude/CLAUDE.md" || got.Targets.Pi.AgentsMDPath != "~/.pi/agent/AGENTS.md" || got.Targets.Codex.AgentsMDPath != "~/.codex/AGENTS.md" || got.Targets.Agents.AgentsMDPath != "~/.agents/AGENTS.md" {
+		t.Fatalf("default target agents md paths = %#v", got.Targets)
 	}
 	location, err := locationsFromEnv(testEnv(home, configHome), home)
 	if err != nil {
@@ -122,33 +125,46 @@ func TestApprovedEnvironmentNamesAndFlagsLoadEachTarget(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "home")
 	env := testEnv(home, filepath.Join(t.TempDir(), "config"))
 	env["ESHEEP_PI_ENABLED"] = "false"
-	env["ESHEEP_CODEX_PATH"] = "~/codex-overridden"
-	env["ESHEEP_AGENTS_PATH"] = "~/agents-overridden"
+	env["ESHEEP_CODEX_SKILLS_PATH"] = "~/codex-overridden"
+	env["ESHEEP_AGENTS_SKILLS_PATH"] = "~/agents-overridden"
+	env["ESHEEP_CODEX_AGENTS_MD_PATH"] = "~/codex-overridden-AGENTS.md"
 	flags := pflag.NewFlagSet("test", pflag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	if err := RegisterFlags(flags); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"claude-enabled", "claude-path", "pi-enabled", "pi-path", "codex-enabled", "codex-path", "agents-enabled", "agents-path"} {
+	approved := []string{
+		"claude-enabled", "claude-skills-path", "claude-agents-md-path",
+		"pi-enabled", "pi-skills-path", "pi-agents-md-path",
+		"codex-enabled", "codex-skills-path", "codex-agents-md-path",
+		"agents-enabled", "agents-skills-path", "agents-agents-md-path",
+	}
+	for _, name := range approved {
 		if flags.Lookup(name) == nil {
 			t.Fatalf("missing approved flag --%s", name)
 		}
 	}
-	if err := flags.Parse([]string{"--claude-enabled=false", "--claude-path=~/from-flag"}); err != nil {
+	if err := flags.Parse([]string{"--claude-enabled=false", "--claude-skills-path=~/from-flag", "--claude-agents-md-path=~/from-flag-AGENTS.md"}); err != nil {
 		t.Fatal(err)
 	}
 	result, err := Load(LoadOptions{Env: env, Flags: flags})
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantClaude, err := canonicalPath(filepath.Join(home, "from-flag"))
+	wantClaudeSkills, err := canonicalPath(filepath.Join(home, "from-flag"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Config.Targets.Claude.Enabled || result.ResolvedTargets.Claude != wantClaude || result.Config.Targets.Pi.Enabled {
+	wantClaudeAgentsMD, err := canonicalPath(filepath.Join(home, "from-flag-AGENTS.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Config.Targets.Claude.Enabled || result.ResolvedTargets.Claude.Skills != wantClaudeSkills ||
+		result.ResolvedTargets.Claude.AgentsMD != wantClaudeAgentsMD || result.Config.Targets.Pi.Enabled {
 		t.Fatalf("effective targets = %#v resolved = %#v", result.Config.Targets, result.ResolvedTargets)
 	}
-	if result.Report.Updates["targets.claude.path"] != "<pflag>" || result.Report.Updates["targets.pi.enabled"] != "<env>" {
+	if result.Report.Updates["targets.claude.skillspath"] != "<pflag>" || result.Report.Updates["targets.pi.enabled"] != "<env>" ||
+		result.Report.Updates["targets.codex.agentsmdpath"] != "<env>" {
 		t.Fatalf("provenance = %#v", result.Report.Updates)
 	}
 }
@@ -200,23 +216,36 @@ func TestManagedPathsMustBeDisjointAndAbsolute(t *testing.T) {
 		mutate func(*Config)
 	}{
 		{name: "relative source", mutate: func(cfg *Config) { cfg.Sources = []Source{{Name: "one", Path: "skills"}} }},
-		{name: "relative target", mutate: func(cfg *Config) { cfg.Targets.Claude.Path = "skills" }},
+		{name: "relative target", mutate: func(cfg *Config) { cfg.Targets.Claude.SkillsPath = "skills" }},
+		{name: "relative agents md", mutate: func(cfg *Config) { cfg.Targets.Claude.AgentsMDPath = "CLAUDE.md" }},
 		{name: "nested sources", mutate: func(cfg *Config) {
 			cfg.Sources = []Source{{Name: "one", Path: filepath.Join(root, "sources")}, {Name: "two", Path: filepath.Join(root, "sources", "nested")}}
 		}},
 		{name: "duplicate names ignoring case", mutate: func(cfg *Config) {
 			cfg.Sources = []Source{{Name: "One", Path: filepath.Join(root, "one")}, {Name: "one", Path: filepath.Join(root, "two")}}
 		}},
-		{name: "overlapping targets", mutate: func(cfg *Config) { cfg.Targets.Pi.Path = cfg.Targets.Claude.Path }},
+		{name: "overlapping targets", mutate: func(cfg *Config) { cfg.Targets.Pi.SkillsPath = cfg.Targets.Claude.SkillsPath }},
+		{name: "duplicate agents md paths", mutate: func(cfg *Config) { cfg.Targets.Pi.AgentsMDPath = cfg.Targets.Claude.AgentsMDPath }},
+		{name: "agents md inside skills root", mutate: func(cfg *Config) {
+			cfg.Targets.Claude.AgentsMDPath = filepath.Join(home, ".claude", "skills", "CLAUDE.md")
+		}},
+		{name: "agents md inside another skills root", mutate: func(cfg *Config) {
+			cfg.Targets.Pi.AgentsMDPath = filepath.Join(home, ".claude", "skills", "AGENTS.md")
+		}},
+		{name: "agents md inside source", mutate: func(cfg *Config) {
+			cfg.Sources = []Source{{Name: "one", Path: filepath.Join(root, "container")}}
+			cfg.Targets.Claude.AgentsMDPath = filepath.Join(root, "container", "AGENTS.md")
+		}},
 		{name: "source target overlap", mutate: func(cfg *Config) {
 			cfg.Sources = []Source{{Name: "one", Path: filepath.Join(home, ".claude")}}
 		}},
 		{name: "unicode-equivalent source target overlap", mutate: func(cfg *Config) {
 			cfg.Sources = []Source{{Name: "one", Path: filepath.Join(root, "caf\u00e9")}}
-			cfg.Targets.Claude.Path = filepath.Join(root, "cafe\u0301")
+			cfg.Targets.Claude.SkillsPath = filepath.Join(root, "cafe\u0301")
 		}},
-		{name: "home target", mutate: func(cfg *Config) { cfg.Targets.Claude.Path = home }},
-		{name: "root target", mutate: func(cfg *Config) { cfg.Targets.Claude.Path = string(filepath.Separator) }},
+		{name: "home target", mutate: func(cfg *Config) { cfg.Targets.Claude.SkillsPath = home }},
+		{name: "home agents md", mutate: func(cfg *Config) { cfg.Targets.Claude.AgentsMDPath = home }},
+		{name: "root target", mutate: func(cfg *Config) { cfg.Targets.Claude.SkillsPath = string(filepath.Separator) }},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -256,9 +285,23 @@ func TestMissingPathResolvesExistingSymlinkedParent(t *testing.T) {
 	}
 	cfg := Config(defaults())
 	cfg.Sources = []Source{{Name: "one", Path: sourcePath}}
-	cfg.Targets.Claude.Path = filepath.Join(alias, "source", "missing-target")
+	cfg.Targets.Claude.SkillsPath = filepath.Join(alias, "source", "missing-target")
 	if _, _, err := resolvePaths(cfg, home); err == nil {
 		t.Fatal("overlap through a symlinked parent succeeded")
+	}
+}
+
+func TestEnabledAgentsMDPathMustNotBeDirectory(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	directory := filepath.Join(root, "occupied")
+	if err := os.MkdirAll(directory, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := Config(defaults())
+	cfg.Targets.Claude.AgentsMDPath = directory
+	if _, _, err := resolvePaths(cfg, home); err == nil {
+		t.Fatal("directory agents md path succeeded")
 	}
 }
 
@@ -274,7 +317,7 @@ func TestEnabledTargetRootMustNotBeSymlink(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := Config(defaults())
-	cfg.Targets.Claude.Path = alias
+	cfg.Targets.Claude.SkillsPath = alias
 	if _, _, err := resolvePaths(cfg, home); err == nil {
 		t.Fatal("symlinked target succeeded")
 	}
@@ -425,18 +468,18 @@ func TestRenderIsValidTOMLAndSanitizesProvenance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result.Config.Targets.Claude.Path = "sensitive-value"
-	result.ResolvedTargets.Claude = "/sensitive-value"
-	result.Report.Updates["targets.claude.path"] = "source\r\n# injected"
+	result.Config.Targets.Claude.SkillsPath = "sensitive-value"
+	result.ResolvedTargets.Claude = ResolvedTarget{Skills: "/sensitive-value", AgentsMD: "/sensitive-value-AGENTS.md"}
+	result.Report.Updates["targets.claude.skills_path"] = "source\r\n# injected"
 	output, err := Render(result, ReportOptions{Provenance: true, Redact: func(result LoadResult) LoadResult {
-		result.Config.Targets.Claude.Path = "REDACTED"
-		result.ResolvedTargets.Claude = "REDACTED"
+		result.Config.Targets.Claude.SkillsPath = "REDACTED"
+		result.ResolvedTargets.Claude = ResolvedTarget{Skills: "REDACTED", AgentsMD: "REDACTED"}
 		return result
 	}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(output), "sensitive-value") || !strings.Contains(string(output), "# targets.claude.path = \"REDACTED\"") || !strings.Contains(string(output), "# Resolved paths") || strings.Contains(string(output), "source\r\n") {
+	if strings.Contains(string(output), "sensitive-value") || !strings.Contains(string(output), "# targets.claude.skills_path = \"REDACTED\"") || !strings.Contains(string(output), "# targets.claude.agents_md_path = \"REDACTED\"") || !strings.Contains(string(output), "# Resolved paths") || strings.Contains(string(output), "source\r\n") {
 		t.Fatalf("report = %s", output)
 	}
 	var decoded Config
