@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io/fs"
 	"path/filepath"
+	"strings"
 )
 
 // piAdapter reads Pi transcripts: one JSONL file per session under a
@@ -126,15 +127,8 @@ func piMessageEvents(raw json.RawMessage, base event, visit func(event)) {
 				parts = append(parts, block.Text)
 			}
 		}
-		base.role, base.tool, base.text = RoleTool, message.ToolName, joinNonEmpty(parts)
-		switch {
-		case message.IsError == nil:
-			base.err = errorUnknown
-		case *message.IsError:
-			base.err = errorYes
-		default:
-			base.err = errorNo
-		}
+		base.role, base.tool, base.text = RoleTool, message.ToolName, strings.Join(parts, "\n")
+		base.err = errorStateFromBool(message.IsError)
 		visit(base)
 	}
 }

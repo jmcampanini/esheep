@@ -12,6 +12,12 @@ import (
 // most tool events carry an unknown error state.
 type codexAdapter struct{}
 
+type codexEnvelope struct {
+	Payload   json.RawMessage `json:"payload"`
+	Timestamp string          `json:"timestamp"`
+	Type      string          `json:"type"`
+}
+
 func (codexAdapter) discover(root string, _ bool) ([]transcript, []Diagnostic) {
 	return walkTranscripts(root, walkRules{
 		classify: func(path string) (bool, bool) {
@@ -29,11 +35,7 @@ func (codexAdapter) meta(t transcript) (Session, []Diagnostic) {
 		Subagent:   t.subagent,
 	}
 	err := forEachLine(t.path, func(_ int, data []byte) bool {
-		var envelope struct {
-			Payload   json.RawMessage `json:"payload"`
-			Timestamp string          `json:"timestamp"`
-			Type      string          `json:"type"`
-		}
+		var envelope codexEnvelope
 		if json.Unmarshal(data, &envelope) != nil || envelope.Type != "session_meta" {
 			return false
 		}
@@ -76,11 +78,7 @@ func (codexAdapter) scan(path string, visit func(event)) (int, error) {
 	malformed := 0
 	toolNames := make(map[string]string)
 	err := forEachLine(path, func(line int, data []byte) bool {
-		var envelope struct {
-			Payload   json.RawMessage `json:"payload"`
-			Timestamp string          `json:"timestamp"`
-			Type      string          `json:"type"`
-		}
+		var envelope codexEnvelope
 		if json.Unmarshal(data, &envelope) != nil {
 			malformed++
 			return true
@@ -124,7 +122,7 @@ func codexResponseEvents(raw json.RawMessage, base event, toolNames map[string]s
 				parts = append(parts, item.Text)
 			}
 		}
-		text := joinNonEmpty(parts)
+		text := strings.Join(parts, "\n")
 		switch payload.Role {
 		case "user":
 			if text != "" && !codexInjectedContext(text) {

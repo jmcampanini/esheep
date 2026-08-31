@@ -70,6 +70,16 @@ const (
 	errorYes
 )
 
+func errorStateFromBool(value *bool) errorState {
+	if value == nil {
+		return errorUnknown
+	}
+	if *value {
+		return errorYes
+	}
+	return errorNo
+}
+
 // event is one interpreted transcript record component.
 type event struct {
 	err       errorState

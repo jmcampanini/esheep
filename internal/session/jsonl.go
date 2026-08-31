@@ -106,10 +106,6 @@ func flattenText(raw json.RawMessage) string {
 			parts = append(parts, block.Text)
 		}
 	}
-	return joinNonEmpty(parts)
-}
-
-func joinNonEmpty(parts []string) string {
 	return strings.Join(parts, "\n")
 }
 
