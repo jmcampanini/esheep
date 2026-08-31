@@ -160,6 +160,7 @@ func Status(ctx context.Context, loaded config.LoadResult) StatusReport {
 	catalog := buildCatalog(ctx, loaded)
 	report := StatusReport{Diagnostics: catalog.diagnostics, EffectiveProfiles: loaded.EffectiveProfiles, Healthy: catalog.complete}
 	targets := configuredTargets(loaded)
+	variables := sourceVariables(loaded)
 	blockedTargets, targetDiagnostics := inspectTargets(ctx, targets)
 	report.Diagnostics = append(report.Diagnostics, targetDiagnostics...)
 	if len(blockedTargets) != 0 {
@@ -205,7 +206,7 @@ func Status(ctx context.Context, loaded config.LoadResult) StatusReport {
 				Package:   candidate.Package,
 				Profiles:  loaded.EffectiveProfiles,
 				Root:      target.root,
-				Variables: sourceVariables(loaded),
+				Variables: variables,
 			})
 			if err != nil {
 				row.Targets[string(target.name)] = install.StateBlocked
@@ -237,6 +238,7 @@ func Sync(ctx context.Context, loaded config.LoadResult) SyncReport {
 	catalog := buildCatalog(ctx, loaded)
 	report := SyncReport{Diagnostics: catalog.diagnostics}
 	targets := configuredTargets(loaded)
+	variables := sourceVariables(loaded)
 	blockedTargets, targetDiagnostics := inspectTargets(ctx, targets)
 	report.Diagnostics = append(report.Diagnostics, targetDiagnostics...)
 	for _, target := range targets {
@@ -295,7 +297,7 @@ func Sync(ctx context.Context, loaded config.LoadResult) SyncReport {
 				Package:   candidate.Package,
 				Profiles:  loaded.EffectiveProfiles,
 				Root:      target.root,
-				Variables: sourceVariables(loaded),
+				Variables: variables,
 			})
 			record(&report, result, err)
 			if err == nil {

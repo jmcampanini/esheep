@@ -66,8 +66,9 @@ The {{esheep. text is reserved everywhere in the body: every occurrence
 must be exactly a known variable, a known variable must occupy its own
 line, and there is no escape syntax. Anything else fails validation.
 Rendering replaces the variable line with its value on every target, and
-frontmatter is never substituted. When a variable's value changes, the
-installed skills that use it drift and the next sync repairs them.
+frontmatter and supporting files are never substituted. When a variable's
+value changes, the installed skills that use it drift and the next sync
+repairs them.
 
 Body variables:
 
