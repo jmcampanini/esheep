@@ -45,28 +45,84 @@ func TestDiscoverFindsAgentsFilesAndReportsInvalidNames(t *testing.T) {
 	writeAgentsFile(t, first, "AGENTS.work.md", "work")
 	writeAgentsFile(t, first, "notes.md", "ignored")
 	writeAgentsFile(t, second, "AGENTS.Bad.md", "invalid")
+	if err := os.WriteFile(filepath.Join(first, "AGENTS.md"), []byte("repository-local"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 
 	candidates, diagnostics := Discover([]Source{{Name: "first", Path: first}, {Name: "second", Path: second}})
 
 	want := []Candidate{
-		{Path: filepath.Join(first, "AGENTS.md"), Profile: "", Source: "first"},
-		{Path: filepath.Join(first, "AGENTS.work.md"), Profile: "work", Source: "first"},
+		{Path: filepath.Join(first, DirName, "AGENTS.md"), Profile: "", Source: "first"},
+		{Path: filepath.Join(first, DirName, "AGENTS.work.md"), Profile: "work", Source: "first"},
 	}
 	if !reflect.DeepEqual(candidates, want) {
 		t.Fatalf("Discover candidates = %#v, want %#v", candidates, want)
 	}
-	if len(diagnostics) != 1 || diagnostics[0].Source != "second" || diagnostics[0].Path != filepath.Join(second, "AGENTS.Bad.md") {
+	if len(diagnostics) != 1 || diagnostics[0].Source != "second" || diagnostics[0].Path != filepath.Join(second, DirName, "AGENTS.Bad.md") {
 		t.Fatalf("Discover diagnostics = %#v, want one invalid-name diagnostic", diagnostics)
+	}
+}
+
+func TestDiscoverIgnoresContainerWithoutAgentsDirectory(t *testing.T) {
+	t.Parallel()
+	source := t.TempDir()
+	if err := os.WriteFile(filepath.Join(source, "AGENTS.md"), []byte("repository-local"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	candidates, diagnostics := Discover([]Source{{Name: "source", Path: source}})
+
+	if len(candidates) != 0 || len(diagnostics) != 0 {
+		t.Fatalf("Discover = %#v, %#v, want no candidates and no diagnostics", candidates, diagnostics)
+	}
+}
+
+func TestDiscoverReportsBrokenAgentsDirectory(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		setup func(t *testing.T, directory string)
+	}{
+		{name: "regular file", setup: func(t *testing.T, directory string) {
+			t.Helper()
+			if err := os.WriteFile(directory, []byte("content"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "unresolvable link", setup: func(t *testing.T, directory string) {
+			t.Helper()
+			if err := os.Symlink("missing", directory); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			source := t.TempDir()
+			directory := filepath.Join(source, DirName)
+			test.setup(t, directory)
+
+			candidates, diagnostics := Discover([]Source{{Name: "source", Path: source}})
+
+			if len(candidates) != 0 || len(diagnostics) != 1 || diagnostics[0].Path != directory {
+				t.Fatalf("Discover = %#v, %#v, want one diagnostic for %q", candidates, diagnostics, directory)
+			}
+		})
 	}
 }
 
 func TestDiscoverReportsUnresolvableAndIrregularEntries(t *testing.T) {
 	t.Parallel()
 	source := t.TempDir()
-	if err := os.Symlink("missing", filepath.Join(source, "AGENTS.md")); err != nil {
+	directory := filepath.Join(source, DirName)
+	if err := os.Mkdir(directory, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Mkdir(filepath.Join(source, "AGENTS.work.md"), 0o755); err != nil {
+	if err := os.Symlink("missing", filepath.Join(directory, "AGENTS.md")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(directory, "AGENTS.work.md"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -81,13 +137,19 @@ func TestDiscoverFollowsResolvableSymlinks(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	source := filepath.Join(root, "source")
-	if err := os.Mkdir(source, 0o755); err != nil {
-		t.Fatal(err)
+	realDirectory := filepath.Join(root, "real-agents")
+	for _, directory := range []string{source, realDirectory} {
+		if err := os.Mkdir(directory, 0o755); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := os.WriteFile(filepath.Join(root, "real.md"), []byte("linked"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(filepath.Join("..", "real.md"), filepath.Join(source, "AGENTS.md")); err != nil {
+	if err := os.Symlink(filepath.Join("..", "real.md"), filepath.Join(realDirectory, "AGENTS.md")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(realDirectory, filepath.Join(source, DirName)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -307,7 +369,11 @@ func canonicalTempDir(t *testing.T) string {
 
 func writeAgentsFile(t *testing.T, source, name, content string) {
 	t.Helper()
-	if err := os.WriteFile(filepath.Join(source, name), []byte(content), 0o600); err != nil {
+	directory := filepath.Join(source, DirName)
+	if err := os.MkdirAll(directory, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, name), []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }

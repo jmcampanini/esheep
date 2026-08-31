@@ -30,12 +30,14 @@ existing output. Skills whose profiles are not active are reported
 inactive and their previously installed output is pruned.
 
 The global agents file has positional ownership instead of a marker.
+Candidates are the AGENTS.md and AGENTS.<profile>.md files inside each
+source's agents-md/ directory; container-root files are ignored.
 Selection walks the active profiles in order and then the unprofiled name:
-each tier may match at most one AGENTS.<profile>.md or AGENTS.md across
-all sources, the first tier with exactly one file wins, an empty tier
-falls through, and a tier with several files is an error that blocks
-agents file synchronization. The selected file is copied byte-identical to
-every enabled target's non-symlink agents_md_path, atomically, overwriting
+each tier may match at most one candidate across all sources, the first
+tier with exactly one file wins, an empty tier falls through, and a tier
+with several files is an error that blocks agents file synchronization.
+The selected file is copied byte-identical to every enabled target's
+non-symlink agents_md_path, atomically, overwriting
 any existing regular file at that path. esheep never deletes a deployed
 agents file: when no source provides one, destinations are left untouched, and
 selection is skipped entirely while any configured source is unavailable.

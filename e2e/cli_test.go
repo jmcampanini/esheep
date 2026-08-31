@@ -78,6 +78,9 @@ func TestMilestoneWorkflow(t *testing.T) {
 	writeE2ESkill(t, filepath.Join(work, "skills"), "beta", "Beta skill", "", nil)
 	writeE2ESkill(t, filepath.Join(work, "skills"), "same", "Work collision", "", nil)
 	writeE2EAgentsFile(t, personal, "AGENTS.md", agentsGuidance)
+	if err := os.WriteFile(filepath.Join(personal, "AGENTS.md"), []byte("# Repository-local instructions\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	settingsPath := filepath.Join(configHome, "esheep", "esheep.toml")
 	writeSyncSettings(t, settingsPath, personal, work, claude, pi, codex, true)
 	environment := map[string]string{"HOME": home, "XDG_CONFIG_HOME": configHome}
@@ -808,10 +811,11 @@ skills_path = %q
 
 func writeE2EAgentsFile(t *testing.T, container, name, content string) {
 	t.Helper()
-	if err := os.MkdirAll(container, 0o755); err != nil {
+	directory := filepath.Join(container, "agents-md")
+	if err := os.MkdirAll(directory, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(container, name), []byte(content), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(directory, name), []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }

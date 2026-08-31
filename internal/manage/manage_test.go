@@ -415,6 +415,9 @@ func TestSyncDeploysAgentsFileWriteOnly(t *testing.T) {
 	root := t.TempDir()
 	source := filepath.Join(root, "source")
 	writeSourceAgentsFile(t, source, "AGENTS.md", "global instructions\n")
+	if err := os.WriteFile(filepath.Join(source, "AGENTS.md"), []byte("repository instructions\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	loaded := testConfig(source, "", filepath.Join(root, "claude"), filepath.Join(root, "pi"), filepath.Join(root, "codex"))
 	loaded.Config.Targets.Pi.Enabled = false
 	loaded.ResolvedSources = []config.ResolvedSource{{Name: "source", Path: source}}
@@ -440,7 +443,7 @@ func TestSyncDeploysAgentsFileWriteOnly(t *testing.T) {
 	}
 	assertManifestContains(t, destination, "global instructions")
 
-	if err := os.Remove(filepath.Join(source, "AGENTS.md")); err != nil {
+	if err := os.RemoveAll(filepath.Join(source, agentsfile.DirName)); err != nil {
 		t.Fatal(err)
 	}
 	report = Sync(context.Background(), loaded)
@@ -529,7 +532,7 @@ func TestStatusReportsAgentsFileStates(t *testing.T) {
 		t.Fatalf("report = %#v, want unhealthy with agents file section", report)
 	}
 	row := report.AgentsFile
-	if row.Source != "source" || row.Profile != "" || row.Path != filepath.Join(source, "AGENTS.md") {
+	if row.Source != "source" || row.Profile != "" || row.Path != filepath.Join(source, agentsfile.DirName, "AGENTS.md") {
 		t.Fatalf("agents file row = %#v", row)
 	}
 	if row.Targets["claude"] != agentsfile.StateMissing || row.Targets["pi"] != agentsfile.StateDisabled ||
@@ -597,10 +600,11 @@ func canonicalManagedTestPath(path string) string {
 
 func writeSourceAgentsFile(t *testing.T, source, name, content string) {
 	t.Helper()
-	if err := os.MkdirAll(source, 0o755); err != nil {
+	directory := filepath.Join(source, agentsfile.DirName)
+	if err := os.MkdirAll(directory, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(source, name), []byte(content), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(directory, name), []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }
