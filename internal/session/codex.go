@@ -26,7 +26,7 @@ func (codexAdapter) discover(root string, _ bool) ([]transcript, []Diagnostic) {
 	})
 }
 
-func (codexAdapter) meta(t transcript) (Session, []Diagnostic) {
+func (codexAdapter) meta(t transcript) (Session, error) {
 	entry := Session{
 		Harness:    HarnessCodex,
 		ID:         codexFallbackID(t.path),
@@ -59,10 +59,7 @@ func (codexAdapter) meta(t transcript) (Session, []Diagnostic) {
 		}
 		return false
 	})
-	if err != nil {
-		return entry, []Diagnostic{{Code: codeTranscriptRead, Harness: HarnessCodex, Message: err.Error(), Path: t.path}}
-	}
-	return entry, nil
+	return entry, err
 }
 
 func codexSubagentSource(raw json.RawMessage) bool {

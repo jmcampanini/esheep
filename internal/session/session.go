@@ -214,7 +214,7 @@ type adapter interface {
 	// discover returns transcript references under root in walk order.
 	discover(root string, includeSubagents bool) ([]transcript, []Diagnostic)
 	// meta extracts cheap best-effort metadata for one transcript.
-	meta(t transcript) (Session, []Diagnostic)
+	meta(t transcript) (Session, error)
 	// scan interprets the transcript and calls visit once per event,
 	// returning the count of unparseable lines.
 	scan(path string, visit func(event)) (int, error)
@@ -360,11 +360,15 @@ func collect(ctx context.Context, roots Roots, filter Filter) ([]located, []Diag
 		}
 
 		metas := parallelMap(ctx, kept, func(t transcript) describedSession {
-			s, metaDiagnostics := root.adapter.meta(t)
-			return describedSession{diagnostics: metaDiagnostics, session: s}
+			s, err := root.adapter.meta(t)
+			return describedSession{err: err, session: s}
 		})
 		for _, meta := range metas {
-			diagnostics = append(diagnostics, meta.diagnostics...)
+			if meta.err != nil {
+				diagnostics = append(diagnostics, Diagnostic{
+					Code: codeTranscriptRead, Harness: root.harness, Message: meta.err.Error(), Path: meta.session.Path,
+				})
+			}
 			if meta.session.Path == "" || (meta.session.Subagent && !filter.IncludeSubagents) {
 				continue
 			}
@@ -396,8 +400,8 @@ func collect(ctx context.Context, roots Roots, filter Filter) ([]located, []Diag
 }
 
 type describedSession struct {
-	diagnostics []Diagnostic
-	session     Session
+	err     error
+	session Session
 }
 
 type harnessRoot struct {
