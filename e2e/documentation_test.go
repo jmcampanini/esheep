@@ -15,6 +15,8 @@ func TestDocumentedCommandsMatchBinaryHelp(t *testing.T) {
 	assertSuccess(t, rootHelp)
 	skillsHelp := runEsheep(t, nil, "skills", "--help")
 	assertSuccess(t, skillsHelp)
+	sessionsHelp := runEsheep(t, nil, "sessions", "--help")
+	assertSuccess(t, sessionsHelp)
 	readme := readRepositoryFile(t, "README.md")
 
 	commands := []struct {
@@ -25,6 +27,8 @@ func TestDocumentedCommandsMatchBinaryHelp(t *testing.T) {
 		{documentation: "esheep completion zsh", help: rootHelp.stdout, name: "completion"},
 		{documentation: "esheep config", help: rootHelp.stdout, name: "config"},
 		{documentation: "esheep profiles", help: rootHelp.stdout, name: "profiles"},
+		{documentation: "esheep sessions list", help: sessionsHelp.stdout, name: "list"},
+		{documentation: "esheep sessions search", help: sessionsHelp.stdout, name: "search"},
 		{documentation: "esheep skills list", help: skillsHelp.stdout, name: "list"},
 		{documentation: "esheep skills status", help: skillsHelp.stdout, name: "status"},
 		{documentation: "esheep sync", help: rootHelp.stdout, name: "sync"},
