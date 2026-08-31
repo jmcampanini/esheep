@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/BurntSushi/toml"
@@ -348,6 +349,20 @@ func TestEnabledAgentsMDPathMustNotBeDirectory(t *testing.T) {
 	cfg.Targets.Claude.AgentsMDPath = directory
 	if _, _, err := resolvePaths(cfg, home, filepath.Join(root, "settings.toml")); err == nil {
 		t.Fatal("directory agents md path succeeded")
+	}
+}
+
+func TestEnabledAgentsMDPathMustBeRegular(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	fifo := filepath.Join(root, "agents-fifo")
+	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := Config(defaults())
+	cfg.Targets.Claude.AgentsMDPath = fifo
+	if _, _, err := resolvePaths(cfg, home, filepath.Join(root, "settings.toml")); err == nil {
+		t.Fatal("non-regular agents md path succeeded")
 	}
 }
 

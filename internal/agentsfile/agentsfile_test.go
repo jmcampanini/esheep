@@ -5,7 +5,9 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"syscall"
 	"testing"
+	"time"
 )
 
 func TestParseName(t *testing.T) {
@@ -135,7 +137,7 @@ func TestSelectWalksProfilesThenBaseWithUniquenessPerTier(t *testing.T) {
 func TestDeployInstallsRepairsAndLeavesMatchingContent(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	destination := filepath.Join(t.TempDir(), "nested", "CLAUDE.md")
+	destination := filepath.Join(canonicalTempDir(t), "nested", "CLAUDE.md")
 
 	outcome, err := Deploy(ctx, []byte("first"), destination)
 	if err != nil || outcome != OutcomeInstalled {
@@ -166,7 +168,7 @@ func TestDeployInstallsRepairsAndLeavesMatchingContent(t *testing.T) {
 
 func TestDeployOverwritesForeignContent(t *testing.T) {
 	t.Parallel()
-	destination := filepath.Join(t.TempDir(), "CLAUDE.md")
+	destination := filepath.Join(canonicalTempDir(t), "CLAUDE.md")
 	if err := os.WriteFile(destination, []byte("handwritten"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +183,7 @@ func TestDeployOverwritesForeignContent(t *testing.T) {
 
 func TestDeployFailsWhenDestinationIsADirectory(t *testing.T) {
 	t.Parallel()
-	destination := filepath.Join(t.TempDir(), "CLAUDE.md")
+	destination := filepath.Join(canonicalTempDir(t), "CLAUDE.md")
 	if err := os.Mkdir(destination, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -191,10 +193,55 @@ func TestDeployFailsWhenDestinationIsADirectory(t *testing.T) {
 	}
 }
 
+func TestInspectAndDeployRejectSymlinkedDestination(t *testing.T) {
+	t.Parallel()
+	root := canonicalTempDir(t)
+	realDestination := filepath.Join(root, "real.md")
+	if err := os.WriteFile(realDestination, []byte("content"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	destination := filepath.Join(root, "AGENTS.md")
+	if err := os.Symlink(realDestination, destination); err != nil {
+		t.Fatal(err)
+	}
+
+	assertOperationsReject(t, destination)
+	assertFileContent(t, realDestination, "content")
+}
+
+func TestInspectAndDeployRejectSymlinkedParent(t *testing.T) {
+	t.Parallel()
+	root := canonicalTempDir(t)
+	realParent := filepath.Join(root, "real")
+	if err := os.Mkdir(realParent, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(root, "alias")
+	if err := os.Symlink(realParent, alias); err != nil {
+		t.Fatal(err)
+	}
+	destination := filepath.Join(alias, "AGENTS.md")
+
+	assertOperationsReject(t, destination)
+	if _, err := os.Stat(filepath.Join(realParent, "AGENTS.md")); !os.IsNotExist(err) {
+		t.Fatalf("symlinked parent destination was created: %v", err)
+	}
+}
+
+func TestInspectAndDeployRejectFIFO(t *testing.T) {
+	t.Parallel()
+	destination := filepath.Join(canonicalTempDir(t), "AGENTS.md")
+	if err := syscall.Mkfifo(destination, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	assertOperationsReject(t, destination)
+}
+
 func TestInspectReportsMissingStaleAndSynced(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	destination := filepath.Join(t.TempDir(), "AGENTS.md")
+	destination := filepath.Join(canonicalTempDir(t), "AGENTS.md")
 
 	state, err := Inspect(ctx, []byte("content"), destination)
 	if err != nil || state != StateMissing {
@@ -216,6 +263,46 @@ func TestInspectReportsMissingStaleAndSynced(t *testing.T) {
 	if err != nil || state != StateSynced {
 		t.Fatalf("Inspect(equal) = %q, %v, want synced", state, err)
 	}
+}
+
+func assertOperationsReject(t *testing.T, destination string) {
+	t.Helper()
+	operations := []struct {
+		name string
+		run  func() error
+	}{
+		{name: "inspect", run: func() error {
+			_, err := Inspect(context.Background(), []byte("content"), destination)
+			return err
+		}},
+		{name: "deploy", run: func() error {
+			_, err := Deploy(context.Background(), []byte("replacement"), destination)
+			return err
+		}},
+	}
+	for _, operation := range operations {
+		t.Run(operation.name, func(t *testing.T) {
+			result := make(chan error, 1)
+			go func() { result <- operation.run() }()
+			select {
+			case err := <-result:
+				if err == nil {
+					t.Fatalf("%s(%q) succeeded", operation.name, destination)
+				}
+			case <-time.After(time.Second):
+				t.Fatalf("%s(%q) blocked", operation.name, destination)
+			}
+		})
+	}
+}
+
+func canonicalTempDir(t *testing.T) string {
+	t.Helper()
+	path, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
 
 func writeAgentsFile(t *testing.T, source, name, content string) {

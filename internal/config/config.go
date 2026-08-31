@@ -453,17 +453,19 @@ func resolveTargets(cfg Targets, home string) (ResolvedTargets, []resolvedTarget
 		if err != nil {
 			return ResolvedTargets{}, nil, err
 		}
-		if info, statErr := os.Lstat(filepath.Clean(expandedAgentsMD)); statErr == nil && info.Mode()&os.ModeSymlink != 0 {
-			return ResolvedTargets{}, nil, fmt.Errorf("config: targets.%s.agents_md_path must not be a symlink", target.name)
+		if info, statErr := os.Lstat(filepath.Clean(expandedAgentsMD)); statErr == nil {
+			if info.Mode()&os.ModeSymlink != 0 {
+				return ResolvedTargets{}, nil, fmt.Errorf("config: targets.%s.agents_md_path must not be a symlink", target.name)
+			}
+			if !info.Mode().IsRegular() {
+				return ResolvedTargets{}, nil, fmt.Errorf("config: targets.%s.agents_md_path must be a regular file when it exists", target.name)
+			}
 		}
 		if skills == string(filepath.Separator) || samePath(skills, home) {
 			return ResolvedTargets{}, nil, fmt.Errorf("config: targets.%s.skills_path is too broad", target.name)
 		}
 		if agentsMD == string(filepath.Separator) || samePath(agentsMD, home) {
 			return ResolvedTargets{}, nil, fmt.Errorf("config: targets.%s.agents_md_path is too broad", target.name)
-		}
-		if info, statErr := os.Stat(agentsMD); statErr == nil && info.IsDir() {
-			return ResolvedTargets{}, nil, fmt.Errorf("config: targets.%s.agents_md_path is a directory", target.name)
 		}
 		if pathsOverlap(skills, agentsMD) {
 			return ResolvedTargets{}, nil, fmt.Errorf("config: targets.%s.agents_md_path overlaps targets.%s.skills_path", target.name, target.name)

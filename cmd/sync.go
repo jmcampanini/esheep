@@ -36,8 +36,8 @@ all sources, the first tier with exactly one file wins, an empty tier
 falls through, and a tier with several files is an error that blocks
 agents file synchronization. The selected file is copied byte-identical to
 every enabled target's non-symlink agents_md_path, atomically, overwriting
-any existing file at that path. esheep never deletes a deployed agents
-file: when no source provides one, destinations are left untouched, and
+any existing regular file at that path. esheep never deletes a deployed
+agents file: when no source provides one, destinations are left untouched, and
 selection is skipped entirely while any configured source is unavailable.
 
 Serialize invocations: concurrent mutating esheep commands against the

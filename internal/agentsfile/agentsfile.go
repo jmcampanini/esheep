@@ -3,9 +3,6 @@
 package agentsfile
 
 import (
-	"bytes"
-	"context"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -153,73 +150,3 @@ const (
 	OutcomeRepaired  Outcome = "repaired"
 	OutcomeUnchanged Outcome = "unchanged"
 )
-
-// Inspect compares the selected content with the deployed copy without
-// modifying it.
-func Inspect(ctx context.Context, content []byte, destination string) (State, error) {
-	if destination == "" {
-		return "", fmt.Errorf("inspect agents file: invalid destination")
-	}
-	if err := ctx.Err(); err != nil {
-		return "", err
-	}
-
-	current, err := os.ReadFile(destination)
-	if errors.Is(err, os.ErrNotExist) {
-		return StateMissing, nil
-	}
-	if err != nil {
-		return "", fmt.Errorf("inspect agents file: %w", err)
-	}
-	if !bytes.Equal(current, content) {
-		return StateStale, nil
-	}
-	return StateSynced, nil
-}
-
-// Deploy makes the destination byte-identical to content, creating parent
-// directories as needed and replacing the file atomically. Ownership of the
-// destination is positional: whatever occupies the path is overwritten, and
-// nothing is ever deleted.
-func Deploy(ctx context.Context, content []byte, destination string) (Outcome, error) {
-	if destination == "" {
-		return "", fmt.Errorf("deploy agents file: invalid destination")
-	}
-	if err := ctx.Err(); err != nil {
-		return "", err
-	}
-
-	current, err := os.ReadFile(destination)
-	fresh := errors.Is(err, os.ErrNotExist)
-	if err != nil && !fresh {
-		return "", fmt.Errorf("deploy agents file: %w", err)
-	}
-	if !fresh && bytes.Equal(current, content) {
-		return OutcomeUnchanged, nil
-	}
-
-	parent := filepath.Dir(destination)
-	if err := os.MkdirAll(parent, 0o755); err != nil {
-		return "", fmt.Errorf("deploy agents file: %w", err)
-	}
-	staged, err := os.CreateTemp(parent, ".esheep-agents-md-*")
-	if err != nil {
-		return "", fmt.Errorf("stage agents file: %w", err)
-	}
-	stagedPath := staged.Name()
-	_, writeErr := staged.Write(content)
-	closeErr := staged.Close()
-	if err := errors.Join(writeErr, closeErr); err != nil {
-		return "", errors.Join(fmt.Errorf("stage agents file: %w", err), os.Remove(stagedPath))
-	}
-	if err := os.Chmod(stagedPath, 0o644); err != nil {
-		return "", errors.Join(fmt.Errorf("stage agents file: %w", err), os.Remove(stagedPath))
-	}
-	if err := os.Rename(stagedPath, destination); err != nil {
-		return "", errors.Join(fmt.Errorf("commit agents file: %w", err), os.Remove(stagedPath))
-	}
-	if fresh {
-		return OutcomeInstalled, nil
-	}
-	return OutcomeRepaired, nil
-}

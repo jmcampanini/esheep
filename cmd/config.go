@@ -22,7 +22,7 @@ must also be distinct and non-nested, may not be symlinks, may not overlap
 a source root, and may not be '/' or the home directory. Enabled target
 agents_md_path values must be distinct, non-symlink file paths outside every
 source root and enabled skills path, and may not be the settings file, an
-existing directory, '/', or the home directory.
+existing non-regular file, '/', or the home directory.
 
 The command reads but never creates or modifies esheep.toml, works before
 any source directory exists, and fails before any skill or target
