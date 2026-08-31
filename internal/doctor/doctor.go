@@ -49,30 +49,30 @@ func (report Report) Healthy() bool {
 // home is the absolute home directory external tool paths resolve under.
 func Run(loaded config.LoadResult, home string) Report {
 	return Report{Checks: []Check{
-		piExclusion(loaded, filepath.Join(home, ".pi", "agent", "settings.json")),
+		piExclusion(loaded, filepath.Join(home, ".agents", "skills"), filepath.Join(home, ".pi", "agent", "settings.json")),
 	}}
 }
 
 const piExclusionName = "pi-skills-exclusion"
 
-// piExclusion requires pi's global settings to exclude the codex target
-// directory from pi's skill discovery, so skills installed for Codex are
-// never loaded by pi. Only the exact expected entry counts: equivalent
+// piExclusion requires pi's global settings to exclude the shared Agent
+// Skills directory from pi's skill discovery, so skills installed for Codex
+// are never loaded by pi. Only the exact expected entry counts: equivalent
 // hand-written globs are rejected because pi's pattern matching does not
 // expand '~' and treats hidden path segments specially.
-func piExclusion(loaded config.LoadResult, settingsPath string) Check {
-	if !loaded.Config.Targets.Pi.Enabled {
-		return Check{Name: piExclusionName, Status: StatusSkipped, Detail: "pi target is disabled"}
+func piExclusion(loaded config.LoadResult, agentSkillsPath, settingsPath string) Check {
+	if !loaded.Config.Targets.Pi.Enabled || !loaded.Config.Targets.Codex.Enabled {
+		return Check{Name: piExclusionName, Status: StatusSkipped, Detail: "pi or codex target is disabled"}
 	}
 
-	expected := "!" + loaded.ResolvedTargets.Codex + "/**"
+	expected := "!" + agentSkillsPath + "/**"
 	fix := fmt.Sprintf("add %q to the \"skills\" array in %s", expected, settingsPath)
 	data, err := os.ReadFile(settingsPath)
 	if errors.Is(err, os.ErrNotExist) {
 		return Check{Name: piExclusionName, Status: StatusFail, Detail: "pi settings file is missing; " + fix}
 	}
 	if err != nil {
-		return Check{Name: piExclusionName, Status: StatusFail, Detail: fmt.Sprintf("read pi settings: %v", err)}
+		return Check{Name: piExclusionName, Status: StatusFail, Detail: fmt.Sprintf("read pi settings: %v; %s", err, fix)}
 	}
 
 	var settings struct {
@@ -87,6 +87,6 @@ func piExclusion(loaded config.LoadResult, settingsPath string) Check {
 	return Check{
 		Name:   piExclusionName,
 		Status: StatusPass,
-		Detail: fmt.Sprintf("%s excludes %s from pi skill discovery", settingsPath, loaded.ResolvedTargets.Codex),
+		Detail: fmt.Sprintf("%s excludes %s from pi skill discovery", settingsPath, agentSkillsPath),
 	}
 }

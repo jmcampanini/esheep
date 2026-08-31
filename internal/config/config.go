@@ -95,6 +95,7 @@ type ResolvedTargets struct {
 type LoadResult struct {
 	Config            Config
 	EffectiveProfiles []string
+	Home              string
 	Locations         Locations
 	ResolvedSources   []ResolvedSource
 	ResolvedTargets   ResolvedTargets
@@ -182,6 +183,7 @@ func Load(options LoadOptions) (LoadResult, error) {
 	return LoadResult{
 		Config:            cfg,
 		EffectiveProfiles: effectiveProfiles,
+		Home:              home,
 		Locations:         locations,
 		ResolvedSources:   resolvedSources,
 		ResolvedTargets:   resolvedTargets,
