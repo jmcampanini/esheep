@@ -97,14 +97,21 @@ active profiles, and disabled means target configuration or esheep-targets
 excludes installation. Every enabled target is inspected even when no skills
 are discovered; missing and valid empty targets remain healthy.
 
-Status is a health check: it exits 0 only when every source skill is ready
-and every target is synced, inactive, or disabled.
+When a source provides an agents file, status adds a section reporting the
+selected file and each target's deployed copy compared byte-for-byte:
+synced, stale, missing, disabled, or blocked. A withdrawn agents file is
+not reported; its stray deployed copies are invisible to esheep.
+
+Status is a health check: it exits 0 only when every source skill is
+ready, every target is synced, inactive, or disabled, and every enabled
+target's agents file is synced.
 
 ` + streamContractHelp + `
 
-` + jsonContractHelp + ` Status JSON includes "healthy" and
-"effective_profiles". Each skill's optional "profile_gate" lists the profiles
-that limit manifest selection.`,
+` + jsonContractHelp + ` Status JSON includes "healthy",
+"effective_profiles", and an optional "agents_file" section naming the
+selected source file and per-target states. Each skill's optional
+"profile_gate" lists the profiles that limit manifest selection.`,
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			loaded, err := loadConfiguration(command, load)

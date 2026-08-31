@@ -51,7 +51,7 @@ func TestRunVerifiesPiExclusion(t *testing.T) {
 					Pi:    config.PiTarget{Enabled: !test.piDisabled},
 				}},
 				Home:            home,
-				ResolvedTargets: config.ResolvedTargets{Codex: codexRoot},
+				ResolvedTargets: config.ResolvedTargets{Codex: config.ResolvedTarget{Skills: codexRoot}},
 			}
 
 			report := Run(loaded)
