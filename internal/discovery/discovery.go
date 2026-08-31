@@ -106,7 +106,9 @@ func discoverSource(source Source, catalog *Catalog) {
 	skillsPath := filepath.Join(source.Path, SkillsDirName)
 	info, err = os.Stat(skillsPath)
 	if errors.Is(err, os.ErrNotExist) {
-		return
+		if _, lstatErr := os.Lstat(skillsPath); errors.Is(lstatErr, os.ErrNotExist) {
+			return
+		}
 	}
 	if err != nil {
 		catalog.Diagnostics = append(catalog.Diagnostics, sourceDiagnostic(source, err))

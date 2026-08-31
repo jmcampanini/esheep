@@ -292,8 +292,9 @@ func Render(result LoadResult, options ReportOptions) ([]byte, error) {
 	if options.Provenance {
 		b.WriteString("\n# Provenance\n")
 		for _, row := range reporter.ProvenanceRows() {
+			path := strings.NewReplacer("envprofiles", "env_profiles", "skillspath", "skills_path", "agentsmdpath", "agents_md_path").Replace(row[0])
 			b.WriteString("# ")
-			b.WriteString(sanitizeCommentValue(row[0]))
+			b.WriteString(sanitizeCommentValue(path))
 			b.WriteString(" = ")
 			b.WriteString(sanitizeCommentValue(row[1]))
 			b.WriteString(" (source: ")
@@ -432,12 +433,19 @@ func resolveTargets(cfg Targets, home string) (ResolvedTargets, []resolvedTarget
 		if !target.enabled {
 			continue
 		}
-		expanded, err := expandHome(target.skills, home)
+		expandedSkills, err := expandHome(target.skills, home)
 		if err != nil {
 			return ResolvedTargets{}, nil, err
 		}
-		if info, statErr := os.Lstat(filepath.Clean(expanded)); statErr == nil && info.Mode()&os.ModeSymlink != 0 {
+		if info, statErr := os.Lstat(filepath.Clean(expandedSkills)); statErr == nil && info.Mode()&os.ModeSymlink != 0 {
 			return ResolvedTargets{}, nil, fmt.Errorf("config: targets.%s.skills_path must not be a symlink", target.name)
+		}
+		expandedAgentsMD, err := expandHome(target.agentsMD, home)
+		if err != nil {
+			return ResolvedTargets{}, nil, err
+		}
+		if info, statErr := os.Lstat(filepath.Clean(expandedAgentsMD)); statErr == nil && info.Mode()&os.ModeSymlink != 0 {
+			return ResolvedTargets{}, nil, fmt.Errorf("config: targets.%s.agents_md_path must not be a symlink", target.name)
 		}
 		if skills == string(filepath.Separator) || samePath(skills, home) {
 			return ResolvedTargets{}, nil, fmt.Errorf("config: targets.%s.skills_path is too broad", target.name)

@@ -216,6 +216,12 @@ func TestSyncPrunesOnlyDefinitivelyStaleOwnership(t *testing.T) {
 	root := t.TempDir()
 	personal := filepath.Join(root, "personal")
 	offline := filepath.Join(root, "offline")
+	if err := os.Mkdir(offline, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("missing", filepath.Join(offline, "skills")); err != nil {
+		t.Fatal(err)
+	}
 	writeSourceSkill(t, personal, "keep", "Ready", "")
 	writeSourceSkill(t, personal, "broken", "   ", "")
 	claude := filepath.Join(root, "claude")

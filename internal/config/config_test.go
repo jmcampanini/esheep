@@ -305,6 +305,24 @@ func TestEnabledAgentsMDPathMustNotBeDirectory(t *testing.T) {
 	}
 }
 
+func TestEnabledAgentsMDPathMustNotBeSymlink(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	realAgentsMD := filepath.Join(root, "AGENTS.md")
+	if err := os.WriteFile(realAgentsMD, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(root, "AGENTS-alias.md")
+	if err := os.Symlink(realAgentsMD, alias); err != nil {
+		t.Fatal(err)
+	}
+	cfg := Config(defaults())
+	cfg.Targets.Claude.AgentsMDPath = alias
+	if _, _, err := resolvePaths(cfg, home); err == nil {
+		t.Fatal("symlinked agents md path succeeded")
+	}
+}
+
 func TestEnabledTargetRootMustNotBeSymlink(t *testing.T) {
 	root := t.TempDir()
 	home := filepath.Join(root, "home")
@@ -470,7 +488,7 @@ func TestRenderIsValidTOMLAndSanitizesProvenance(t *testing.T) {
 	}
 	result.Config.Targets.Claude.SkillsPath = "sensitive-value"
 	result.ResolvedTargets.Claude = ResolvedTarget{Skills: "/sensitive-value", AgentsMD: "/sensitive-value-AGENTS.md"}
-	result.Report.Updates["targets.claude.skills_path"] = "source\r\n# injected"
+	result.Report.Updates["targets.claude.skillspath"] = "source\r\n# injected"
 	output, err := Render(result, ReportOptions{Provenance: true, Redact: func(result LoadResult) LoadResult {
 		result.Config.Targets.Claude.SkillsPath = "REDACTED"
 		result.ResolvedTargets.Claude = ResolvedTarget{Skills: "REDACTED", AgentsMD: "REDACTED"}
@@ -479,7 +497,7 @@ func TestRenderIsValidTOMLAndSanitizesProvenance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(output), "sensitive-value") || !strings.Contains(string(output), "# targets.claude.skills_path = \"REDACTED\"") || !strings.Contains(string(output), "# targets.claude.agents_md_path = \"REDACTED\"") || !strings.Contains(string(output), "# Resolved paths") || strings.Contains(string(output), "source\r\n") {
+	if strings.Contains(string(output), "sensitive-value") || !strings.Contains(string(output), "# targets.claude.skills_path = \"REDACTED\"") || !strings.Contains(string(output), "# targets.claude.agents_md_path = \"REDACTED\"") || !strings.Contains(string(output), "# Resolved paths") || strings.Contains(string(output), "source\r\n") || strings.Contains(string(output), "skillspath") || strings.Contains(string(output), "agentsmdpath") || strings.Contains(string(output), "# envprofiles") {
 		t.Fatalf("report = %s", output)
 	}
 	var decoded Config
