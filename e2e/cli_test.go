@@ -473,9 +473,6 @@ func TestSourcesVariableWorkflow(t *testing.T) {
 	alpha := filepath.Join(root, "alpha")
 	beta := filepath.Join(root, "beta")
 	claude := filepath.Join(root, "targets", "claude")
-	pi := filepath.Join(root, "targets", "pi")
-	codex := filepath.Join(root, "targets", "codex")
-	agents := filepath.Join(root, "targets", "agents")
 	for _, directory := range []string{home, configHome, filepath.Join(alpha, "locator"), beta} {
 		if err := os.MkdirAll(directory, 0o755); err != nil {
 			t.Fatal(err)
@@ -486,7 +483,7 @@ func TestSourcesVariableWorkflow(t *testing.T) {
 		t.Fatal(err)
 	}
 	settingsPath := filepath.Join(configHome, "esheep", "esheep.toml")
-	writeVariablesSettings(t, settingsPath, [][2]string{{"alpha", alpha}}, claude, pi, codex, agents)
+	writeVariablesSettings(t, settingsPath, [][2]string{{"alpha", alpha}}, claude)
 	environment := map[string]string{"HOME": home, "XDG_CONFIG_HOME": configHome}
 	resolvedAlpha := resolvePath(t, alpha)
 	resolvedBeta := resolvePath(t, beta)
@@ -507,7 +504,7 @@ func TestSourcesVariableWorkflow(t *testing.T) {
 	assertSuccess(t, healthy)
 	assertStatusHealth(t, healthy.stdout, true)
 
-	writeVariablesSettings(t, settingsPath, [][2]string{{"alpha", alpha}, {"beta", beta}}, claude, pi, codex, agents)
+	writeVariablesSettings(t, settingsPath, [][2]string{{"alpha", alpha}, {"beta", beta}}, claude)
 	drifted := runEsheep(t, environment, "skills", "status", "--json")
 	if drifted.exitCode != 1 || drifted.stderr != "" {
 		t.Fatalf("drifted status = %#v", drifted)
@@ -696,16 +693,14 @@ func writeE2EVariantManifest(t *testing.T, source, name, profile, description st
 	}
 }
 
-func writeVariablesSettings(t *testing.T, path string, sources [][2]string, claude, pi, codex, agents string) {
+func writeVariablesSettings(t *testing.T, path string, sources [][2]string, claude string) {
 	t.Helper()
 	var settings strings.Builder
 	for _, source := range sources {
 		_, _ = fmt.Fprintf(&settings, "[[sources]]\nname = %q\npath = %q\n\n", source[0], source[1])
 	}
 	_, _ = fmt.Fprintf(&settings, "[targets.claude]\nenabled = true\npath = %q\n\n", claude)
-	_, _ = fmt.Fprintf(&settings, "[targets.pi]\nenabled = false\npath = %q\n\n", pi)
-	_, _ = fmt.Fprintf(&settings, "[targets.codex]\nenabled = false\npath = %q\n\n", codex)
-	_, _ = fmt.Fprintf(&settings, "[targets.agents]\nenabled = false\npath = %q\n", agents)
+	settings.WriteString("[targets.pi]\nenabled = false\n\n[targets.codex]\nenabled = false\n\n[targets.agents]\nenabled = false\n")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
