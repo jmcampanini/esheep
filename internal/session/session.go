@@ -60,29 +60,9 @@ func ParseRole(value string) (Role, error) {
 	}
 }
 
-// errorState records whether a tool event is known to have failed. Codex
-// transcripts carry no error flag, so unknown is a first-class state.
-type errorState int
-
-const (
-	errorUnknown errorState = iota
-	errorNo
-	errorYes
-)
-
-func errorStateFromBool(value *bool) errorState {
-	if value == nil {
-		return errorUnknown
-	}
-	if *value {
-		return errorYes
-	}
-	return errorNo
-}
-
 // event is one interpreted transcript record component.
 type event struct {
-	err       errorState
+	failed    bool
 	line      int
 	role      Role
 	text      string
@@ -319,7 +299,7 @@ func matchEvent(e event, query SearchQuery) (Hit, bool) {
 	if query.Tool != "" && !strings.EqualFold(e.tool, query.Tool) {
 		return Hit{}, false
 	}
-	if query.ErrorsOnly && e.err != errorYes {
+	if query.ErrorsOnly && !e.failed {
 		return Hit{}, false
 	}
 	var loc []int
@@ -330,7 +310,7 @@ func matchEvent(e event, query SearchQuery) (Hit, bool) {
 		}
 	}
 	return Hit{
-		Error:     e.err == errorYes,
+		Error:     e.failed,
 		Excerpt:   excerpt(e.text, loc),
 		Line:      e.line,
 		Role:      e.role,

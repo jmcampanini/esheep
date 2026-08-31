@@ -136,7 +136,7 @@ func claudeUserEvents(message json.RawMessage, isMeta bool, base event, toolName
 			e.role = RoleTool
 			e.tool = toolNames[item.ToolUseID]
 			e.text = flattenText(item.Content)
-			e.err = errorStateFromBool(item.IsError)
+			e.failed = item.IsError != nil && *item.IsError
 			visit(e)
 		}
 	}

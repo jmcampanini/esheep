@@ -9,7 +9,7 @@ import (
 // codexAdapter reads Codex CLI rollouts: date-partitioned JSONL files whose
 // first line is a session_meta header. Subagents are identified by the
 // header's source marker. The grammar has no tool error flag except the Ok/Err
-// union on MCP call results, so most tool events carry an unknown error state.
+// union on MCP call results, so only MCP Err results are marked failed.
 type codexAdapter struct{}
 
 type codexEnvelope struct {
@@ -191,14 +191,7 @@ func codexEventMessage(raw json.RawMessage, base event, provenanceUserMessages b
 			return
 		}
 		base.role, base.tool, base.text = RoleTool, payload.Invocation.Tool, compactJSON(payload.Result)
-		switch {
-		case result["Err"] != nil:
-			base.err = errorYes
-		case result["Ok"] != nil:
-			base.err = errorNo
-		default:
-			base.err = errorUnknown
-		}
+		base.failed = result["Err"] != nil
 		visit(base)
 	}
 }

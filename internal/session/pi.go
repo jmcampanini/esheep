@@ -128,7 +128,7 @@ func piMessageEvents(raw json.RawMessage, base event, visit func(event)) {
 			}
 		}
 		base.role, base.tool, base.text = RoleTool, message.ToolName, strings.Join(parts, "\n")
-		base.err = errorStateFromBool(message.IsError)
+		base.failed = message.IsError != nil && *message.IsError
 		visit(base)
 	}
 }
