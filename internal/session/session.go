@@ -365,7 +365,7 @@ func collect(ctx context.Context, roots Roots, filter Filter) ([]located, []Diag
 		})
 		for _, meta := range metas {
 			diagnostics = append(diagnostics, meta.diagnostics...)
-			if meta.session.Path == "" {
+			if meta.session.Path == "" || (meta.session.Subagent && !filter.IncludeSubagents) {
 				continue
 			}
 			if filter.matchesSession(meta.session) {

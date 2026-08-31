@@ -47,13 +47,24 @@ func codexFixture(t *testing.T, root string) string {
 	t.Helper()
 	path := filepath.Join(root, "2026", "08", "25", "rollout-2026-08-25T09-00-00-33333333-dddd-eeee-ffff-444444444444.jsonl")
 	writeTranscript(t, path, time.Date(2026, 8, 25, 9, 30, 0, 0, time.UTC),
-		`{"timestamp":"2026-08-25T09:00:00Z","type":"session_meta","payload":{"id":"33333333-dddd-eeee-ffff-444444444444","timestamp":"2026-08-25T09:00:00Z","cwd":"/Users/u/codexproj","cli_version":"0.151.0"}}`,
+		`{"timestamp":"2026-08-25T09:00:00Z","type":"session_meta","payload":{"id":"33333333-dddd-eeee-ffff-444444444444","timestamp":"2026-08-25T09:00:00Z","cwd":"/Users/u/codexproj","cli_version":"0.151.0","source":"exec"}}`,
 		`{"timestamp":"2026-08-25T09:00:00Z","type":"turn_context","payload":{"model":"gpt-5.6","effort":"high"}}`,
-		`{"timestamp":"2026-08-25T09:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<user_instructions>injected</user_instructions>"}]}}`,
+		`{"timestamp":"2026-08-25T09:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<user_instructions>injected legacy context</user_instructions>"}]}}`,
 		`{"timestamp":"2026-08-25T09:00:02Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"fix the flaky test"}]}}`,
-		`{"timestamp":"2026-08-25T09:00:03Z","type":"response_item","payload":{"type":"function_call","name":"shell","call_id":"call1","arguments":"{\"command\":[\"go\",\"test\"]}"}}`,
+		`{"timestamp":"2026-08-25T09:00:02Z","type":"event_msg","payload":{"type":"user_message","message":"fix the flaky test"}}`,
+		`{"timestamp":"2026-08-25T09:00:03Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"injected plugin context"},{"type":"input_text","text":"modern visible prompt"}],"internal_chat_message_metadata_passthrough":{"content_item_kinds":["plugins.recommendations","user.text"]}}}`,
+		`{"timestamp":"2026-08-25T09:00:03Z","type":"event_msg","payload":{"type":"user_message","message":"modern visible prompt"}}`,
+		`{"timestamp":"2026-08-25T09:00:04Z","type":"response_item","payload":{"type":"function_call","name":"shell","call_id":"call1","arguments":"{\"command\":[\"go\",\"test\"]}"}}`,
 		`{"timestamp":"2026-08-25T09:00:07Z","type":"response_item","payload":{"type":"function_call_output","call_id":"call1","output":[{"type":"output_text","text":"Wall time: 2 seconds\nOutput:\nFAIL"}]}}`,
 		`{"timestamp":"2026-08-25T09:00:09Z","type":"event_msg","payload":{"type":"mcp_tool_call_end","invocation":{"server":"db","tool":"query"},"result":{"Err":"connection refused"}}}`,
+	)
+	reviewSubagent := filepath.Join(root, "2026", "08", "25", "rollout-2026-08-25T09-31-00-88888888-dddd-eeee-ffff-444444444444.jsonl")
+	writeTranscript(t, reviewSubagent, time.Date(2026, 8, 25, 9, 31, 0, 0, time.UTC),
+		`{"timestamp":"2026-08-25T09:31:00Z","type":"session_meta","payload":{"id":"88888888-dddd-eeee-ffff-444444444444","cwd":"/Users/u/codexproj","source":{"subagent":"review"}}}`,
+	)
+	guardianSubagent := filepath.Join(root, "2026", "08", "25", "rollout-2026-08-25T09-32-00-99999999-dddd-eeee-ffff-444444444444.jsonl")
+	writeTranscript(t, guardianSubagent, time.Date(2026, 8, 25, 9, 32, 0, 0, time.UTC),
+		`{"timestamp":"2026-08-25T09:32:00Z","type":"session_meta","payload":{"id":"99999999-dddd-eeee-ffff-444444444444","cwd":"/Users/u/codexproj","source":{"subagent":{"other":"guardian"}}}}`,
 	)
 	return path
 }
@@ -173,8 +184,8 @@ func TestListIncludesSubagentsOnRequest(t *testing.T) {
 			subagents++
 		}
 	}
-	if len(report.Sessions) != 5 || subagents != 2 {
-		t.Fatalf("sessions = %d with %d subagents, want 5 with 2", len(report.Sessions), subagents)
+	if len(report.Sessions) != 7 || subagents != 4 {
+		t.Fatalf("sessions = %d with %d subagents, want 7 with 4", len(report.Sessions), subagents)
 	}
 }
 
@@ -264,6 +275,19 @@ func TestSearchDecodesCodexArrayToolOutput(t *testing.T) {
 
 	if len(report.Sessions) != 1 || len(report.Sessions[0].Hits) != 1 || report.Sessions[0].Hits[0].Tool != "shell" {
 		t.Fatalf("sessions = %+v, want one Codex shell output hit", report.Sessions)
+	}
+}
+
+func TestSearchUsesCodexUserMessageProvenance(t *testing.T) {
+	roots := fixtureRoots(t)
+	for _, pattern := range []string{"fix the flaky test", "modern visible prompt"} {
+		t.Run(pattern, func(t *testing.T) {
+			report := Search(context.Background(), roots, Filter{}, SearchQuery{Pattern: regexp.MustCompile(pattern), Role: RoleUser})
+
+			if len(report.Sessions) != 1 || len(report.Sessions[0].Hits) != 1 || report.Sessions[0].Harness != HarnessCodex {
+				t.Fatalf("sessions = %+v, want one Codex user hit", report.Sessions)
+			}
+		})
 	}
 }
 
