@@ -16,6 +16,7 @@ func newExitCodesTopic() *cobra.Command {
      its final report contains failures after unrelated work is attempted.
      'skills status' exits 1 whenever deployment health is not proven.
      'skills list' and 'profiles' exit 1 only when discovery is incomplete.
+     'doctor' exits 1 when any environment check fails.
   2  Invalid command usage or command wiring failure.
 
 JSON modes report an unsuccessful result inside the emitted document and

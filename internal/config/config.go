@@ -45,26 +45,19 @@ type PiTarget struct {
 	AgentsMDPath string `toml:"agents_md_path" config:"pi-agents-md-path" help:"agents file installation path for the Pi target"`
 }
 
-// CodexTarget configures the Codex harness target.
+// CodexTarget configures the Codex harness target, whose skills install into
+// the shared Agent Skills directory Codex reads.
 type CodexTarget struct {
 	Enabled      bool   `toml:"enabled" config:"codex-enabled" help:"enable the Codex target"`
 	SkillsPath   string `toml:"skills_path" config:"codex-skills-path" help:"skills installation path for the Codex target"`
 	AgentsMDPath string `toml:"agents_md_path" config:"codex-agents-md-path" help:"agents file installation path for the Codex target"`
 }
 
-// AgentsTarget configures the shared agents harness target.
-type AgentsTarget struct {
-	Enabled      bool   `toml:"enabled" config:"agents-enabled" help:"enable the shared agents target"`
-	SkillsPath   string `toml:"skills_path" config:"agents-skills-path" help:"skills installation path for the shared agents target"`
-	AgentsMDPath string `toml:"agents_md_path" config:"agents-agents-md-path" help:"agents file installation path for the shared agents target"`
-}
-
-// Targets contains the four supported installation targets.
+// Targets contains the three supported installation targets.
 type Targets struct {
 	Claude ClaudeTarget `toml:"claude"`
 	Pi     PiTarget     `toml:"pi"`
 	Codex  CodexTarget  `toml:"codex"`
-	Agents AgentsTarget `toml:"agents"`
 }
 
 // ClaudeSessions locates Claude Code's session transcripts.
@@ -128,7 +121,6 @@ type ResolvedTargets struct {
 	Claude ResolvedTarget
 	Pi     ResolvedTarget
 	Codex  ResolvedTarget
-	Agents ResolvedTarget
 }
 
 // ResolvedSessions contains absolute session transcript roots.
@@ -142,6 +134,7 @@ type ResolvedSessions struct {
 type LoadResult struct {
 	Config            Config
 	EffectiveProfiles []string
+	Home              string
 	Locations         Locations
 	ResolvedSessions  ResolvedSessions
 	ResolvedSources   []ResolvedSource
@@ -234,6 +227,7 @@ func Load(options LoadOptions) (LoadResult, error) {
 	return LoadResult{
 		Config:            cfg,
 		EffectiveProfiles: effectiveProfiles,
+		Home:              home,
 		Locations:         locations,
 		ResolvedSessions:  resolvedSessions,
 		ResolvedSources:   resolvedSources,
@@ -323,8 +317,6 @@ func Render(result LoadResult, options ReportOptions) ([]byte, error) {
 	writeResolved("targets.pi.agents_md_path", result.ResolvedTargets.Pi.AgentsMD)
 	writeResolved("targets.codex.skills_path", result.ResolvedTargets.Codex.Skills)
 	writeResolved("targets.codex.agents_md_path", result.ResolvedTargets.Codex.AgentsMD)
-	writeResolved("targets.agents.skills_path", result.ResolvedTargets.Agents.Skills)
-	writeResolved("targets.agents.agents_md_path", result.ResolvedTargets.Agents.AgentsMD)
 	writeResolved("sessions.claude.path", result.ResolvedSessions.Claude)
 	writeResolved("sessions.pi.path", result.ResolvedSessions.Pi)
 	writeResolved("sessions.codex.path", result.ResolvedSessions.Codex)
@@ -364,8 +356,7 @@ func defaults() flagConfig {
 		Targets: Targets{
 			Claude: ClaudeTarget{Enabled: true, SkillsPath: "~/.claude/skills", AgentsMDPath: "~/.claude/CLAUDE.md"},
 			Pi:     PiTarget{Enabled: true, SkillsPath: "~/.pi/agent/skills", AgentsMDPath: "~/.pi/agent/AGENTS.md"},
-			Codex:  CodexTarget{Enabled: true, SkillsPath: "~/.codex/skills", AgentsMDPath: "~/.codex/AGENTS.md"},
-			Agents: AgentsTarget{Enabled: false, SkillsPath: "~/.agents/skills", AgentsMDPath: "~/.agents/AGENTS.md"},
+			Codex:  CodexTarget{Enabled: true, SkillsPath: "~/.agents/skills", AgentsMDPath: "~/.codex/AGENTS.md"},
 		},
 		Sessions: Sessions{
 			Claude: ClaudeSessions{Path: "~/.claude/projects"},
@@ -472,7 +463,6 @@ func resolveTargets(cfg Targets, home string) (ResolvedTargets, []resolvedTarget
 		{name: "claude", enabled: cfg.Claude.Enabled, skills: cfg.Claude.SkillsPath, agentsMD: cfg.Claude.AgentsMDPath, resolved: &resolved.Claude},
 		{name: "pi", enabled: cfg.Pi.Enabled, skills: cfg.Pi.SkillsPath, agentsMD: cfg.Pi.AgentsMDPath, resolved: &resolved.Pi},
 		{name: "codex", enabled: cfg.Codex.Enabled, skills: cfg.Codex.SkillsPath, agentsMD: cfg.Codex.AgentsMDPath, resolved: &resolved.Codex},
-		{name: "agents", enabled: cfg.Agents.Enabled, skills: cfg.Agents.SkillsPath, agentsMD: cfg.Agents.AgentsMDPath, resolved: &resolved.Agents},
 	}
 	var enabled []resolvedTarget
 	for _, target := range configured {

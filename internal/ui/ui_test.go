@@ -73,7 +73,6 @@ func TestWriteStatusRendersAgentsFileSection(t *testing.T) {
 				"claude": agentsfile.StateSynced,
 				"pi":     agentsfile.StateStale,
 				"codex":  agentsfile.StateDisabled,
-				"agents": agentsfile.StateMissing,
 			},
 		},
 	}

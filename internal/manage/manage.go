@@ -415,7 +415,6 @@ func configuredTargets(loaded config.LoadResult) []targetSpec {
 		{agentsMDPath: loaded.ResolvedTargets.Claude.AgentsMD, enabled: loaded.Config.Targets.Claude.Enabled, name: render.TargetClaude, skillsPath: loaded.ResolvedTargets.Claude.Skills},
 		{agentsMDPath: loaded.ResolvedTargets.Pi.AgentsMD, enabled: loaded.Config.Targets.Pi.Enabled, name: render.TargetPi, skillsPath: loaded.ResolvedTargets.Pi.Skills},
 		{agentsMDPath: loaded.ResolvedTargets.Codex.AgentsMD, enabled: loaded.Config.Targets.Codex.Enabled, name: render.TargetCodex, skillsPath: loaded.ResolvedTargets.Codex.Skills},
-		{agentsMDPath: loaded.ResolvedTargets.Agents.AgentsMD, enabled: loaded.Config.Targets.Agents.Enabled, name: render.TargetAgents, skillsPath: loaded.ResolvedTargets.Agents.Skills},
 	}
 }
 

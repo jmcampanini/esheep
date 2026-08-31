@@ -1,5 +1,5 @@
 class Esheep < Formula
-  desc "Manage local Agent Skills for Claude Code, Pi, Codex, and shared targets"
+  desc "Manage local Agent Skills for Claude Code, Pi, and Codex"
   homepage "https://github.com/jmcampanini/esheep"
   license "MIT"
   head "https://github.com/jmcampanini/esheep.git", branch: "main"

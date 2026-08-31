@@ -96,10 +96,10 @@ func newRootCommandWithOperations(load configLoader, operations commandOperation
 source directories.
 
 esheep reads skills and an optional agents file from configured source
-containers and renders them for the Claude, Pi, Codex, and shared agents
-targets. It never accesses the network, never executes source content, and
-never creates, updates, or deletes source directories. Commands accept
-only the arguments shown and never prompt.
+containers and renders them for the Claude, Pi, and Codex targets. It never
+accesses the network, never executes source content, and never creates,
+updates, or deletes source directories. Commands accept only the arguments
+shown and never prompt.
 
 'esheep sessions list' and 'esheep sessions search' find historical harness
 session transcripts, reading the harness-owned files in place and never
@@ -122,6 +122,7 @@ paths, 'esheep help skill-format' for the authoring format, and
 	root.AddCommand(
 		newCompletionCommand(),
 		newConfigCommand(load),
+		newDoctorCommand(load),
 		newExitCodesTopic(),
 		newProfilesCommand(load, operations.profiles),
 		newSessionsCommand(load, operations),

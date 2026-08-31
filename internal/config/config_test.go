@@ -26,13 +26,13 @@ func TestDefaultsAndLocation(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "home")
 	configHome := filepath.Join(t.TempDir(), "config")
 	got := defaults()
-	if !got.Targets.Claude.Enabled || !got.Targets.Pi.Enabled || !got.Targets.Codex.Enabled || got.Targets.Agents.Enabled {
+	if !got.Targets.Claude.Enabled || !got.Targets.Pi.Enabled || !got.Targets.Codex.Enabled {
 		t.Fatalf("default enabled targets = %#v", got.Targets)
 	}
-	if got.Targets.Claude.SkillsPath != "~/.claude/skills" || got.Targets.Pi.SkillsPath != "~/.pi/agent/skills" || got.Targets.Codex.SkillsPath != "~/.codex/skills" || got.Targets.Agents.SkillsPath != "~/.agents/skills" {
+	if got.Targets.Claude.SkillsPath != "~/.claude/skills" || got.Targets.Pi.SkillsPath != "~/.pi/agent/skills" || got.Targets.Codex.SkillsPath != "~/.agents/skills" {
 		t.Fatalf("default target skills paths = %#v", got.Targets)
 	}
-	if got.Targets.Claude.AgentsMDPath != "~/.claude/CLAUDE.md" || got.Targets.Pi.AgentsMDPath != "~/.pi/agent/AGENTS.md" || got.Targets.Codex.AgentsMDPath != "~/.codex/AGENTS.md" || got.Targets.Agents.AgentsMDPath != "~/.agents/AGENTS.md" {
+	if got.Targets.Claude.AgentsMDPath != "~/.claude/CLAUDE.md" || got.Targets.Pi.AgentsMDPath != "~/.pi/agent/AGENTS.md" || got.Targets.Codex.AgentsMDPath != "~/.codex/AGENTS.md" {
 		t.Fatalf("default target agents md paths = %#v", got.Targets)
 	}
 	location, err := locationsFromEnv(testEnv(home, configHome), home)
@@ -128,7 +128,6 @@ func TestApprovedEnvironmentNamesAndFlagsLoadEachTarget(t *testing.T) {
 	env := testEnv(home, filepath.Join(t.TempDir(), "config"))
 	env["ESHEEP_PI_ENABLED"] = "false"
 	env["ESHEEP_CODEX_SKILLS_PATH"] = "~/codex-overridden"
-	env["ESHEEP_AGENTS_SKILLS_PATH"] = "~/agents-overridden"
 	env["ESHEEP_CODEX_AGENTS_MD_PATH"] = "~/codex-overridden-AGENTS.md"
 	flags := pflag.NewFlagSet("test", pflag.ContinueOnError)
 	flags.SetOutput(io.Discard)
@@ -139,7 +138,6 @@ func TestApprovedEnvironmentNamesAndFlagsLoadEachTarget(t *testing.T) {
 		"claude-enabled", "claude-skills-path", "claude-agents-md-path",
 		"pi-enabled", "pi-skills-path", "pi-agents-md-path",
 		"codex-enabled", "codex-skills-path", "codex-agents-md-path",
-		"agents-enabled", "agents-skills-path", "agents-agents-md-path",
 	}
 	for _, name := range approved {
 		if flags.Lookup(name) == nil {
