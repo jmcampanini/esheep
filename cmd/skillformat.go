@@ -37,8 +37,9 @@ two applying variants are a conflict that blocks synchronization. The
 selected manifest always renders as SKILL.md.
 
 A manifest is YAML frontmatter followed by a Markdown body preserved
-byte-for-byte. Frontmatter fields fall into two categories: fields esheep
-interprets and validates, and fields it passes through verbatim.
+byte-for-byte except esheep variables, described below. Frontmatter fields
+fall into two categories: fields esheep interprets and validates, and
+fields it passes through verbatim.
 
 Interpreted fields:
 
@@ -69,6 +70,21 @@ Every other top-level field passes through unchanged, preserved in source
 order and rendered for every target. esheep grants nothing itself; a
 passed-through field carries only the meaning the receiving harness gives
 it.
+
+The {{esheep. text is reserved everywhere in the body: every occurrence
+must be exactly a known variable, a known variable must occupy its own
+line, and there is no escape syntax. Anything else fails validation.
+Rendering replaces the variable line with its value on every target, and
+frontmatter and supporting files are never substituted. When a variable's
+value changes, the installed skills that use it drift and the next sync
+repairs them.
+
+Body variables:
+
+  {{esheep.sources}}        Replaced with a Markdown bullet list of the
+                            configured source container roots as resolved
+                            absolute paths, one per line, in
+                            configuration order.
 
 Rendering is deterministic. Every target receives the interpreted content
 fields and the passed-through fields. When disable-model-invocation is

@@ -184,6 +184,7 @@ func Status(ctx context.Context, loaded config.LoadResult) StatusReport {
 	catalog := buildCatalog(ctx, loaded)
 	report := StatusReport{Diagnostics: catalog.diagnostics, EffectiveProfiles: loaded.EffectiveProfiles, Healthy: catalog.complete}
 	targets := configuredTargets(loaded)
+	variables := sourceVariables(loaded)
 	blockedTargets, targetDiagnostics := inspectTargets(ctx, targets)
 	report.Diagnostics = append(report.Diagnostics, targetDiagnostics...)
 	if len(blockedTargets) != 0 {
@@ -224,11 +225,12 @@ func Status(ctx context.Context, loaded config.LoadResult) StatusReport {
 			}
 
 			state, err := install.Inspect(ctx, install.Request{
-				Document: selection.Manifest.Document,
-				Identity: install.Identity{Skill: known.Directory, Source: known.Source, Target: target.name},
-				Package:  candidate.Package,
-				Profiles: loaded.EffectiveProfiles,
-				Root:     target.skillsPath,
+				Document:  selection.Manifest.Document,
+				Identity:  install.Identity{Skill: known.Directory, Source: known.Source, Target: target.name},
+				Package:   candidate.Package,
+				Profiles:  loaded.EffectiveProfiles,
+				Root:      target.skillsPath,
+				Variables: variables,
 			})
 			if err != nil {
 				row.Targets[string(target.name)] = install.StateBlocked
@@ -261,6 +263,7 @@ func Sync(ctx context.Context, loaded config.LoadResult) SyncReport {
 	catalog := buildCatalog(ctx, loaded)
 	report := SyncReport{Diagnostics: catalog.diagnostics}
 	targets := configuredTargets(loaded)
+	variables := sourceVariables(loaded)
 	blockedTargets, targetDiagnostics := inspectTargets(ctx, targets)
 	report.Diagnostics = append(report.Diagnostics, targetDiagnostics...)
 	for _, target := range targets {
@@ -314,11 +317,12 @@ func Sync(ctx context.Context, loaded config.LoadResult) SyncReport {
 			}
 
 			result, err := install.Reconcile(ctx, install.Request{
-				Document: selection.Manifest.Document,
-				Identity: install.Identity{Skill: known.Directory, Source: known.Source, Target: target.name},
-				Package:  candidate.Package,
-				Profiles: loaded.EffectiveProfiles,
-				Root:     target.skillsPath,
+				Document:  selection.Manifest.Document,
+				Identity:  install.Identity{Skill: known.Directory, Source: known.Source, Target: target.name},
+				Package:   candidate.Package,
+				Profiles:  loaded.EffectiveProfiles,
+				Root:      target.skillsPath,
+				Variables: variables,
 			})
 			record(&report, result, err)
 			if err == nil {
@@ -408,6 +412,16 @@ func describe(candidate discovery.Candidate, selection skill.Selection) string {
 		return candidate.Package.Manifests[0].Document.Description
 	}
 	return ""
+}
+
+// sourceVariables carries the resolved source directories, in configuration
+// order, as the values substituted for esheep variables.
+func sourceVariables(loaded config.LoadResult) skill.Variables {
+	paths := make([]string, 0, len(loaded.ResolvedSources))
+	for _, source := range loaded.ResolvedSources {
+		paths = append(paths, source.Path)
+	}
+	return skill.Variables{Sources: paths}
 }
 
 func configuredTargets(loaded config.LoadResult) []targetSpec {
