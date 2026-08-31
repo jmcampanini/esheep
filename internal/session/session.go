@@ -230,36 +230,32 @@ func Search(ctx context.Context, roots Roots, filter Filter, query SearchQuery) 
 	report := SearchReport{Complete: complete, Diagnostics: diagnostics}
 
 	type scanResult struct {
-		diagnostics []Diagnostic
-		hits        []Hit
+		err       error
+		hits      []Hit
+		malformed int
 	}
 	results := parallelMap(ctx, sessions, func(entry located) scanResult {
 		hits, malformed, err := scanSession(entry, query)
-		result := scanResult{hits: hits}
-		if err != nil {
-			result.diagnostics = append(result.diagnostics, Diagnostic{
-				Code: codeTranscriptRead, Harness: entry.session.Harness, Message: err.Error(), Path: entry.session.Path,
-			})
-		}
-		if malformed > 0 && !query.Raw {
-			result.diagnostics = append(result.diagnostics, Diagnostic{
-				Code:    codeMalformedLines,
-				Harness: entry.session.Harness,
-				Message: fmt.Sprintf("skipped %d unparseable lines", malformed),
-				Path:    entry.session.Path,
-			})
-		}
-		return result
+		return scanResult{err: err, hits: hits, malformed: malformed}
 	})
 	for index, result := range results {
-		for _, diagnostic := range result.diagnostics {
-			report.Diagnostics = append(report.Diagnostics, diagnostic)
-			if affectsCompleteness(diagnostic.Code) {
-				report.Complete = false
-			}
+		entry := sessions[index].session
+		if result.err != nil {
+			report.Diagnostics = append(report.Diagnostics, Diagnostic{
+				Code: codeTranscriptRead, Harness: entry.Harness, Message: result.err.Error(), Path: entry.Path,
+			})
+			report.Complete = false
+		}
+		if result.malformed > 0 && !query.Raw {
+			report.Diagnostics = append(report.Diagnostics, Diagnostic{
+				Code:    codeMalformedLines,
+				Harness: entry.Harness,
+				Message: fmt.Sprintf("skipped %d unparseable lines", result.malformed),
+				Path:    entry.Path,
+			})
 		}
 		if len(result.hits) != 0 {
-			report.Sessions = append(report.Sessions, Match{Session: sessions[index].session, Hits: result.hits})
+			report.Sessions = append(report.Sessions, Match{Session: entry, Hits: result.hits})
 		}
 	}
 	return report
