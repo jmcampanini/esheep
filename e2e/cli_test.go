@@ -846,3 +846,110 @@ func processEnvironment(overrides map[string]string) []string {
 	}
 	return environment
 }
+
+func TestSessionsWorkflow(t *testing.T) {
+	root := filepath.Join(workDir, "sessions")
+	home := filepath.Join(root, "home")
+	configHome := filepath.Join(root, "config")
+	claudeProject := filepath.Join(home, ".claude", "projects", "-Users-u-proj")
+	codexDay := filepath.Join(home, ".codex", "sessions", "2026", "08", "25")
+	piProject := filepath.Join(home, ".pi", "agent", "sessions", "--Users-u-piproj--")
+	if err := os.MkdirAll(configHome, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	writeSessionTranscript(t, filepath.Join(claudeProject, "11111111-aaaa-bbbb-cccc-222222222222.jsonl"),
+		`{"type":"user","timestamp":"2026-08-20T10:00:00Z","cwd":"/Users/u/proj","message":{"role":"user","content":"find the GOMODCACHE bug"}}`,
+		`{"type":"assistant","timestamp":"2026-08-20T10:00:05Z","cwd":"/Users/u/proj","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"go env GOMODCACHE"}}]}}`,
+		`{"type":"user","timestamp":"2026-08-20T10:00:09Z","cwd":"/Users/u/proj","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"permission denied","is_error":true}]}}`,
+	)
+	writeSessionTranscript(t, filepath.Join(claudeProject, "11111111-aaaa-bbbb-cccc-222222222222", "subagents", "agent-abc.jsonl"),
+		`{"type":"user","timestamp":"2026-08-20T12:01:00Z","cwd":"/Users/u/proj","isSidechain":true,"message":{"role":"user","content":"subagent prompt"}}`,
+	)
+	writeSessionTranscript(t, filepath.Join(codexDay, "rollout-2026-08-25T09-00-00-33333333-dddd-eeee-ffff-444444444444.jsonl"),
+		`{"timestamp":"2026-08-25T09:00:00Z","type":"session_meta","payload":{"id":"33333333-dddd-eeee-ffff-444444444444","timestamp":"2026-08-25T09:00:00Z","cwd":"/Users/u/codexproj","cli_version":"0.151.0"}}`,
+		`{"timestamp":"2026-08-25T09:00:02Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"fix the flaky test"}]}}`,
+	)
+	writeSessionTranscript(t, filepath.Join(piProject, "2026-08-10T08-00-00-000Z_55555555-aaaa-bbbb-cccc-666666666666.jsonl"),
+		`{"type":"session","version":3,"id":"55555555-aaaa-bbbb-cccc-666666666666","timestamp":"2026-08-10T08:00:00Z","cwd":"/Users/u/piproj"}`,
+		`{"type":"message","id":"ad","parentId":null,"timestamp":"2026-08-10T08:00:08Z","message":{"role":"toolResult","toolName":"bash","isError":true,"content":[{"type":"text","text":"make: *** [test] Error 1"}]}}`,
+	)
+	subagent := filepath.Join(piProject, "2026-08-10T09-00-00-000Z_77777777-aaaa-bbbb-cccc-888888888888.jsonl")
+	writeSessionTranscript(t, subagent,
+		`{"type":"session","version":3,"id":"77777777-aaaa-bbbb-cccc-888888888888","timestamp":"2026-08-10T09:00:00Z","cwd":"/Users/u/piproj"}`,
+	)
+	if err := os.WriteFile(subagent+".meta", []byte(`{"agent":"scout"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	environment := map[string]string{"HOME": home, "XDG_CONFIG_HOME": configHome}
+	storesBefore := snapshotTree(t, home)
+
+	listed := runEsheep(t, environment, "sessions", "list", "--json")
+	assertSuccess(t, listed)
+	var inventory struct {
+		Complete bool `json:"complete"`
+		Sessions []struct {
+			Harness string `json:"harness"`
+			ID      string `json:"id"`
+			Path    string `json:"path"`
+		} `json:"sessions"`
+	}
+	if err := json.Unmarshal([]byte(listed.stdout), &inventory); err != nil {
+		t.Fatalf("decode inventory: %v\n%s", err, listed.stdout)
+	}
+	if !inventory.Complete || len(inventory.Sessions) != 3 {
+		t.Fatalf("inventory = %#v", inventory)
+	}
+	for _, entry := range inventory.Sessions {
+		if _, err := os.Stat(entry.Path); err != nil {
+			t.Fatalf("session %q path does not resolve: %v", entry.ID, err)
+		}
+	}
+
+	withSubagents := runEsheep(t, environment, "sessions", "list", "--json", "--subagents")
+	assertSuccess(t, withSubagents)
+	if got := strings.Count(withSubagents.stdout, `"harness"`); got != 5 {
+		t.Fatalf("subagent inventory sessions = %d, want 5\n%s", got, withSubagents.stdout)
+	}
+
+	searched := runEsheep(t, environment, "sessions", "search", "--json", "GOMODCACHE")
+	assertSuccess(t, searched)
+	var matches struct {
+		Sessions []struct {
+			Harness string `json:"harness"`
+			Hits    []struct {
+				Line int    `json:"line"`
+				Role string `json:"role"`
+			} `json:"hits"`
+		} `json:"sessions"`
+	}
+	if err := json.Unmarshal([]byte(searched.stdout), &matches); err != nil {
+		t.Fatalf("decode search: %v\n%s", err, searched.stdout)
+	}
+	if len(matches.Sessions) != 1 || matches.Sessions[0].Harness != "claude" || len(matches.Sessions[0].Hits) != 2 {
+		t.Fatalf("search = %#v", matches)
+	}
+	if matches.Sessions[0].Hits[0].Line != 1 || matches.Sessions[0].Hits[0].Role != "user" {
+		t.Fatalf("first hit = %#v", matches.Sessions[0].Hits[0])
+	}
+
+	failures := runEsheep(t, environment, "sessions", "search", "--json", "--errors")
+	assertSuccess(t, failures)
+	if got := strings.Count(failures.stdout, `"error": true`); got != 2 {
+		t.Fatalf("error search hits = %d, want 2\n%s", got, failures.stdout)
+	}
+
+	if got := snapshotTree(t, home); got != storesBefore {
+		t.Fatal("sessions commands modified a session store")
+	}
+}
+
+func writeSessionTranscript(t *testing.T, path string, lines ...string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jmcampanini/esheep/internal/agentsfile"
 	"github.com/jmcampanini/esheep/internal/manage"
+	"github.com/jmcampanini/esheep/internal/session"
 )
 
 func TestHumanOutputRemovesTerminalControlsFromSourceData(t *testing.T) {
@@ -191,5 +193,92 @@ func TestWriteProfilesReportsEffectiveAndReferenced(t *testing.T) {
 	want := "Effective: (none)\nReferenced: client, work\n"
 	if output.String() != want {
 		t.Fatalf("output = %q, want %q", output.String(), want)
+	}
+}
+
+func TestWriteSessionListRendersPlaceholdersAndTimes(t *testing.T) {
+	t.Parallel()
+	report := session.ListReport{
+		Complete: true,
+		Sessions: []session.Session{
+			{
+				Harness:   session.HarnessClaude,
+				ID:        "abc",
+				Path:      "/roots/claude/p/abc.jsonl",
+				Project:   "/Users/u/proj",
+				StartedAt: time.Date(2026, 8, 20, 10, 0, 0, 0, time.Local),
+				Title:     "Debug permissions",
+			},
+			{
+				Harness:    session.HarnessCodex,
+				ID:         "def",
+				ModifiedAt: time.Date(2026, 8, 25, 9, 30, 0, 0, time.Local),
+				Path:       "/roots/codex/rollout-def.jsonl",
+			},
+		},
+	}
+	var output bytes.Buffer
+
+	if err := WriteSessionList(&output, report, false); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"HARNESS", "2026-08-20 10:00", "Debug permissions", "2026-08-25 09:30", "/roots/codex/rollout-def.jsonl"} {
+		if !strings.Contains(output.String(), want) {
+			t.Errorf("output missing %q:\n%s", want, output.String())
+		}
+	}
+	codexRow := ""
+	for _, line := range strings.Split(output.String(), "\n") {
+		if strings.Contains(line, "codex") {
+			codexRow = line
+		}
+	}
+	if !strings.Contains(codexRow, "-") {
+		t.Errorf("codex row = %q, want dash placeholders for absent metadata", codexRow)
+	}
+}
+
+func TestSessionJSONWritersEmitEmptyCollections(t *testing.T) {
+	t.Parallel()
+	var listOutput bytes.Buffer
+	if err := WriteSessionListJSON(&listOutput, session.ListReport{Complete: true}); err != nil {
+		t.Fatal(err)
+	}
+	var list struct {
+		Diagnostics []session.Diagnostic `json:"diagnostics"`
+		Sessions    []session.Session    `json:"sessions"`
+	}
+	if err := json.Unmarshal(listOutput.Bytes(), &list); err != nil {
+		t.Fatalf("list JSON: %v", err)
+	}
+	if list.Diagnostics == nil || list.Sessions == nil {
+		t.Fatalf("list JSON = %s, want empty arrays not null", listOutput.String())
+	}
+
+	var searchOutput bytes.Buffer
+	if err := WriteSessionSearchJSON(&searchOutput, session.SearchReport{Complete: true}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(searchOutput.String(), `"sessions": []`) {
+		t.Fatalf("search JSON = %s, want empty sessions array", searchOutput.String())
+	}
+}
+
+func TestWriteSessionDiagnosticsNamesHarness(t *testing.T) {
+	t.Parallel()
+	var output bytes.Buffer
+
+	err := WriteSessionDiagnostics(&output, []session.Diagnostic{{
+		Code:    "root-missing",
+		Harness: session.HarnessPi,
+		Message: "session root does not exist; harness skipped",
+		Path:    "/roots/pi",
+	}})
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := output.String(); got != "/roots/pi [pi]: root-missing: session root does not exist; harness skipped\n" {
+		t.Fatalf("output = %q", got)
 	}
 }

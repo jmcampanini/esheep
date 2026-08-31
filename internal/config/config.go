@@ -67,12 +67,35 @@ type Targets struct {
 	Agents AgentsTarget `toml:"agents"`
 }
 
+// ClaudeSessions locates Claude Code's session transcripts.
+type ClaudeSessions struct {
+	Path string `toml:"path" config:"claude-sessions-path" help:"session transcript root for Claude Code"`
+}
+
+// PiSessions locates Pi's session transcripts.
+type PiSessions struct {
+	Path string `toml:"path" config:"pi-sessions-path" help:"session transcript root for Pi"`
+}
+
+// CodexSessions locates Codex's session transcripts.
+type CodexSessions struct {
+	Path string `toml:"path" config:"codex-sessions-path" help:"session transcript root for Codex"`
+}
+
+// Sessions contains the per-harness session transcript roots.
+type Sessions struct {
+	Claude ClaudeSessions `toml:"claude"`
+	Pi     PiSessions     `toml:"pi"`
+	Codex  CodexSessions  `toml:"codex"`
+}
+
 // Config is the complete human-owned esheep configuration.
 type Config struct {
 	Profiles    []string `toml:"profiles" config:"profiles" pflag_singular:"profile" help:"active profiles; --profiles accepts comma-separated values."`
 	EnvProfiles []string `toml:"env_profiles"`
 	Sources     []Source `toml:"sources"`
 	Targets     Targets  `toml:"targets"`
+	Sessions    Sessions `toml:"sessions"`
 }
 
 // Locations contains the discovered or explicit settings path.
@@ -108,11 +131,19 @@ type ResolvedTargets struct {
 	Agents ResolvedTarget
 }
 
+// ResolvedSessions contains absolute session transcript roots.
+type ResolvedSessions struct {
+	Claude string
+	Pi     string
+	Codex  string
+}
+
 // LoadResult is an effective configuration together with provenance and resolved paths.
 type LoadResult struct {
 	Config            Config
 	EffectiveProfiles []string
 	Locations         Locations
+	ResolvedSessions  ResolvedSessions
 	ResolvedSources   []ResolvedSource
 	ResolvedTargets   ResolvedTargets
 	Report            configloader.LoadReport
@@ -196,10 +227,15 @@ func Load(options LoadOptions) (LoadResult, error) {
 	if err != nil {
 		return LoadResult{}, err
 	}
+	resolvedSessions, err := resolveSessions(cfg.Sessions, home)
+	if err != nil {
+		return LoadResult{}, err
+	}
 	return LoadResult{
 		Config:            cfg,
 		EffectiveProfiles: effectiveProfiles,
 		Locations:         locations,
+		ResolvedSessions:  resolvedSessions,
 		ResolvedSources:   resolvedSources,
 		ResolvedTargets:   resolvedTargets,
 		Report:            report,
@@ -289,6 +325,9 @@ func Render(result LoadResult, options ReportOptions) ([]byte, error) {
 	writeResolved("targets.codex.agents_md_path", result.ResolvedTargets.Codex.AgentsMD)
 	writeResolved("targets.agents.skills_path", result.ResolvedTargets.Agents.Skills)
 	writeResolved("targets.agents.agents_md_path", result.ResolvedTargets.Agents.AgentsMD)
+	writeResolved("sessions.claude.path", result.ResolvedSessions.Claude)
+	writeResolved("sessions.pi.path", result.ResolvedSessions.Pi)
+	writeResolved("sessions.codex.path", result.ResolvedSessions.Codex)
 	if options.Provenance {
 		b.WriteString("\n# Provenance\n")
 		for _, row := range reporter.ProvenanceRows() {
@@ -321,12 +360,19 @@ func WriteReport(w io.Writer, result LoadResult, options ReportOptions) error {
 type flagConfig Config
 
 func defaults() flagConfig {
-	return flagConfig{Targets: Targets{
-		Claude: ClaudeTarget{Enabled: true, SkillsPath: "~/.claude/skills", AgentsMDPath: "~/.claude/CLAUDE.md"},
-		Pi:     PiTarget{Enabled: true, SkillsPath: "~/.pi/agent/skills", AgentsMDPath: "~/.pi/agent/AGENTS.md"},
-		Codex:  CodexTarget{Enabled: true, SkillsPath: "~/.codex/skills", AgentsMDPath: "~/.codex/AGENTS.md"},
-		Agents: AgentsTarget{Enabled: false, SkillsPath: "~/.agents/skills", AgentsMDPath: "~/.agents/AGENTS.md"},
-	}}
+	return flagConfig{
+		Targets: Targets{
+			Claude: ClaudeTarget{Enabled: true, SkillsPath: "~/.claude/skills", AgentsMDPath: "~/.claude/CLAUDE.md"},
+			Pi:     PiTarget{Enabled: true, SkillsPath: "~/.pi/agent/skills", AgentsMDPath: "~/.pi/agent/AGENTS.md"},
+			Codex:  CodexTarget{Enabled: true, SkillsPath: "~/.codex/skills", AgentsMDPath: "~/.codex/AGENTS.md"},
+			Agents: AgentsTarget{Enabled: false, SkillsPath: "~/.agents/skills", AgentsMDPath: "~/.agents/AGENTS.md"},
+		},
+		Sessions: Sessions{
+			Claude: ClaudeSessions{Path: "~/.claude/projects"},
+			Pi:     PiSessions{Path: "~/.pi/agent/sessions"},
+			Codex:  CodexSessions{Path: "~/.codex/sessions"},
+		},
+	}
 }
 
 func homeFromEnv(env map[string]string) (string, error) {
@@ -484,6 +530,30 @@ func resolveTargets(cfg Targets, home string) (ResolvedTargets, []resolvedTarget
 		enabled = append(enabled, resolvedTarget{agentsMD: agentsMD, name: target.name, skills: skills})
 	}
 	return resolved, enabled, nil
+}
+
+// resolveSessions resolves the read-only session transcript roots. Session
+// roots are harness-owned inputs, so unlike targets they need no symlink,
+// breadth, or overlap restrictions.
+func resolveSessions(cfg Sessions, home string) (ResolvedSessions, error) {
+	resolved := ResolvedSessions{}
+	configured := []struct {
+		name     string
+		path     string
+		resolved *string
+	}{
+		{name: "claude", path: cfg.Claude.Path, resolved: &resolved.Claude},
+		{name: "pi", path: cfg.Pi.Path, resolved: &resolved.Pi},
+		{name: "codex", path: cfg.Codex.Path, resolved: &resolved.Codex},
+	}
+	for _, root := range configured {
+		path, err := resolveManagedPath("sessions."+root.name+".path", root.path, home)
+		if err != nil {
+			return ResolvedSessions{}, err
+		}
+		*root.resolved = path
+	}
+	return resolved, nil
 }
 
 func resolveManagedPath(name, path, home string) (string, error) {

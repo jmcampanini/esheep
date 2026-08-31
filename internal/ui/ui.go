@@ -15,6 +15,7 @@ import (
 	"github.com/jmcampanini/esheep/internal/agentsfile"
 	"github.com/jmcampanini/esheep/internal/install"
 	"github.com/jmcampanini/esheep/internal/manage"
+	"github.com/jmcampanini/esheep/internal/session"
 )
 
 // ShouldColor reports whether human output should contain terminal styling.
@@ -159,6 +160,125 @@ func WriteSync(writer io.Writer, report manage.SyncReport, color bool) error {
 		report.Summary.Failed,
 	)
 	return err
+}
+
+// WriteSessionList writes a human session inventory table.
+func WriteSessionList(writer io.Writer, report session.ListReport, color bool) error {
+	rows := make([][]string, 0, len(report.Sessions))
+	for _, entry := range report.Sessions {
+		rows = append(rows, []string{
+			string(entry.Harness),
+			sessionTime(entry),
+			dashIfEmpty(clean(entry.Project)),
+			dashIfEmpty(clean(entry.Title)),
+			clean(entry.Path),
+		})
+	}
+	return writeTable(writer, []string{"HARNESS", "STARTED", "PROJECT", "TITLE", "PATH"}, rows, color)
+}
+
+// WriteSessionListJSON writes one complete session inventory JSON document.
+func WriteSessionListJSON(writer io.Writer, report session.ListReport) error {
+	if report.Diagnostics == nil {
+		report.Diagnostics = []session.Diagnostic{}
+	}
+	if report.Sessions == nil {
+		report.Sessions = []session.Session{}
+	}
+	return writeJSON(writer, report)
+}
+
+// WriteSessionSearch writes matching sessions grouped with their hits, each
+// hit addressed as a line number within the canonical transcript path.
+func WriteSessionSearch(writer io.Writer, report session.SearchReport) error {
+	for index, entry := range report.Sessions {
+		if index > 0 {
+			if _, err := fmt.Fprintln(writer); err != nil {
+				return err
+			}
+		}
+		header := []string{string(entry.Harness), sessionTime(entry.Session)}
+		if entry.Project != "" {
+			header = append(header, clean(entry.Project))
+		}
+		if entry.Title != "" {
+			header = append(header, clean(entry.Title))
+		}
+		if _, err := fmt.Fprintln(writer, strings.Join(header, "  ")); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintln(writer, clean(entry.Path)); err != nil {
+			return err
+		}
+		width := 0
+		for _, hit := range entry.Hits {
+			width = max(width, len(hitRole(hit)))
+		}
+		for _, hit := range entry.Hits {
+			marker := ""
+			if hit.Error {
+				marker = "error  "
+			}
+			timestamp := "-"
+			if !hit.Timestamp.IsZero() {
+				timestamp = hit.Timestamp.Local().Format("15:04:05")
+			}
+			if _, err := fmt.Fprintf(writer, "  :%-6d %-*s  %s  %s%s\n", hit.Line, width, hitRole(hit), timestamp, marker, clean(hit.Excerpt)); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// WriteSessionSearchJSON writes one complete search JSON document.
+func WriteSessionSearchJSON(writer io.Writer, report session.SearchReport) error {
+	if report.Diagnostics == nil {
+		report.Diagnostics = []session.Diagnostic{}
+	}
+	if report.Sessions == nil {
+		report.Sessions = []session.Match{}
+	}
+	return writeJSON(writer, report)
+}
+
+// WriteSessionDiagnostics writes actionable human session diagnostics.
+func WriteSessionDiagnostics(writer io.Writer, diagnostics []session.Diagnostic) error {
+	for _, diagnostic := range diagnostics {
+		location := diagnostic.Path
+		if diagnostic.Harness != "" {
+			location += " [" + string(diagnostic.Harness) + "]"
+		}
+		if _, err := fmt.Fprintf(writer, "%s: %s: %s\n", clean(location), diagnostic.Code, clean(diagnostic.Message)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func sessionTime(entry session.Session) string {
+	when := entry.StartedAt
+	if when.IsZero() {
+		when = entry.ModifiedAt
+	}
+	if when.IsZero() {
+		return "-"
+	}
+	return when.Local().Format("2006-01-02 15:04")
+}
+
+func hitRole(hit session.Hit) string {
+	if hit.Tool != "" {
+		return "tool:" + clean(hit.Tool)
+	}
+	return string(hit.Role)
+}
+
+func dashIfEmpty(value string) string {
+	if value == "" {
+		return "-"
+	}
+	return value
 }
 
 // WriteDiagnostics writes actionable human diagnostics.

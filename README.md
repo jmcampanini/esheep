@@ -2,6 +2,8 @@
 
 esheep manages Agent Skills and a global agents file from human-maintained source directories and renders them for Claude Code, Pi, Codex, and the shared Agent Skills directory. It never accesses the network, executes source content, or creates, updates, or deletes source directories.
 
+esheep also finds historical harness sessions: `esheep sessions list` and `esheep sessions search` read the session transcripts Claude Code, Pi, and Codex leave on disk, in place and read-only, and point every result at the canonical transcript file.
+
 Command help is the canonical reference: `esheep --help` and each command's `--help` describe every user-facing contract, `esheep help skill-format` describes the authoring format, and `esheep help exit-codes` describes exit statuses.
 
 ## Platform support
@@ -40,6 +42,8 @@ make build
 | `esheep completion zsh` | Write Zsh completion; bash, fish, and powershell work the same way. |
 | `esheep config [--provenance]` | Write the effective configuration and resolved paths. |
 | `esheep profiles [--json]` | Report effective and referenced profiles. |
+| `esheep sessions list [--json]` | List historical harness sessions with their canonical transcript paths. |
+| `esheep sessions search <pattern> [--json]` | Search session transcripts in place; hits address transcript lines. |
 | `esheep skills list [--json]` | Inventory skills in every configured source. |
 | `esheep sync` | Install, repair, and prune esheep-owned output on enabled targets. |
 | `esheep skills status [--json]` | Report source readiness and per-target deployment health. |
@@ -85,6 +89,15 @@ agents_md_path = "~/.codex/AGENTS.md"
 enabled = false
 skills_path = "~/.agents/skills"
 agents_md_path = "~/.agents/AGENTS.md"
+
+[sessions.claude]
+path = "~/.claude/projects"
+
+[sessions.pi]
+path = "~/.pi/agent/sessions"
+
+[sessions.codex]
+path = "~/.codex/sessions"
 ```
 
 Users own the settings file and source directories and choose how both are maintained. esheep never creates, updates, or deletes either one.
