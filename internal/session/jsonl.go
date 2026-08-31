@@ -43,9 +43,9 @@ func forEachLine(path string, visit func(line int, data []byte) bool) error {
 
 // walkRules parameterizes transcript discovery for one harness grammar.
 type walkRules struct {
-	// file reports whether a regular file is a transcript and whether it
+	// classify reports whether a regular file is a transcript and whether it
 	// belongs to a subagent.
-	file func(path string, entry fs.DirEntry) (include bool, subagent bool)
+	classify func(path string) (include bool, subagent bool)
 	// skipDir reports whether a directory subtree holds no wanted transcripts.
 	skipDir func(entry fs.DirEntry) bool
 }
@@ -69,7 +69,7 @@ func walkTranscripts(root string, rules walkRules) ([]transcript, []Diagnostic) 
 		if !entry.Type().IsRegular() {
 			return nil
 		}
-		include, subagent := rules.file(path, entry)
+		include, subagent := rules.classify(path)
 		if !include {
 			return nil
 		}

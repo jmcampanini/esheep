@@ -2,7 +2,6 @@ package session
 
 import (
 	"encoding/json"
-	"io/fs"
 	"path/filepath"
 	"strings"
 )
@@ -15,7 +14,7 @@ type codexAdapter struct{}
 
 func (codexAdapter) discover(root string, _ bool) ([]transcript, []Diagnostic) {
 	return walkTranscripts(root, walkRules{
-		file: func(path string, _ fs.DirEntry) (bool, bool) {
+		classify: func(path string) (bool, bool) {
 			return filepath.Ext(path) == ".jsonl", false
 		},
 	})

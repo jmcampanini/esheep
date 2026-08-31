@@ -14,7 +14,7 @@ type piAdapter struct{}
 
 func (piAdapter) discover(root string, _ bool) ([]transcript, []Diagnostic) {
 	return walkTranscripts(root, walkRules{
-		file: func(path string, _ fs.DirEntry) (bool, bool) {
+		classify: func(path string) (bool, bool) {
 			if filepath.Ext(path) != ".jsonl" {
 				return false, false
 			}
