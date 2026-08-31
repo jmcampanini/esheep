@@ -50,7 +50,6 @@ func TestRenderExactTargetTrees(t *testing.T) {
 		{target: TargetClaude, golden: "common.golden"},
 		{target: TargetPi, golden: "common.golden"},
 		{target: TargetCodex, golden: "common.golden", codexPolicy: true},
-		{target: TargetAgents, golden: "common.golden"},
 	}
 	for _, test := range tests {
 		t.Run(string(test.target), func(t *testing.T) {
@@ -401,7 +400,7 @@ func loadRenderSkill(t *testing.T) (string, skill.Package) {
 
 func writeSkillManifest(t *testing.T, root string) {
 	t.Helper()
-	if err := os.WriteFile(filepath.Join(root, "SKILL.md"), []byte("---\nname: demo\ndescription: ok\nesheep-targets: [claude, pi, codex, agents]\n---\nbody\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "SKILL.md"), []byte("---\nname: demo\ndescription: ok\nesheep-targets: [claude, pi, codex]\n---\nbody\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -411,7 +410,6 @@ func allTargetsListed() skill.Targets {
 		Claude: skill.TargetOptions{Listed: true},
 		Pi:     skill.TargetOptions{Listed: true},
 		Codex:  skill.TargetOptions{Listed: true},
-		Agents: skill.TargetOptions{Listed: true},
 	}
 }
 

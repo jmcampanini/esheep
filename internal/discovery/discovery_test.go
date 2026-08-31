@@ -389,7 +389,7 @@ func writeSkill(t *testing.T, root, name, description string) {
 
 func writeManifest(t *testing.T, path, name, description string) {
 	t.Helper()
-	contents := "---\nname: " + name + "\ndescription: '" + description + "'\nesheep-targets: [claude, pi, codex, agents]\n---\n# Body\n"
+	contents := "---\nname: " + name + "\ndescription: '" + description + "'\nesheep-targets: [claude, pi, codex]\n---\n# Body\n"
 	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
 		t.Fatal(err)
 	}

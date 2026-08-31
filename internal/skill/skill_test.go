@@ -28,7 +28,7 @@ func TestParsePreservesCRLFBodyAndOptionalPresence(t *testing.T) {
 	if document.Metadata == nil || len(document.Metadata) != 0 {
 		t.Fatalf("metadata = %#v, want present empty map", document.Metadata)
 	}
-	if !document.Targets.Claude.Listed || !document.Targets.Pi.Listed || document.Targets.Codex.Listed || document.Targets.Agents.Listed {
+	if !document.Targets.Claude.Listed || !document.Targets.Pi.Listed || document.Targets.Codex.Listed {
 		t.Fatalf("targets = %#v", document.Targets)
 	}
 	if document.Targets.Claude.OnlyProfiles != nil {

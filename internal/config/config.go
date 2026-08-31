@@ -43,24 +43,18 @@ type PiTarget struct {
 	Path    string `toml:"path" config:"pi-path" help:"installation path for the Pi target"`
 }
 
-// CodexTarget configures the Codex skill target.
+// CodexTarget configures the Codex skill target, which installs into the
+// shared Agent Skills directory Codex reads.
 type CodexTarget struct {
 	Enabled bool   `toml:"enabled" config:"codex-enabled" help:"enable the Codex target"`
 	Path    string `toml:"path" config:"codex-path" help:"installation path for the Codex target"`
 }
 
-// AgentsTarget configures the shared Agent Skills target.
-type AgentsTarget struct {
-	Enabled bool   `toml:"enabled" config:"agents-enabled" help:"enable the shared agents target"`
-	Path    string `toml:"path" config:"agents-path" help:"installation path for the shared agents target"`
-}
-
-// Targets contains the four supported installation targets.
+// Targets contains the three supported installation targets.
 type Targets struct {
 	Claude ClaudeTarget `toml:"claude"`
 	Pi     PiTarget     `toml:"pi"`
 	Codex  CodexTarget  `toml:"codex"`
-	Agents AgentsTarget `toml:"agents"`
 }
 
 // Config is the complete human-owned esheep configuration.
@@ -95,7 +89,6 @@ type ResolvedTargets struct {
 	Claude string
 	Pi     string
 	Codex  string
-	Agents string
 }
 
 // LoadResult is an effective configuration together with provenance and resolved paths.
@@ -274,7 +267,6 @@ func Render(result LoadResult, options ReportOptions) ([]byte, error) {
 	writeResolved("targets.claude.path", result.ResolvedTargets.Claude)
 	writeResolved("targets.pi.path", result.ResolvedTargets.Pi)
 	writeResolved("targets.codex.path", result.ResolvedTargets.Codex)
-	writeResolved("targets.agents.path", result.ResolvedTargets.Agents)
 	if options.Provenance {
 		b.WriteString("\n# Provenance\n")
 		for _, row := range reporter.ProvenanceRows() {
@@ -309,8 +301,7 @@ func defaults() flagConfig {
 	return flagConfig{Targets: Targets{
 		Claude: ClaudeTarget{Enabled: true, Path: "~/.claude/skills"},
 		Pi:     PiTarget{Enabled: true, Path: "~/.pi/agent/skills"},
-		Codex:  CodexTarget{Enabled: true, Path: "~/.codex/skills"},
-		Agents: AgentsTarget{Enabled: false, Path: "~/.agents/skills"},
+		Codex:  CodexTarget{Enabled: true, Path: "~/.agents/skills"},
 	}}
 }
 
@@ -397,7 +388,6 @@ func resolveTargets(cfg Targets, home string) (ResolvedTargets, []resolvedTarget
 		{name: "claude", enabled: cfg.Claude.Enabled, path: cfg.Claude.Path, resolved: &resolved.Claude},
 		{name: "pi", enabled: cfg.Pi.Enabled, path: cfg.Pi.Path, resolved: &resolved.Pi},
 		{name: "codex", enabled: cfg.Codex.Enabled, path: cfg.Codex.Path, resolved: &resolved.Codex},
-		{name: "agents", enabled: cfg.Agents.Enabled, path: cfg.Agents.Path, resolved: &resolved.Agents},
 	}
 	var enabled []resolvedTarget
 	for _, target := range configured {

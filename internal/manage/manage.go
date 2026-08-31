@@ -389,7 +389,6 @@ func configuredTargets(loaded config.LoadResult) []targetSpec {
 		{enabled: loaded.Config.Targets.Claude.Enabled, name: render.TargetClaude, root: loaded.ResolvedTargets.Claude},
 		{enabled: loaded.Config.Targets.Pi.Enabled, name: render.TargetPi, root: loaded.ResolvedTargets.Pi},
 		{enabled: loaded.Config.Targets.Codex.Enabled, name: render.TargetCodex, root: loaded.ResolvedTargets.Codex},
-		{enabled: loaded.Config.Targets.Agents.Enabled, name: render.TargetAgents, root: loaded.ResolvedTargets.Agents},
 	}
 }
 

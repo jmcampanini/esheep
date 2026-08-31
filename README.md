@@ -1,6 +1,6 @@
 # esheep
 
-esheep manages Agent Skills from human-maintained source directories and renders them for Claude Code, Pi, Codex, and the shared Agent Skills directory. It never accesses the network, executes source content, or creates, updates, or deletes source directories.
+esheep manages Agent Skills from human-maintained source directories and renders them for Claude Code, Pi, and Codex. The codex target installs into the shared Agent Skills directory (`~/.agents/skills`) that Codex reads. esheep never accesses the network, executes source content, or creates, updates, or deletes source directories.
 
 Command help is the canonical reference: `esheep --help` and each command's `--help` describe every user-facing contract, `esheep help skill-format` describes the authoring format, and `esheep help exit-codes` describes exit statuses.
 
@@ -43,6 +43,7 @@ make build
 | `esheep skills list [--json]` | Inventory skills in every configured source. |
 | `esheep sync` | Install, repair, and prune esheep-owned output on enabled targets. |
 | `esheep skills status [--json]` | Report source readiness and per-target deployment health. |
+| `esheep doctor` | Verify external tool configuration agrees with esheep. |
 
 The typical loop after changing a source skill is `esheep sync` followed by `esheep skills status`.
 
@@ -74,10 +75,6 @@ path = "~/.pi/agent/skills"
 
 [targets.codex]
 enabled = true
-path = "~/.codex/skills"
-
-[targets.agents]
-enabled = false
 path = "~/.agents/skills"
 ```
 

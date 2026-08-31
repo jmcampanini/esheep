@@ -24,6 +24,7 @@ func TestDocumentedCommandsMatchBinaryHelp(t *testing.T) {
 	}{
 		{documentation: "esheep completion zsh", help: rootHelp.stdout, name: "completion"},
 		{documentation: "esheep config", help: rootHelp.stdout, name: "config"},
+		{documentation: "esheep doctor", help: rootHelp.stdout, name: "doctor"},
 		{documentation: "esheep profiles", help: rootHelp.stdout, name: "profiles"},
 		{documentation: "esheep skills list", help: skillsHelp.stdout, name: "list"},
 		{documentation: "esheep skills status", help: skillsHelp.stdout, name: "status"},

@@ -89,8 +89,8 @@ func newRootCommandWithOperations(load configLoader, operations commandOperation
 		Short: "Manage local Agent Skills across coding harnesses",
 		Long: `Manage Agent Skills from human-maintained local source directories.
 
-esheep reads skills from configured sources and renders them for the Claude,
-Pi, Codex, and shared agents targets. It never accesses the network, never
+esheep reads skills from configured sources and renders them for the
+Claude, Pi, and Codex targets. It never accesses the network, never
 executes source content, and never creates, updates, or deletes source
 directories. Commands accept only the arguments shown and never prompt.
 
@@ -111,6 +111,7 @@ paths, 'esheep help skill-format' for the authoring format, and
 	root.AddCommand(
 		newCompletionCommand(),
 		newConfigCommand(load),
+		newDoctorCommand(load),
 		newExitCodesTopic(),
 		newProfilesCommand(load, operations.profiles),
 		newSkillFormatTopic(),

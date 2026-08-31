@@ -96,7 +96,6 @@ type Targets struct {
 	Claude TargetOptions
 	Pi     TargetOptions
 	Codex  TargetOptions
-	Agents TargetOptions
 }
 
 func (targets *Targets) options(name string) *TargetOptions {
@@ -107,14 +106,12 @@ func (targets *Targets) options(name string) *TargetOptions {
 		return &targets.Pi
 	case "codex":
 		return &targets.Codex
-	case "agents":
-		return &targets.Agents
 	}
 	return nil
 }
 
 func (targets Targets) all() []TargetOptions {
-	return []TargetOptions{targets.Claude, targets.Pi, targets.Codex, targets.Agents}
+	return []TargetOptions{targets.Claude, targets.Pi, targets.Codex}
 }
 
 // ExtraField is a frontmatter field esheep does not interpret, preserved in

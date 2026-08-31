@@ -24,10 +24,10 @@ func TestDefaultsAndLocation(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "home")
 	configHome := filepath.Join(t.TempDir(), "config")
 	got := defaults()
-	if !got.Targets.Claude.Enabled || !got.Targets.Pi.Enabled || !got.Targets.Codex.Enabled || got.Targets.Agents.Enabled {
+	if !got.Targets.Claude.Enabled || !got.Targets.Pi.Enabled || !got.Targets.Codex.Enabled {
 		t.Fatalf("default enabled targets = %#v", got.Targets)
 	}
-	if got.Targets.Claude.Path != "~/.claude/skills" || got.Targets.Pi.Path != "~/.pi/agent/skills" || got.Targets.Codex.Path != "~/.codex/skills" || got.Targets.Agents.Path != "~/.agents/skills" {
+	if got.Targets.Claude.Path != "~/.claude/skills" || got.Targets.Pi.Path != "~/.pi/agent/skills" || got.Targets.Codex.Path != "~/.agents/skills" {
 		t.Fatalf("default target paths = %#v", got.Targets)
 	}
 	location, err := locationsFromEnv(testEnv(home, configHome), home)
@@ -123,13 +123,12 @@ func TestApprovedEnvironmentNamesAndFlagsLoadEachTarget(t *testing.T) {
 	env := testEnv(home, filepath.Join(t.TempDir(), "config"))
 	env["ESHEEP_PI_ENABLED"] = "false"
 	env["ESHEEP_CODEX_PATH"] = "~/codex-overridden"
-	env["ESHEEP_AGENTS_PATH"] = "~/agents-overridden"
 	flags := pflag.NewFlagSet("test", pflag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	if err := RegisterFlags(flags); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"claude-enabled", "claude-path", "pi-enabled", "pi-path", "codex-enabled", "codex-path", "agents-enabled", "agents-path"} {
+	for _, name := range []string{"claude-enabled", "claude-path", "pi-enabled", "pi-path", "codex-enabled", "codex-path"} {
 		if flags.Lookup(name) == nil {
 			t.Fatalf("missing approved flag --%s", name)
 		}
