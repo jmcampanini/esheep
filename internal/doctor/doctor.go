@@ -47,9 +47,7 @@ func (report Report) Healthy() bool {
 
 // Run executes every environment check against the loaded configuration.
 func Run(loaded config.LoadResult) Report {
-	return Report{Checks: []Check{
-		piExclusion(loaded, filepath.Join(loaded.Home, ".agents", "skills"), filepath.Join(loaded.Home, ".pi", "agent", "settings.json")),
-	}}
+	return Report{Checks: []Check{piExclusion(loaded)}}
 }
 
 const piExclusionName = "pi-skills-exclusion"
@@ -59,11 +57,13 @@ const piExclusionName = "pi-skills-exclusion"
 // are never loaded by pi. Only the exact expected entry counts: equivalent
 // hand-written globs are rejected because pi's pattern matching does not
 // expand '~' and treats hidden path segments specially.
-func piExclusion(loaded config.LoadResult, agentSkillsPath, settingsPath string) Check {
+func piExclusion(loaded config.LoadResult) Check {
 	if !loaded.Config.Targets.Pi.Enabled || !loaded.Config.Targets.Codex.Enabled {
 		return Check{Name: piExclusionName, Status: StatusSkipped, Detail: "pi or codex target is disabled"}
 	}
 
+	agentSkillsPath := filepath.Join(loaded.Home, ".agents", "skills")
+	settingsPath := filepath.Join(loaded.Home, ".pi", "agent", "settings.json")
 	expected := "!" + agentSkillsPath + "/**"
 	fix := fmt.Sprintf("add %q to the \"skills\" array in %s", expected, settingsPath)
 	data, err := os.ReadFile(settingsPath)
