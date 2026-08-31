@@ -18,8 +18,8 @@ provides no agents file. Container-root files, including a
 repository-local AGENTS.md, are ignored: only agents-md/ holds managed
 instruction files. Dot-entries and node_modules are skipped. Sources are
 trusted: symlinks anywhere beneath a source are followed wherever they
-resolve. A
-link that does not resolve or produces a directory cycle is an error.
+resolve. A link that does not resolve or produces a directory cycle is an
+error.
 Supporting files are validated and rendered as non-executable data, and
 supporting paths must be unique under case-insensitive Unicode-normalized
 comparison. The skill-root .esheep.toml name is reserved for ownership
