@@ -50,10 +50,11 @@ func TestRunVerifiesPiExclusion(t *testing.T) {
 					Codex: config.CodexTarget{Enabled: !test.codexDisabled},
 					Pi:    config.PiTarget{Enabled: !test.piDisabled},
 				}},
+				Home:            home,
 				ResolvedTargets: config.ResolvedTargets{Codex: codexRoot},
 			}
 
-			report := Run(loaded, home)
+			report := Run(loaded)
 
 			if len(report.Checks) != 1 {
 				t.Fatalf("Run() checks = %#v, want one", report.Checks)

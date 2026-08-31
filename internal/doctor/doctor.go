@@ -46,10 +46,9 @@ func (report Report) Healthy() bool {
 }
 
 // Run executes every environment check against the loaded configuration.
-// home is the absolute home directory external tool paths resolve under.
-func Run(loaded config.LoadResult, home string) Report {
+func Run(loaded config.LoadResult) Report {
 	return Report{Checks: []Check{
-		piExclusion(loaded, filepath.Join(home, ".agents", "skills"), filepath.Join(home, ".pi", "agent", "settings.json")),
+		piExclusion(loaded, filepath.Join(loaded.Home, ".agents", "skills"), filepath.Join(loaded.Home, ".pi", "agent", "settings.json")),
 	}}
 }
 

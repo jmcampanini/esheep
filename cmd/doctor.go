@@ -33,7 +33,7 @@ when any check fails, and each failure names the exact entry to add.`,
 			if err != nil {
 				return err
 			}
-			report := doctor.Run(loaded, loaded.Home)
+			report := doctor.Run(loaded)
 			if err := ui.WriteDoctor(command.OutOrStdout(), report, ui.ShouldColor(command.OutOrStdout())); err != nil {
 				return appError(err)
 			}
