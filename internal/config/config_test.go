@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -207,6 +208,51 @@ func TestExplicitConfigIsRequiredAndReplacesDiscovery(t *testing.T) {
 	}
 }
 
+func TestEnabledAgentsMDPathMustNotBeSettingsFile(t *testing.T) {
+	tests := []struct {
+		name     string
+		explicit bool
+		symlink  bool
+	}{
+		{name: "discovered"},
+		{name: "explicit", explicit: true},
+		{name: "symlinked explicit", explicit: true, symlink: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			home := filepath.Join(root, "home")
+			configHome := filepath.Join(root, "config")
+			settingsPath := filepath.Join(configHome, "esheep", "esheep.toml")
+			if test.explicit {
+				settingsPath = filepath.Join(root, "settings.toml")
+			}
+			if err := os.MkdirAll(filepath.Dir(settingsPath), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			contents := fmt.Sprintf("[targets.claude]\nagents_md_path = %q\n", settingsPath)
+			if err := os.WriteFile(settingsPath, []byte(contents), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			configPath := ""
+			if test.explicit {
+				configPath = settingsPath
+			}
+			if test.symlink {
+				configPath = filepath.Join(root, "settings-alias.toml")
+				if err := os.Symlink(settingsPath, configPath); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			_, err := Load(LoadOptions{Env: testEnv(home, configHome), ConfigPath: configPath})
+			if err == nil || !strings.Contains(err.Error(), "agents_md_path must not be the settings file") {
+				t.Fatalf("Load() error = %v", err)
+			}
+		})
+	}
+}
+
 func TestManagedPathsMustBeDisjointAndAbsolute(t *testing.T) {
 	root := t.TempDir()
 	home := filepath.Join(root, "home")
@@ -251,7 +297,7 @@ func TestManagedPathsMustBeDisjointAndAbsolute(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			cfg := base
 			test.mutate(&cfg)
-			if _, _, err := resolvePaths(cfg, home); err == nil {
+			if _, _, err := resolvePaths(cfg, home, filepath.Join(root, "settings.toml")); err == nil {
 				t.Fatal("resolvePaths succeeded")
 			}
 		})
@@ -286,7 +332,7 @@ func TestMissingPathResolvesExistingSymlinkedParent(t *testing.T) {
 	cfg := Config(defaults())
 	cfg.Sources = []Source{{Name: "one", Path: sourcePath}}
 	cfg.Targets.Claude.SkillsPath = filepath.Join(alias, "source", "missing-target")
-	if _, _, err := resolvePaths(cfg, home); err == nil {
+	if _, _, err := resolvePaths(cfg, home, filepath.Join(root, "settings.toml")); err == nil {
 		t.Fatal("overlap through a symlinked parent succeeded")
 	}
 }
@@ -300,7 +346,7 @@ func TestEnabledAgentsMDPathMustNotBeDirectory(t *testing.T) {
 	}
 	cfg := Config(defaults())
 	cfg.Targets.Claude.AgentsMDPath = directory
-	if _, _, err := resolvePaths(cfg, home); err == nil {
+	if _, _, err := resolvePaths(cfg, home, filepath.Join(root, "settings.toml")); err == nil {
 		t.Fatal("directory agents md path succeeded")
 	}
 }
@@ -318,7 +364,7 @@ func TestEnabledAgentsMDPathMustNotBeSymlink(t *testing.T) {
 	}
 	cfg := Config(defaults())
 	cfg.Targets.Claude.AgentsMDPath = alias
-	if _, _, err := resolvePaths(cfg, home); err == nil {
+	if _, _, err := resolvePaths(cfg, home, filepath.Join(root, "settings.toml")); err == nil {
 		t.Fatal("symlinked agents md path succeeded")
 	}
 }
@@ -336,7 +382,7 @@ func TestEnabledTargetRootMustNotBeSymlink(t *testing.T) {
 	}
 	cfg := Config(defaults())
 	cfg.Targets.Claude.SkillsPath = alias
-	if _, _, err := resolvePaths(cfg, home); err == nil {
+	if _, _, err := resolvePaths(cfg, home, filepath.Join(root, "settings.toml")); err == nil {
 		t.Fatal("symlinked target succeeded")
 	}
 }
@@ -354,7 +400,7 @@ func TestSourceSymlinksUseCanonicalBoundary(t *testing.T) {
 	}
 	cfg := Config(defaults())
 	cfg.Sources = []Source{{Name: "one", Path: realSource}, {Name: "two", Path: alias}}
-	if _, _, err := resolvePaths(cfg, home); err == nil {
+	if _, _, err := resolvePaths(cfg, home, filepath.Join(root, "settings.toml")); err == nil {
 		t.Fatal("aliased sources succeeded")
 	}
 }

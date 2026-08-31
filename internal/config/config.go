@@ -192,7 +192,7 @@ func Load(options LoadOptions) (LoadResult, error) {
 	if err != nil {
 		return LoadResult{}, err
 	}
-	resolvedSources, resolvedTargets, err := resolvePaths(cfg, home)
+	resolvedSources, resolvedTargets, err := resolvePaths(cfg, home, locations.ConfigFile)
 	if err != nil {
 		return LoadResult{}, err
 	}
@@ -354,7 +354,11 @@ func locationsFromEnv(env map[string]string, home string) (Locations, error) {
 	return Locations{ConfigFile: filepath.Join(filepath.Clean(configHome), appName, configName)}, nil
 }
 
-func resolvePaths(cfg Config, home string) ([]ResolvedSource, ResolvedTargets, error) {
+func resolvePaths(cfg Config, home, configPath string) ([]ResolvedSource, ResolvedTargets, error) {
+	resolvedConfigPath, err := canonicalPath(configPath)
+	if err != nil {
+		return nil, ResolvedTargets{}, fmt.Errorf("config: resolve settings path: %w", err)
+	}
 	sources, err := resolveSources(cfg.Sources, home)
 	if err != nil {
 		return nil, ResolvedTargets{}, err
@@ -362,6 +366,11 @@ func resolvePaths(cfg Config, home string) ([]ResolvedSource, ResolvedTargets, e
 	targets, enabled, err := resolveTargets(cfg.Targets, home)
 	if err != nil {
 		return nil, ResolvedTargets{}, err
+	}
+	for _, target := range enabled {
+		if samePath(resolvedConfigPath, target.agentsMD) {
+			return nil, ResolvedTargets{}, fmt.Errorf("config: targets.%s.agents_md_path must not be the settings file", target.name)
+		}
 	}
 	for _, source := range sources {
 		for _, target := range enabled {
