@@ -52,7 +52,7 @@ func codexFixture(t *testing.T, root string) string {
 		`{"timestamp":"2026-08-25T09:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<user_instructions>injected</user_instructions>"}]}}`,
 		`{"timestamp":"2026-08-25T09:00:02Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"fix the flaky test"}]}}`,
 		`{"timestamp":"2026-08-25T09:00:03Z","type":"response_item","payload":{"type":"function_call","name":"shell","call_id":"call1","arguments":"{\"command\":[\"go\",\"test\"]}"}}`,
-		`{"timestamp":"2026-08-25T09:00:07Z","type":"response_item","payload":{"type":"function_call_output","call_id":"call1","output":"Wall time: 2 seconds\nOutput:\nFAIL"}}`,
+		`{"timestamp":"2026-08-25T09:00:07Z","type":"response_item","payload":{"type":"function_call_output","call_id":"call1","output":[{"type":"output_text","text":"Wall time: 2 seconds\nOutput:\nFAIL"}]}}`,
 		`{"timestamp":"2026-08-25T09:00:09Z","type":"event_msg","payload":{"type":"mcp_tool_call_end","invocation":{"server":"db","tool":"query"},"result":{"Err":"connection refused"}}}`,
 	)
 	return path
@@ -254,6 +254,16 @@ func TestSearchDecodedTextAcrossGrammars(t *testing.T) {
 	}
 	if hits[1].Line != 4 || hits[1].Tool != "Bash" {
 		t.Errorf("hits[1] = %+v, want Bash tool call on line 4", hits[1])
+	}
+}
+
+func TestSearchDecodesCodexArrayToolOutput(t *testing.T) {
+	roots := fixtureRoots(t)
+
+	report := Search(context.Background(), roots, Filter{}, SearchQuery{Pattern: regexp.MustCompile("FAIL")})
+
+	if len(report.Sessions) != 1 || len(report.Sessions[0].Hits) != 1 || report.Sessions[0].Hits[0].Tool != "shell" {
+		t.Fatalf("sessions = %+v, want one Codex shell output hit", report.Sessions)
 	}
 }
 

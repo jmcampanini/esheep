@@ -108,11 +108,11 @@ func codexResponseEvents(raw json.RawMessage, base event, toolNames map[string]s
 		Content   []struct {
 			Text string `json:"text"`
 		} `json:"content"`
-		Input  string `json:"input"`
-		Name   string `json:"name"`
-		Output string `json:"output"`
-		Role   string `json:"role"`
-		Type   string `json:"type"`
+		Input  string          `json:"input"`
+		Name   string          `json:"name"`
+		Output json.RawMessage `json:"output"`
+		Role   string          `json:"role"`
+		Type   string          `json:"type"`
 	}
 	if json.Unmarshal(raw, &payload) != nil {
 		return
@@ -147,7 +147,7 @@ func codexResponseEvents(raw json.RawMessage, base event, toolNames map[string]s
 		}
 		visit(base)
 	case "function_call_output", "custom_tool_call_output":
-		base.role, base.tool, base.text = RoleTool, toolNames[payload.CallID], payload.Output
+		base.role, base.tool, base.text = RoleTool, toolNames[payload.CallID], flattenText(payload.Output)
 		visit(base)
 	}
 }
