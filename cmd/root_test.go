@@ -16,7 +16,7 @@ func TestMetadataCommandsDoNotLoadConfiguration(t *testing.T) {
 		args []string
 		want string
 	}{
-		{name: "help", args: []string{"--config", "missing.toml", "--help"}, want: "human-maintained local source directories"},
+		{name: "help", args: []string{"--config", "missing.toml", "--help"}, want: "Manage Agent Skills and a global agents file"},
 		{name: "version", args: []string{"--config", "missing.toml", "--version"}, want: "esheep version dev\n"},
 		{name: "completion", args: []string{"--config", "missing.toml", "completion", "bash"}, want: "bash completion"},
 		{name: "skills help", args: []string{"--config", "missing.toml", "skills", "--help"}, want: "deployment status"},
