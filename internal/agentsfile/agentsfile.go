@@ -73,12 +73,9 @@ func Discover(sources []Source) ([]Candidate, []Diagnostic) {
 	var diagnostics []Diagnostic
 	for _, source := range sources {
 		directory := filepath.Join(source.Path, DirName)
-		entries, ok, err := readAgentsDir(directory)
+		entries, err := readAgentsDir(directory)
 		if err != nil {
 			diagnostics = append(diagnostics, Diagnostic{Err: err, Path: directory, Source: source.Name})
-			continue
-		}
-		if !ok {
 			continue
 		}
 		for _, entry := range entries {
@@ -107,28 +104,24 @@ func Discover(sources []Source) ([]Candidate, []Diagnostic) {
 	return candidates, diagnostics
 }
 
-// readAgentsDir lists an agents directory and reports whether it is
-// present. An absent path is not an error, while a present path that is
-// unreadable, not a directory, or an unresolvable link is.
-func readAgentsDir(directory string) ([]os.DirEntry, bool, error) {
+// readAgentsDir lists an agents directory. An absent path is not an error,
+// while a present path that is unreadable, not a directory, or an
+// unresolvable link is.
+func readAgentsDir(directory string) ([]os.DirEntry, error) {
 	info, err := os.Stat(directory)
 	if errors.Is(err, os.ErrNotExist) {
 		if _, lstatErr := os.Lstat(directory); errors.Is(lstatErr, os.ErrNotExist) {
-			return nil, false, nil
+			return nil, nil
 		}
 	}
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 	if !info.IsDir() {
-		return nil, false, fmt.Errorf("not a directory")
+		return nil, fmt.Errorf("not a directory")
 	}
 
-	entries, err := os.ReadDir(directory)
-	if err != nil {
-		return nil, false, err
-	}
-	return entries, true, nil
+	return os.ReadDir(directory)
 }
 
 // Selection is the agents file chosen under the active profiles.
