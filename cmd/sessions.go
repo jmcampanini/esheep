@@ -18,15 +18,33 @@ identifies local ChatGPT Work tasks whose recorded originator is exactly
 codex_work_desktop. Missing or unrecognized originators are classified as codex.
 Subagents use their own recorded originator.
 
-Both harnesses share [sessions.codex].path and its environment and flag
-overrides, normally ~/.codex/sessions. The shared root is discovered once;
-root diagnostics use codex. Omit --harness to include all harnesses, or use
+Both harnesses share [sessions.codex].home. Its precedence is --codex-home,
+ESHEEP_CODEX_HOME, TOML, CODEX_HOME, then ~/.codex. The sessions and
+archived_sessions directories beneath that home are read in place; no other
+home is scanned. Shared storage is discovered once; root diagnostics use
+codex. Omit --harness to include all harnesses, or use
 --harness codex,chatgpt-work to select both.
 
 Work transcripts qualify when they contain a supported user message,
 assistant message, tool call, or tool result. Title-only and injected-context-only
 records are excluded, including from --raw searches. Partial or unknown local
-history qualifies; results do not imply complete remote history.`
+history qualifies; results do not imply complete remote history. A transcript's
+history_base may reference earlier history elsewhere. That history is not
+expanded or searched through the reference; hits address only saved lines in
+each discovered file.
+
+Active and archived transcripts are included by default. --archive-state
+all|active|archived selects archive placement independently of --subagents.
+Claude and Pi are treated as active for this filter. Both Codex directories
+are discovered before filtering so overlapping files have one archive state.
+Repeated physical files, including hard links, appear once; archive placement
+and its path win when a file occurs in both locations. Distinct files with
+the same session ID remain separate.
+
+Missing locations are skipped with diagnostics. Unreadable inputs and detected
+file moves make the scan incomplete; rerun after moves finish. Scans are not
+atomic snapshots and do not retry. "complete" describes the filesystem scan,
+not conversation or remote-history completeness.`
 
 func newSessionsCommand(load configLoader, operations commandOperations) *cobra.Command {
 	command := &cobra.Command{
@@ -39,9 +57,10 @@ Transcripts are read-only inputs: esheep never creates, updates, or deletes
 anything under a session root and keeps no copies or indexes. Every result
 points at the canonical transcript file so the original can be read directly.
 
-Session roots default to ~/.claude/projects, ~/.pi/agent/sessions, and
-~/.codex/sessions and are configurable under [sessions] in the TOML file; a
-missing root skips that harness with a diagnostic.
+Session roots default to ~/.claude/projects, ~/.pi/agent/sessions,
+~/.codex/sessions, and ~/.codex/archived_sessions. Configure the Claude and Pi
+paths and the Codex home under [sessions] in TOML; Codex transcript paths are
+derived from its home. A missing root skips that location with a diagnostic.
 
 'sessions list' inventories sessions; 'sessions search' finds sessions whose
 transcripts match a pattern or structural criteria.
@@ -61,14 +80,16 @@ transcripts match a pattern or structural criteria.
 
 // sessionFilterFlags carries the raw flag values shared by list and search.
 type sessionFilterFlags struct {
-	harnesses []string
-	project   string
-	since     string
-	subagents bool
-	until     string
+	archiveState string
+	harnesses    []string
+	project      string
+	since        string
+	subagents    bool
+	until        string
 }
 
 func registerSessionFilterFlags(command *cobra.Command, flags *sessionFilterFlags) {
+	command.Flags().StringVar(&flags.archiveState, "archive-state", "all", "limit to archive placement (all, active, archived)")
 	command.Flags().StringSliceVar(&flags.harnesses, "harness", nil, "limit to harnesses (chatgpt-work, claude, codex, pi); repeatable or comma-separated")
 	command.Flags().StringVar(&flags.project, "project", "", "limit to sessions whose project path contains this text")
 	command.Flags().StringVar(&flags.since, "since", "", "limit to sessions active since a day count (7d), duration (36h), or date (2026-01-02)")
@@ -77,7 +98,11 @@ func registerSessionFilterFlags(command *cobra.Command, flags *sessionFilterFlag
 }
 
 func (f sessionFilterFlags) filter(now time.Time) (session.Filter, error) {
-	filter := session.Filter{IncludeSubagents: f.subagents, Project: f.project}
+	archiveState, err := session.ParseArchiveState(f.archiveState)
+	if err != nil {
+		return session.Filter{}, err
+	}
+	filter := session.Filter{ArchiveState: archiveState, IncludeSubagents: f.subagents, Project: f.project}
 	for _, name := range f.harnesses {
 		harness, err := session.ParseHarness(name)
 		if err != nil {
@@ -104,9 +129,10 @@ func (f sessionFilterFlags) filter(now time.Time) (session.Filter, error) {
 
 func sessionRoots(loaded config.LoadResult) session.Roots {
 	return session.Roots{
-		Claude: loaded.ResolvedSessions.Claude,
-		Codex:  loaded.ResolvedSessions.Codex,
-		Pi:     loaded.ResolvedSessions.Pi,
+		Claude:                loaded.ResolvedSessions.Claude,
+		CodexArchivedSessions: loaded.ResolvedSessions.Codex.ArchivedSessions,
+		CodexSessions:         loaded.ResolvedSessions.Codex.Sessions,
+		Pi:                    loaded.ResolvedSessions.Pi,
 	}
 }
 
@@ -122,14 +148,14 @@ Work transcripts are read until the first qualifying conversation event or
 the end of the file.
 
 Each row carries the harness, recorded start time (or file modification time
-when unavailable), project directory, title where the grammar records one,
-and the canonical transcript path. Subagent and
+when unavailable), archive state, project directory, title where the grammar
+records one, and the canonical transcript path. Subagent and
 sidechain transcripts are excluded unless --subagents is set. --since keeps
 sessions still active at the given time; --until drops sessions started
 after it. Best-effort fields a grammar does not record appear as -.
 
 The command exits nonzero only when filesystem failures prevent a complete
-inventory; a missing session root merely skips that harness with a
+inventory; a missing session root merely skips that location with a
 diagnostic.
 
 ` + sessionHarnessHelp + `
@@ -137,7 +163,8 @@ diagnostic.
 ` + streamContractHelp + `
 
 ` + jsonContractHelp + ` List JSON includes "complete"; timestamps are
-RFC 3339 and "subagent" marks non-primary transcripts.`,
+RFC 3339, "archived" marks archive placement, and "subagent" marks
+non-primary transcripts.`,
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			filter, err := filterFlags.filter(time.Now())
@@ -216,8 +243,9 @@ prevent a complete search.
 ` + streamContractHelp + `
 
 ` + jsonContractHelp + ` Search JSON includes "complete"; each session
-carries "hits" with "line", "role", and "excerpt"; "tool" and "timestamp"
-appear when known, and "error" appears for known failures.`,
+carries an "archived" boolean and a "hits" array. Each hit carries "line", "role",
+and "excerpt"; "tool" and "timestamp" appear when known, and "error" appears
+for known failures.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
 			query := session.SearchQuery{ErrorsOnly: errorsOnly, Raw: raw, Tool: tool}

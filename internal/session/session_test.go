@@ -95,12 +95,12 @@ func fixtureRoots(t *testing.T) Roots {
 	t.Helper()
 	base := t.TempDir()
 	roots := Roots{
-		Claude: filepath.Join(base, "claude"),
-		Codex:  filepath.Join(base, "codex"),
-		Pi:     filepath.Join(base, "pi"),
+		Claude:        filepath.Join(base, "claude"),
+		CodexSessions: filepath.Join(base, "codex"),
+		Pi:            filepath.Join(base, "pi"),
 	}
 	claudeFixture(t, roots.Claude)
-	codexFixture(t, roots.Codex)
+	codexFixture(t, roots.CodexSessions)
 	piFixture(t, roots.Pi)
 	return roots
 }
@@ -227,7 +227,7 @@ func TestListFilters(t *testing.T) {
 
 func TestListMissingRootSkipsHarness(t *testing.T) {
 	roots := fixtureRoots(t)
-	roots.Codex = filepath.Join(t.TempDir(), "absent")
+	roots.CodexSessions = filepath.Join(t.TempDir(), "absent")
 
 	report := List(context.Background(), roots, Filter{})
 

@@ -950,7 +950,7 @@ func assertSuccess(t *testing.T, result processResult) {
 
 func processEnvironment(overrides map[string]string) []string {
 	blocked := map[string]struct{}{
-		"HOME": {}, "XDG_CONFIG_HOME": {},
+		"CODEX_HOME": {}, "HOME": {}, "XDG_CONFIG_HOME": {},
 	}
 	var environment []string
 	for _, entry := range os.Environ() {
@@ -1029,7 +1029,10 @@ func TestSessionsWorkflow(t *testing.T) {
 
 	withSubagents := runEsheep(t, environment, "sessions", "list", "--json", "--subagents")
 	assertSuccess(t, withSubagents)
-	if got := strings.Count(withSubagents.stdout, `"harness"`); got != 5 {
+	if err := json.Unmarshal([]byte(withSubagents.stdout), &inventory); err != nil {
+		t.Fatalf("decode subagent inventory: %v\n%s", err, withSubagents.stdout)
+	}
+	if got := len(inventory.Sessions); got != 5 {
 		t.Fatalf("subagent inventory sessions = %d, want 5\n%s", got, withSubagents.stdout)
 	}
 

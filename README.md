@@ -4,7 +4,7 @@ esheep manages Agent Skills and a global agents file from human-maintained sourc
 
 esheep also finds historical harness sessions. `esheep sessions list` and `esheep sessions search` read the session transcripts Claude Code, Pi, Codex, and local ChatGPT Work tasks leave on disk, in place and read-only. Every result points at the canonical transcript file.
 
-Use `--harness chatgpt-work` to select identified local Work tasks, `--harness codex` for Codex CLI and desktop, or `--harness codex,chatgpt-work` for both. Unfiltered queries include all harnesses. Codex and Work share `[sessions.codex].path` and its existing overrides. Work results require saved messages or supported tool records; partial history qualifies, while title-only and injected-context-only records do not. Results do not imply complete remote history.
+Use `--harness chatgpt-work` to select identified local Work tasks, `--harness codex` for Codex CLI and desktop, or `--harness codex,chatgpt-work` for both. Unfiltered queries include all harnesses. Codex and Work share `[sessions.codex].home`, reading its `sessions/` and `archived_sessions/` directories. Both locations are included by default; use `--archive-state active` or `--archive-state archived` to select one. Work results require saved messages or supported tool records; partial history qualifies, while title-only and injected-context-only records do not. Results do not imply complete remote history.
 
 Command help is the canonical reference: `esheep --help` and each command's `--help` describe every user-facing contract, `esheep help skill-format` describes the authoring format, and `esheep help exit-codes` describes exit statuses.
 
@@ -95,7 +95,9 @@ path = "~/.claude/projects"
 path = "~/.pi/agent/sessions"
 
 [sessions.codex]
-path = "~/.codex/sessions"
+home = "~/.codex"
 ```
+
+The Codex session home is selected by `--codex-home`, `ESHEEP_CODEX_HOME`, the TOML setting, `CODEX_HOME`, then `~/.codex`, in that order. Configuring one home determines both transcript locations.
 
 Users own the settings file and source directories and choose how both are maintained. esheep never creates, updates, or deletes either one.

@@ -76,6 +76,7 @@ type event struct {
 // canonical transcript file; best-effort fields may be zero when a grammar
 // does not record them.
 type Session struct {
+	Archived   bool      `json:"archived"`
 	Harness    Harness   `json:"harness"`
 	ID         string    `json:"id"`
 	ModifiedAt time.Time `json:"modified_at"`
@@ -140,16 +141,44 @@ type SearchReport struct {
 	Sessions    []Match      `json:"sessions"`
 }
 
-// Roots locates session storage. Codex and ChatGPT Work share the Codex root.
+// Roots locates session storage. Codex and ChatGPT Work share active and
+// archive roots. Empty roots are omitted; callers resolve root aliases.
 type Roots struct {
-	Claude string
-	Codex  string
-	Pi     string
+	Claude                string
+	CodexArchivedSessions string
+	CodexSessions         string
+	Pi                    string
+}
+
+// ArchiveState selects active transcripts, archived transcripts, or both.
+// Its zero value selects both.
+type ArchiveState string
+
+// Supported archive selections.
+const (
+	ArchiveAll      ArchiveState = ""
+	ArchiveActive   ArchiveState = "active"
+	ArchiveArchived ArchiveState = "archived"
+)
+
+// ParseArchiveState converts a user-supplied archive selection.
+func ParseArchiveState(value string) (ArchiveState, error) {
+	switch value {
+	case "all":
+		return ArchiveAll, nil
+	case "active":
+		return ArchiveActive, nil
+	case "archived":
+		return ArchiveArchived, nil
+	default:
+		return ArchiveAll, fmt.Errorf("session: unknown archive state %q (expected all, active, or archived)", value)
+	}
 }
 
 // Filter selects sessions by metadata. A zero Filter selects every main
 // session; subagent transcripts require IncludeSubagents.
 type Filter struct {
+	ArchiveState     ArchiveState
 	Harnesses        []Harness
 	IncludeSubagents bool
 	Project          string
@@ -205,6 +234,7 @@ type adapter interface {
 
 // transcript is one discovered session file.
 type transcript struct {
+	identity fileIdentity
 	modTime  time.Time
 	path     string
 	subagent bool
@@ -248,6 +278,7 @@ func Search(ctx context.Context, roots Roots, filter Filter, query SearchQuery) 
 				Code: codeTranscriptRead, Harness: entry.Harness, Message: result.err.Error(), Path: entry.Path,
 			})
 			report.Complete = false
+			continue
 		}
 		if result.malformed > 0 && !query.Raw {
 			report.Diagnostics = append(report.Diagnostics, Diagnostic{
@@ -323,12 +354,28 @@ func collect(ctx context.Context, roots Roots, filter Filter) ([]located, []Diag
 	var diagnostics []Diagnostic
 	complete := true
 	var sessions []located
+	seen := make(map[fileIdentity]struct{})
+	seenRoots := make(map[string]struct{})
 	for _, root := range harnessRoots(roots, filter.Harnesses) {
+		if root.root == "" || (filter.ArchiveState == ArchiveArchived && root.harness != HarnessCodex) {
+			continue
+		}
+		if _, duplicate := seenRoots[root.root]; duplicate {
+			continue
+		}
+		seenRoots[root.root] = struct{}{}
 		transcripts, rootDiagnostics := discoverRoot(root, filter.IncludeSubagents)
 		diagnostics = append(diagnostics, rootDiagnostics...)
 
 		kept := transcripts[:0]
 		for _, t := range transcripts {
+			if _, duplicate := seen[t.identity]; duplicate {
+				continue
+			}
+			seen[t.identity] = struct{}{}
+			if (filter.ArchiveState == ArchiveActive && root.archived) || (filter.ArchiveState == ArchiveArchived && !root.archived) {
+				continue
+			}
 			if t.subagent && !filter.IncludeSubagents {
 				continue
 			}
@@ -340,6 +387,7 @@ func collect(ctx context.Context, roots Roots, filter Filter) ([]located, []Diag
 
 		metas := parallelMap(ctx, kept, func(t transcript) describedSession {
 			s, eligible, err := root.adapter.meta(t)
+			s.Archived = root.archived
 			return describedSession{eligible: eligible, err: err, session: s}
 		})
 		for _, meta := range metas {
@@ -347,6 +395,7 @@ func collect(ctx context.Context, roots Roots, filter Filter) ([]located, []Diag
 				diagnostics = append(diagnostics, Diagnostic{
 					Code: codeTranscriptRead, Harness: meta.session.Harness, Message: meta.err.Error(), Path: meta.session.Path,
 				})
+				continue
 			}
 			if !meta.eligible || meta.session.Path == "" || (meta.session.Subagent && !filter.IncludeSubagents) {
 				continue
@@ -385,15 +434,18 @@ type describedSession struct {
 }
 
 type harnessRoot struct {
-	adapter adapter
-	harness Harness
-	root    string
+	adapter  adapter
+	archived bool
+	harness  Harness
+	root     string
 }
 
 func harnessRoots(roots Roots, harnesses []Harness) []harnessRoot {
 	all := []harnessRoot{
+		// Archive locations take ownership before overlapping active locations.
+		{adapter: codexAdapter{}, archived: true, harness: HarnessCodex, root: roots.CodexArchivedSessions},
 		{adapter: claudeAdapter{}, harness: HarnessClaude, root: roots.Claude},
-		{adapter: codexAdapter{}, harness: HarnessCodex, root: roots.Codex},
+		{adapter: codexAdapter{}, harness: HarnessCodex, root: roots.CodexSessions},
 		{adapter: piAdapter{}, harness: HarnessPi, root: roots.Pi},
 	}
 	if len(harnesses) == 0 {
@@ -420,7 +472,7 @@ func discoverRoot(root harnessRoot, includeSubagents bool) ([]transcript, []Diag
 	switch {
 	case err != nil && os.IsNotExist(err):
 		return nil, []Diagnostic{{
-			Code: codeRootMissing, Harness: root.harness, Message: "session root does not exist; harness skipped", Path: root.root,
+			Code: codeRootMissing, Harness: root.harness, Message: "session root does not exist; location skipped", Path: root.root,
 		}}
 	case err != nil:
 		return nil, []Diagnostic{{Code: codeRootUnusable, Harness: root.harness, Message: err.Error(), Path: root.root}}

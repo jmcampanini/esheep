@@ -72,7 +72,7 @@ type PiSessions struct {
 
 // CodexSessions locates the shared Codex and local ChatGPT Work transcripts.
 type CodexSessions struct {
-	Path string `toml:"path" config:"codex-sessions-path" help:"shared session transcript root for Codex and local ChatGPT Work"`
+	Home string `toml:"home" config:"codex-home" help:"Codex home containing sessions and archived_sessions for Codex and local ChatGPT Work"`
 }
 
 // Sessions contains the session transcript roots.
@@ -123,11 +123,18 @@ type ResolvedTargets struct {
 	Codex  ResolvedTarget
 }
 
-// ResolvedSessions contains absolute session transcript roots.
+// ResolvedCodexSessions contains the canonical Codex home and its transcript directories.
+type ResolvedCodexSessions struct {
+	ArchivedSessions string
+	Home             string
+	Sessions         string
+}
+
+// ResolvedSessions contains canonical locations for each harness's session storage.
 type ResolvedSessions struct {
 	Claude string
+	Codex  ResolvedCodexSessions
 	Pi     string
-	Codex  string
 }
 
 // LoadResult is an effective configuration together with provenance and resolved paths.
@@ -154,8 +161,8 @@ func RegisterFlags(flags *pflag.FlagSet) error {
 	return pflagloader.Register[flagConfig](flags)
 }
 
-// Load applies defaults, discovered or explicit TOML, ESHEEP_* variables, and
-// parsed flags in that order. Sources are configured only by TOML.
+// Load applies defaults, CODEX_HOME, discovered or explicit TOML, ESHEEP_*
+// variables, and parsed flags in that order. Sources are configured only by TOML.
 func Load(options LoadOptions) (LoadResult, error) {
 	env := options.Env
 	if env == nil {
@@ -199,7 +206,16 @@ func Load(options LoadOptions) (LoadResult, error) {
 	if err != nil {
 		return LoadResult{}, err
 	}
-	loaders := []configloader.ConfigLoader[flagConfig]{fileLoader, envLoader}
+	var loaders []configloader.ConfigLoader[flagConfig]
+	if codexHome := env["CODEX_HOME"]; codexHome != "" {
+		loaders = append(loaders, func(base flagConfig) (flagConfig, configloader.LoadReport, error) {
+			base.Sessions.Codex.Home = codexHome
+			return base, configloader.LoadReport{Updates: configloader.Updates{
+				"sessions.codex.home": "CODEX_HOME",
+			}}, nil
+		})
+	}
+	loaders = append(loaders, fileLoader, envLoader)
 	if options.Flags != nil {
 		flagLoader, loaderErr := pflagloader.NewLoader[flagConfig](options.Flags)
 		if loaderErr != nil {
@@ -319,7 +335,9 @@ func Render(result LoadResult, options ReportOptions) ([]byte, error) {
 	writeResolved("targets.codex.agents_md_path", result.ResolvedTargets.Codex.AgentsMD)
 	writeResolved("sessions.claude.path", result.ResolvedSessions.Claude)
 	writeResolved("sessions.pi.path", result.ResolvedSessions.Pi)
-	writeResolved("sessions.codex.path", result.ResolvedSessions.Codex)
+	writeResolved("sessions.codex.home", result.ResolvedSessions.Codex.Home)
+	writeResolved("sessions.codex.sessions", result.ResolvedSessions.Codex.Sessions)
+	writeResolved("sessions.codex.archived_sessions", result.ResolvedSessions.Codex.ArchivedSessions)
 	if options.Provenance {
 		b.WriteString("\n# Provenance\n")
 		for _, row := range reporter.ProvenanceRows() {
@@ -361,7 +379,7 @@ func defaults() flagConfig {
 		Sessions: Sessions{
 			Claude: ClaudeSessions{Path: "~/.claude/projects"},
 			Pi:     PiSessions{Path: "~/.pi/agent/sessions"},
-			Codex:  CodexSessions{Path: "~/.codex/sessions"},
+			Codex:  CodexSessions{Home: "~/.codex"},
 		},
 	}
 }
@@ -526,18 +544,23 @@ func resolveTargets(cfg Targets, home string) (ResolvedTargets, []resolvedTarget
 // roots are harness-owned inputs, so unlike targets they need no symlink,
 // breadth, or overlap restrictions.
 func resolveSessions(cfg Sessions, home string) (ResolvedSessions, error) {
-	resolved := ResolvedSessions{}
+	codexHome, err := resolveManagedPath("sessions.codex.home", cfg.Codex.Home, home)
+	if err != nil {
+		return ResolvedSessions{}, err
+	}
+	resolved := ResolvedSessions{Codex: ResolvedCodexSessions{Home: codexHome}}
 	configured := []struct {
 		name     string
 		path     string
 		resolved *string
 	}{
-		{name: "claude", path: cfg.Claude.Path, resolved: &resolved.Claude},
-		{name: "pi", path: cfg.Pi.Path, resolved: &resolved.Pi},
-		{name: "codex", path: cfg.Codex.Path, resolved: &resolved.Codex},
+		{name: "claude.path", path: cfg.Claude.Path, resolved: &resolved.Claude},
+		{name: "pi.path", path: cfg.Pi.Path, resolved: &resolved.Pi},
+		{name: "codex.sessions", path: filepath.Join(codexHome, "sessions"), resolved: &resolved.Codex.Sessions},
+		{name: "codex.archived_sessions", path: filepath.Join(codexHome, "archived_sessions"), resolved: &resolved.Codex.ArchivedSessions},
 	}
 	for _, root := range configured {
-		path, err := resolveManagedPath("sessions."+root.name+".path", root.path, home)
+		path, err := resolveManagedPath("sessions."+root.name, root.path, home)
 		if err != nil {
 			return ResolvedSessions{}, err
 		}
