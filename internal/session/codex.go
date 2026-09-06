@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// codexAdapter reads Codex CLI rollouts: date-partitioned JSONL files whose
+// codexAdapter reads Codex and ChatGPT Work rollouts: JSONL files whose
 // first line is a session_meta header. Subagents are identified by the
 // header's source marker. The grammar has no tool error flag except the Ok/Err
 // union on MCP call results, so only MCP Err results are marked failed.
@@ -22,7 +22,7 @@ func (codexAdapter) discover(root string, _ bool) ([]transcript, []Diagnostic) {
 	return walkJSONLTranscripts(root, walkRules{})
 }
 
-func (codexAdapter) meta(t transcript) (Session, error) {
+func (codexAdapter) meta(t transcript) (Session, bool, error) {
 	entry := Session{
 		Harness:    HarnessCodex,
 		ID:         codexFallbackID(t.path),
@@ -30,17 +30,27 @@ func (codexAdapter) meta(t transcript) (Session, error) {
 		Path:       t.path,
 		Subagent:   t.subagent,
 	}
-	err := forEachLine(t.path, func(_ int, data []byte) bool {
+	eligible := true
+	decoder := codexDecoder{toolNames: make(map[string]string)}
+	err := forEachLine(t.path, func(line int, data []byte) bool {
 		var envelope codexEnvelope
-		if json.Unmarshal(data, &envelope) != nil || envelope.Type != "session_meta" {
+		if json.Unmarshal(data, &envelope) != nil {
+			return !eligible
+		}
+		if line > 1 {
+			decoder.decode(envelope, event{line: line}, func(event) { eligible = true })
+			return !eligible
+		}
+		if envelope.Type != "session_meta" {
 			return false
 		}
 		entry.StartedAt = parseTimestamp(envelope.Timestamp)
 		var payload struct {
-			Cwd       string          `json:"cwd"`
-			ID        string          `json:"id"`
-			Source    json.RawMessage `json:"source"`
-			Timestamp string          `json:"timestamp"`
+			Cwd        string          `json:"cwd"`
+			ID         string          `json:"id"`
+			Originator string          `json:"originator"`
+			Source     json.RawMessage `json:"source"`
+			Timestamp  string          `json:"timestamp"`
 		}
 		if json.Unmarshal(envelope.Payload, &payload) != nil {
 			return false
@@ -49,13 +59,17 @@ func (codexAdapter) meta(t transcript) (Session, error) {
 			entry.ID = payload.ID
 		}
 		entry.Project = payload.Cwd
+		if payload.Originator == "codex_work_desktop" {
+			entry.Harness = HarnessChatGPTWork
+			eligible = false
+		}
 		entry.Subagent = entry.Subagent || codexSubagentSource(payload.Source)
 		if entry.StartedAt.IsZero() {
 			entry.StartedAt = parseTimestamp(payload.Timestamp)
 		}
-		return false
+		return !eligible
 	})
-	return entry, err
+	return entry, eligible, err
 }
 
 func codexSubagentSource(raw json.RawMessage) bool {
@@ -80,8 +94,7 @@ func codexFallbackID(path string) string {
 
 func (codexAdapter) scan(path string, visit func(event)) (int, error) {
 	malformed := 0
-	provenanceUserMessages := false
-	toolNames := make(map[string]string)
+	decoder := codexDecoder{toolNames: make(map[string]string)}
 	err := forEachLine(path, func(line int, data []byte) bool {
 		var envelope codexEnvelope
 		if json.Unmarshal(data, &envelope) != nil {
@@ -89,15 +102,25 @@ func (codexAdapter) scan(path string, visit func(event)) (int, error) {
 			return true
 		}
 		base := event{line: line, timestamp: parseTimestamp(envelope.Timestamp)}
-		switch envelope.Type {
-		case "response_item":
-			provenanceUserMessages = codexResponseEvents(envelope.Payload, base, toolNames, visit) || provenanceUserMessages
-		case "event_msg":
-			codexEventMessage(envelope.Payload, base, provenanceUserMessages, visit)
-		}
+		decoder.decode(envelope, base, visit)
 		return true
 	})
 	return malformed, err
+}
+
+// codexDecoder shares event interpretation between inventory eligibility and search.
+type codexDecoder struct {
+	provenanceUserMessages bool
+	toolNames              map[string]string
+}
+
+func (d *codexDecoder) decode(envelope codexEnvelope, base event, visit func(event)) {
+	switch envelope.Type {
+	case "response_item":
+		d.provenanceUserMessages = codexResponseEvents(envelope.Payload, base, d.toolNames, visit) || d.provenanceUserMessages
+	case "event_msg":
+		codexEventMessage(envelope.Payload, base, d.provenanceUserMessages, visit)
+	}
 }
 
 // codexResponseEvents emits messages and tool calls from the response_item

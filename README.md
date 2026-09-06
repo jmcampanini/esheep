@@ -2,7 +2,9 @@
 
 esheep manages Agent Skills and a global agents file from human-maintained source directories and renders them for Claude Code, Pi, and Codex. The Codex target installs skills into the shared Agent Skills directory (`~/.agents/skills`) that Codex reads. esheep never accesses the network, executes source content, or creates, updates, or deletes source directories.
 
-esheep also finds historical harness sessions: `esheep sessions list` and `esheep sessions search` read the session transcripts Claude Code, Pi, and Codex leave on disk, in place and read-only, and point every result at the canonical transcript file.
+esheep also finds historical harness sessions. `esheep sessions list` and `esheep sessions search` read the session transcripts Claude Code, Pi, Codex, and local ChatGPT Work tasks leave on disk, in place and read-only. Every result points at the canonical transcript file.
+
+Use `--harness chatgpt-work` to select identified local Work tasks, `--harness codex` for Codex CLI and desktop, or `--harness codex,chatgpt-work` for both. Unfiltered queries include all harnesses. Codex and Work share `[sessions.codex].path` and its existing overrides. Work results require saved messages or supported tool records; partial history qualifies, while title-only and injected-context-only records do not. Results do not imply complete remote history.
 
 Command help is the canonical reference: `esheep --help` and each command's `--help` describe every user-facing contract, `esheep help skill-format` describes the authoring format, and `esheep help exit-codes` describes exit statuses.
 

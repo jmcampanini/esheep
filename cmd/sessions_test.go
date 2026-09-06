@@ -2,7 +2,11 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -177,5 +181,88 @@ func TestSessionsSearchWritesHitsGroupedBySession(t *testing.T) {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("stdout missing %q:\n%s", want, stdout)
 		}
+	}
+}
+
+func TestWorkCommandsUseSharedPathOverridesAndLabelOutput(t *testing.T) {
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(base, "transcripts")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, "work.jsonl")
+	content := `{"type":"session_meta","payload":{"id":"work","originator":"codex_work_desktop","history_mode":"paginated"}}
+{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"text":"migration plan"}]}}
+`
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, source := range []string{"toml", "environment", "flag"} {
+		t.Run(source, func(t *testing.T) {
+			env := map[string]string{"HOME": base, "XDG_CONFIG_HOME": filepath.Join(base, "config")}
+			configuredRoot := filepath.Join(base, "missing")
+			var flags []string
+			switch source {
+			case "toml":
+				configuredRoot = root
+			case "environment":
+				env["ESHEEP_CODEX_SESSIONS_PATH"] = root
+			case "flag":
+				env["ESHEEP_CODEX_SESSIONS_PATH"] = filepath.Join(base, "missing-env")
+				flags = []string{"--codex-sessions-path", root}
+			}
+			configPath := filepath.Join(base, source+".toml")
+			if err := os.WriteFile(configPath, fmt.Appendf(nil, "[sessions.codex]\npath = %q\n", configuredRoot), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			load := func(options config.LoadOptions) (config.LoadResult, error) {
+				options.Env = env
+				return config.Load(options)
+			}
+			for _, test := range []struct {
+				args []string
+				json bool
+				name string
+			}{
+				{name: "list", args: []string{"sessions", "list"}},
+				{name: "list JSON", args: []string{"sessions", "list", "--json"}, json: true},
+				{name: "search", args: []string{"sessions", "search", "migration"}},
+				{name: "search JSON", args: []string{"sessions", "search", "migration", "--json"}, json: true},
+			} {
+				t.Run(test.name, func(t *testing.T) {
+					args := append([]string{"--config", configPath, "--harness", "chatgpt-work"}, flags...)
+					args = append(args, test.args...)
+
+					code, stdout, stderr := runCommandWithOperations(t, load, commandOperations{sessionList: session.List, sessionSearch: session.Search}, args...)
+
+					if code != 0 || stderr != "" {
+						t.Fatalf("exit code = %d, stderr = %q", code, stderr)
+					}
+					if !test.json {
+						if !strings.Contains(stdout, "chatgpt-work") || !strings.Contains(stdout, path) {
+							t.Errorf("stdout = %q, want Work label and canonical path", stdout)
+						}
+						return
+					}
+					var report session.SearchReport
+					if err := json.Unmarshal([]byte(stdout), &report); err != nil {
+						t.Fatal(err)
+					}
+					if !report.Complete || len(report.Diagnostics) != 0 || len(report.Sessions) != 1 {
+						t.Fatalf("JSON report = %+v", report)
+					}
+					entry := report.Sessions[0]
+					if entry.Harness != session.HarnessChatGPTWork || entry.Path != path || entry.ID != "work" {
+						t.Errorf("JSON session = %+v", entry)
+					}
+					if strings.HasPrefix(test.name, "search") && (len(entry.Hits) != 1 || entry.Hits[0].Line != 2 || entry.Hits[0].Role != session.RoleAssistant) {
+						t.Errorf("JSON hits = %+v, want assistant text on line 2", entry.Hits)
+					}
+				})
+			}
+		})
 	}
 }

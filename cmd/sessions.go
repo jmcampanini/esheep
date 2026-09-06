@@ -13,12 +13,27 @@ import (
 	"github.com/spf13/cobra"
 )
 
+const sessionHarnessHelp = `The codex harness includes Codex CLI and desktop sessions. chatgpt-work
+identifies local ChatGPT Work tasks whose recorded originator is exactly
+codex_work_desktop. Missing or unrecognized originators are classified as codex.
+Subagents use their own recorded originator.
+
+Both harnesses share [sessions.codex].path and its environment and flag
+overrides, normally ~/.codex/sessions. The shared root is discovered once;
+root diagnostics use codex. Omit --harness to include all harnesses, or use
+--harness codex,chatgpt-work to select both.
+
+Work transcripts qualify when they contain a supported user message,
+assistant message, tool call, or tool result. Title-only and injected-context-only
+records are excluded, including from --raw searches. Partial or unknown local
+history qualifies; results do not imply complete remote history.`
+
 func newSessionsCommand(load configLoader, operations commandOperations) *cobra.Command {
 	command := &cobra.Command{
 		Use:   "sessions",
 		Short: "Find historical harness sessions",
-		Long: `Find historical session transcripts recorded by Claude Code, Pi, and
-Codex, reading the harness-owned files in place.
+		Long: `Find historical session transcripts recorded by Claude Code, Pi,
+Codex, and local ChatGPT Work tasks, reading the harness-owned files in place.
 
 Transcripts are read-only inputs: esheep never creates, updates, or deletes
 anything under a session root and keeps no copies or indexes. Every result
@@ -29,7 +44,9 @@ Session roots default to ~/.claude/projects, ~/.pi/agent/sessions, and
 missing root skips that harness with a diagnostic.
 
 'sessions list' inventories sessions; 'sessions search' finds sessions whose
-transcripts match a pattern or structural criteria.`,
+transcripts match a pattern or structural criteria.
+
+` + sessionHarnessHelp,
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			return command.Help()
@@ -52,7 +69,7 @@ type sessionFilterFlags struct {
 }
 
 func registerSessionFilterFlags(command *cobra.Command, flags *sessionFilterFlags) {
-	command.Flags().StringSliceVar(&flags.harnesses, "harness", nil, "limit to harnesses (claude, codex, pi); repeatable or comma-separated")
+	command.Flags().StringSliceVar(&flags.harnesses, "harness", nil, "limit to harnesses (chatgpt-work, claude, codex, pi); repeatable or comma-separated")
 	command.Flags().StringVar(&flags.project, "project", "", "limit to sessions whose project path contains this text")
 	command.Flags().StringVar(&flags.since, "since", "", "limit to sessions active since a day count (7d), duration (36h), or date (2026-01-02)")
 	command.Flags().BoolVar(&flags.subagents, "subagents", false, "include subagent and sidechain transcripts")
@@ -100,8 +117,9 @@ func newSessionsListCommand(load configLoader, list func(context.Context, sessio
 		Use:   "list",
 		Short: "List historical sessions, most recent first",
 		Long: `List historical sessions under the configured session roots, most
-recently started first, without touching the transcripts' content beyond a
-short metadata read.
+recently started first. Most transcripts need only a short metadata read.
+Work transcripts are read until the first qualifying conversation event or
+the end of the file.
 
 Each row carries the harness, recorded start time (or file modification time
 when unavailable), project directory, title where the grammar records one,
@@ -113,6 +131,8 @@ after it. Best-effort fields a grammar does not record appear as -.
 The command exits nonzero only when filesystem failures prevent a complete
 inventory; a missing session root merely skips that harness with a
 diagnostic.
+
+` + sessionHarnessHelp + `
 
 ` + streamContractHelp + `
 
@@ -177,13 +197,17 @@ pattern is a case-insensitive Go regular expression and is optional when
 
 --role limits matching to user, assistant, or tool events. --tool limits to
 calls of and results from one tool. --errors keeps only tool results whose
-grammar flags a failure; Codex transcripts flag errors only on MCP calls, so
-other failing Codex tool calls cannot match. --raw drops to byte-level
+grammar flags a failure; Codex and ChatGPT Work transcripts flag errors only
+on MCP calls, so other failing tool calls in those transcripts cannot match.
+--raw drops to byte-level
 matching against the undecoded lines and cannot combine with --role, --tool,
 or --errors.
 
-Codex limitation: decoded search omits web-search events and may report one
-MCP call twice under different tool names. Use --raw to inspect those records.
+Codex and ChatGPT Work limitations: decoded search omits web-search events
+and may report one MCP call twice under different tool names. Use --raw to
+inspect those records in qualifying transcripts.
+
+` + sessionHarnessHelp + `
 
 Unparseable transcript lines are skipped and reported as diagnostics without
 failing the search. The command exits nonzero only when filesystem failures
