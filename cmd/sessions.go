@@ -57,10 +57,10 @@ Transcripts are read-only inputs: esheep never creates, updates, or deletes
 anything under a session root and keeps no copies or indexes. Every result
 points at the canonical transcript file so the original can be read directly.
 
-Session roots default to ~/.claude/projects, ~/.pi/agent/sessions, and
-~/.codex/sessions, and ~/.codex/archived_sessions. Locations are configurable
-under [sessions] in the TOML file; a missing root skips that location with a
-diagnostic.
+Session roots default to ~/.claude/projects, ~/.pi/agent/sessions,
+~/.codex/sessions, and ~/.codex/archived_sessions. Configure the Claude and Pi
+paths and the Codex home under [sessions] in TOML; Codex transcript paths are
+derived from its home. A missing root skips that location with a diagnostic.
 
 'sessions list' inventories sessions; 'sessions search' finds sessions whose
 transcripts match a pattern or structural criteria.
@@ -148,8 +148,8 @@ Work transcripts are read until the first qualifying conversation event or
 the end of the file.
 
 Each row carries the harness, recorded start time (or file modification time
-when unavailable), project directory, title where the grammar records one,
-archive state, and the canonical transcript path. Subagent and
+when unavailable), archive state, project directory, title where the grammar
+records one, and the canonical transcript path. Subagent and
 sidechain transcripts are excluded unless --subagents is set. --since keeps
 sessions still active at the given time; --until drops sessions started
 after it. Best-effort fields a grammar does not record appear as -.
@@ -243,8 +243,9 @@ prevent a complete search.
 ` + streamContractHelp + `
 
 ` + jsonContractHelp + ` Search JSON includes "complete"; each session
-carries "archived" and "hits" with "line", "role", and "excerpt"; "tool" and "timestamp"
-appear when known, and "error" appears for known failures.`,
+carries an "archived" boolean and a "hits" array. Each hit carries "line", "role",
+and "excerpt"; "tool" and "timestamp" appear when known, and "error" appears
+for known failures.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
 			query := session.SearchQuery{ErrorsOnly: errorsOnly, Raw: raw, Tool: tool}

@@ -950,7 +950,7 @@ func assertSuccess(t *testing.T, result processResult) {
 
 func processEnvironment(overrides map[string]string) []string {
 	blocked := map[string]struct{}{
-		"HOME": {}, "XDG_CONFIG_HOME": {},
+		"CODEX_HOME": {}, "HOME": {}, "XDG_CONFIG_HOME": {},
 	}
 	var environment []string
 	for _, entry := range os.Environ() {
