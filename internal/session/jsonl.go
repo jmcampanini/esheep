@@ -5,11 +5,13 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -22,7 +24,25 @@ func forEachLine(path string, visit func(line int, data []byte) bool) error {
 		return err
 	}
 	defer func() { _ = file.Close() }()
-	reader := bufio.NewReaderSize(file, 64*1024)
+	info, err := file.Stat()
+	if err != nil {
+		return err
+	}
+	if err := readLines(file, visit); err != nil {
+		return err
+	}
+	current, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("verify transcript after reading; rerun the command: %w", err)
+	}
+	if !os.SameFile(info, current) {
+		return fmt.Errorf("transcript %q was replaced while reading; rerun the command", path)
+	}
+	return nil
+}
+
+func readLines(input io.Reader, visit func(int, []byte) bool) error {
+	reader := bufio.NewReaderSize(input, 64*1024)
 	line := 0
 	for {
 		data, err := reader.ReadBytes('\n')
@@ -39,6 +59,11 @@ func forEachLine(path string, visit func(line int, data []byte) bool) error {
 			return err
 		}
 	}
+}
+
+type fileIdentity struct {
+	device uint64
+	inode  uint64
 }
 
 // walkRules parameterizes JSONL transcript discovery for one harness grammar.
@@ -74,7 +99,11 @@ func walkJSONLTranscripts(root string, rules walkRules) ([]transcript, []Diagnos
 			diagnostics = append(diagnostics, Diagnostic{Code: codeWalk, Message: infoErr.Error(), Path: path})
 			return nil
 		}
-		transcripts = append(transcripts, transcript{modTime: info.ModTime(), path: path, subagent: subagent})
+		stat := info.Sys().(*syscall.Stat_t)
+		transcripts = append(transcripts, transcript{
+			identity: fileIdentity{device: uint64(stat.Dev), inode: stat.Ino},
+			modTime:  info.ModTime(), path: path, subagent: subagent,
+		})
 		return nil
 	})
 	return transcripts, diagnostics

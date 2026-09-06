@@ -19,9 +19,10 @@ func sessionLoader(t *testing.T) configLoader {
 	t.Helper()
 	return func(config.LoadOptions) (config.LoadResult, error) {
 		return config.LoadResult{ResolvedSessions: config.ResolvedSessions{
-			Claude: "/roots/claude",
-			Codex:  "/roots/codex",
-			Pi:     "/roots/pi",
+			Claude:        "/roots/claude",
+			Codex:         "/roots/codex",
+			CodexArchived: "/roots/archive",
+			Pi:            "/roots/pi",
 		}}, nil
 	}
 }
@@ -38,18 +39,18 @@ func TestSessionsListPassesFilterAndRoots(t *testing.T) {
 	}
 
 	code, _, stderr := runCommandWithOperations(t, sessionLoader(t), operations,
-		"sessions", "list", "--harness", "claude,pi", "--project", "esheep", "--since", "7d", "--subagents")
+		"sessions", "list", "--harness", "claude,pi", "--project", "esheep", "--since", "7d", "--subagents", "--archive-state", "active")
 
 	if code != 0 {
 		t.Fatalf("exit code = %d, stderr = %q", code, stderr)
 	}
-	if gotRoots.Claude != "/roots/claude" || gotRoots.Codex != "/roots/codex" || gotRoots.Pi != "/roots/pi" {
+	if gotRoots.Claude != "/roots/claude" || gotRoots.Codex != "/roots/codex" || gotRoots.Pi != "/roots/pi" || gotRoots.CodexArchived != "/roots/archive" {
 		t.Errorf("roots = %+v", gotRoots)
 	}
 	if len(gotFilter.Harnesses) != 2 || gotFilter.Harnesses[0] != session.HarnessClaude || gotFilter.Harnesses[1] != session.HarnessPi {
 		t.Errorf("harnesses = %v", gotFilter.Harnesses)
 	}
-	if !gotFilter.IncludeSubagents || gotFilter.Project != "esheep" {
+	if !gotFilter.IncludeSubagents || gotFilter.Project != "esheep" || gotFilter.ArchiveState != session.ArchiveActive {
 		t.Errorf("filter = %+v", gotFilter)
 	}
 	want := time.Now().AddDate(0, 0, -7)
@@ -184,16 +185,21 @@ func TestSessionsSearchWritesHitsGroupedBySession(t *testing.T) {
 	}
 }
 
-func TestWorkCommandsUseSharedPathOverridesAndLabelOutput(t *testing.T) {
+func TestWorkCommandsUseSharedHomeOverridesAndLabelOutput(t *testing.T) {
 	base, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	root := filepath.Join(base, "transcripts")
+	root := filepath.Join(base, "codex-home")
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(root, "work.jsonl")
+	for _, directory := range []string{"sessions", "archived_sessions"} {
+		if err := os.MkdirAll(filepath.Join(root, directory), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	path := filepath.Join(root, "archived_sessions", "work.jsonl")
 	content := `{"type":"session_meta","payload":{"id":"work","originator":"codex_work_desktop","history_mode":"paginated"}}
 {"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"text":"migration plan"}]}}
 `
@@ -209,13 +215,13 @@ func TestWorkCommandsUseSharedPathOverridesAndLabelOutput(t *testing.T) {
 			case "toml":
 				configuredRoot = root
 			case "environment":
-				env["ESHEEP_CODEX_SESSIONS_PATH"] = root
+				env["ESHEEP_CODEX_HOME"] = root
 			case "flag":
-				env["ESHEEP_CODEX_SESSIONS_PATH"] = filepath.Join(base, "missing-env")
-				flags = []string{"--codex-sessions-path", root}
+				env["ESHEEP_CODEX_HOME"] = filepath.Join(base, "missing-env")
+				flags = []string{"--codex-home", root}
 			}
 			configPath := filepath.Join(base, source+".toml")
-			if err := os.WriteFile(configPath, fmt.Appendf(nil, "[sessions.codex]\npath = %q\n", configuredRoot), 0o600); err != nil {
+			if err := os.WriteFile(configPath, fmt.Appendf(nil, "[sessions.codex]\nhome = %q\n", configuredRoot), 0o600); err != nil {
 				t.Fatal(err)
 			}
 			load := func(options config.LoadOptions) (config.LoadResult, error) {
@@ -233,7 +239,7 @@ func TestWorkCommandsUseSharedPathOverridesAndLabelOutput(t *testing.T) {
 				{name: "search JSON", args: []string{"sessions", "search", "migration", "--json"}, json: true},
 			} {
 				t.Run(test.name, func(t *testing.T) {
-					args := append([]string{"--config", configPath, "--harness", "chatgpt-work"}, flags...)
+					args := append([]string{"--config", configPath, "--harness", "chatgpt-work", "--archive-state", "archived"}, flags...)
 					args = append(args, test.args...)
 
 					code, stdout, stderr := runCommandWithOperations(t, load, commandOperations{sessionList: session.List, sessionSearch: session.Search}, args...)
@@ -242,7 +248,7 @@ func TestWorkCommandsUseSharedPathOverridesAndLabelOutput(t *testing.T) {
 						t.Fatalf("exit code = %d, stderr = %q", code, stderr)
 					}
 					if !test.json {
-						if !strings.Contains(stdout, "chatgpt-work") || !strings.Contains(stdout, path) {
+						if !strings.Contains(stdout, "chatgpt-work") || !strings.Contains(stdout, path) || !strings.Contains(stdout, "archived") {
 							t.Errorf("stdout = %q, want Work label and canonical path", stdout)
 						}
 						return
@@ -255,7 +261,7 @@ func TestWorkCommandsUseSharedPathOverridesAndLabelOutput(t *testing.T) {
 						t.Fatalf("JSON report = %+v", report)
 					}
 					entry := report.Sessions[0]
-					if entry.Harness != session.HarnessChatGPTWork || entry.Path != path || entry.ID != "work" {
+					if entry.Harness != session.HarnessChatGPTWork || entry.Path != path || entry.ID != "work" || !entry.Archived {
 						t.Errorf("JSON session = %+v", entry)
 					}
 					if strings.HasPrefix(test.name, "search") && (len(entry.Hits) != 1 || entry.Hits[0].Line != 2 || entry.Hits[0].Role != session.RoleAssistant) {

@@ -13,10 +13,12 @@ to stdout and does not duplicate an unsuccessful report as a stderr error;
 the exit status still reports failure.`
 
 const configResolutionHelp = `Settings load in this order, with later sources taking precedence: built-in
-target and session defaults; $XDG_CONFIG_HOME/esheep/esheep.toml, or
+target and session defaults (CODEX_HOME supplies the Codex session home default
+when set); $XDG_CONFIG_HOME/esheep/esheep.toml, or
 $HOME/.config/esheep/esheep.toml; ESHEEP_PROFILES, ESHEEP_<TARGET>_ENABLED,
 ESHEEP_<TARGET>_SKILLS_PATH, ESHEEP_<TARGET>_AGENTS_MD_PATH, and
-ESHEEP_<HARNESS>_SESSIONS_PATH variables; then the profile, target, and
+ESHEEP_CLAUDE_SESSIONS_PATH, ESHEEP_PI_SESSIONS_PATH, and ESHEEP_CODEX_HOME
+variables; then the profile, target, and
 session flags. --config PATH replaces automatic discovery and requires a
 loadable file. Source directories and env_profiles are configured only in
 the TOML file; every environment variable named by env_profiles appends its
