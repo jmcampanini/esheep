@@ -19,10 +19,12 @@ func sessionLoader(t *testing.T) configLoader {
 	t.Helper()
 	return func(config.LoadOptions) (config.LoadResult, error) {
 		return config.LoadResult{ResolvedSessions: config.ResolvedSessions{
-			Claude:        "/roots/claude",
-			Codex:         "/roots/codex",
-			CodexArchived: "/roots/archive",
-			Pi:            "/roots/pi",
+			Claude: "/roots/claude",
+			Codex: config.ResolvedCodexSessions{
+				ArchivedSessions: "/roots/archive",
+				Sessions:         "/roots/codex",
+			},
+			Pi: "/roots/pi",
 		}}, nil
 	}
 }
@@ -44,7 +46,7 @@ func TestSessionsListPassesFilterAndRoots(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit code = %d, stderr = %q", code, stderr)
 	}
-	if gotRoots.Claude != "/roots/claude" || gotRoots.Codex != "/roots/codex" || gotRoots.Pi != "/roots/pi" || gotRoots.CodexArchived != "/roots/archive" {
+	if gotRoots.Claude != "/roots/claude" || gotRoots.CodexSessions != "/roots/codex" || gotRoots.Pi != "/roots/pi" || gotRoots.CodexArchivedSessions != "/roots/archive" {
 		t.Errorf("roots = %+v", gotRoots)
 	}
 	if len(gotFilter.Harnesses) != 2 || gotFilter.Harnesses[0] != session.HarnessClaude || gotFilter.Harnesses[1] != session.HarnessPi {

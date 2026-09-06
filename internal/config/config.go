@@ -123,13 +123,18 @@ type ResolvedTargets struct {
 	Codex  ResolvedTarget
 }
 
-// ResolvedSessions contains absolute session transcript roots.
+// ResolvedCodexSessions contains the canonical Codex home and its transcript directories.
+type ResolvedCodexSessions struct {
+	ArchivedSessions string
+	Home             string
+	Sessions         string
+}
+
+// ResolvedSessions contains canonical locations for each harness's session storage.
 type ResolvedSessions struct {
-	Claude        string
-	Codex         string
-	CodexArchived string
-	CodexHome     string
-	Pi            string
+	Claude string
+	Codex  ResolvedCodexSessions
+	Pi     string
 }
 
 // LoadResult is an effective configuration together with provenance and resolved paths.
@@ -330,9 +335,9 @@ func Render(result LoadResult, options ReportOptions) ([]byte, error) {
 	writeResolved("targets.codex.agents_md_path", result.ResolvedTargets.Codex.AgentsMD)
 	writeResolved("sessions.claude.path", result.ResolvedSessions.Claude)
 	writeResolved("sessions.pi.path", result.ResolvedSessions.Pi)
-	writeResolved("sessions.codex.home", result.ResolvedSessions.CodexHome)
-	writeResolved("sessions.codex.sessions", result.ResolvedSessions.Codex)
-	writeResolved("sessions.codex.archived_sessions", result.ResolvedSessions.CodexArchived)
+	writeResolved("sessions.codex.home", result.ResolvedSessions.Codex.Home)
+	writeResolved("sessions.codex.sessions", result.ResolvedSessions.Codex.Sessions)
+	writeResolved("sessions.codex.archived_sessions", result.ResolvedSessions.Codex.ArchivedSessions)
 	if options.Provenance {
 		b.WriteString("\n# Provenance\n")
 		for _, row := range reporter.ProvenanceRows() {
@@ -543,7 +548,7 @@ func resolveSessions(cfg Sessions, home string) (ResolvedSessions, error) {
 	if err != nil {
 		return ResolvedSessions{}, err
 	}
-	resolved := ResolvedSessions{CodexHome: codexHome}
+	resolved := ResolvedSessions{Codex: ResolvedCodexSessions{Home: codexHome}}
 	configured := []struct {
 		name     string
 		path     string
@@ -551,8 +556,8 @@ func resolveSessions(cfg Sessions, home string) (ResolvedSessions, error) {
 	}{
 		{name: "claude.path", path: cfg.Claude.Path, resolved: &resolved.Claude},
 		{name: "pi.path", path: cfg.Pi.Path, resolved: &resolved.Pi},
-		{name: "codex.sessions", path: filepath.Join(codexHome, "sessions"), resolved: &resolved.Codex},
-		{name: "codex.archived_sessions", path: filepath.Join(codexHome, "archived_sessions"), resolved: &resolved.CodexArchived},
+		{name: "codex.sessions", path: filepath.Join(codexHome, "sessions"), resolved: &resolved.Codex.Sessions},
+		{name: "codex.archived_sessions", path: filepath.Join(codexHome, "archived_sessions"), resolved: &resolved.Codex.ArchivedSessions},
 	}
 	for _, root := range configured {
 		path, err := resolveManagedPath("sessions."+root.name, root.path, home)

@@ -68,9 +68,9 @@ func TestCodexHomePrecedenceAndDerivedLocations(t *testing.T) {
 			}
 
 			wantHome := filepath.Join(home, strings.TrimPrefix(test.want, "~/"))
-			if result.Config.Sessions.Codex.Home != test.want || result.ResolvedSessions.CodexHome != wantHome ||
-				result.ResolvedSessions.Codex != filepath.Join(wantHome, "sessions") ||
-				result.ResolvedSessions.CodexArchived != filepath.Join(wantHome, "archived_sessions") {
+			if result.Config.Sessions.Codex.Home != test.want || result.ResolvedSessions.Codex.Home != wantHome ||
+				result.ResolvedSessions.Codex.Sessions != filepath.Join(wantHome, "sessions") ||
+				result.ResolvedSessions.Codex.ArchivedSessions != filepath.Join(wantHome, "archived_sessions") {
 				t.Errorf("home = %q, resolved = %+v, want home %q", result.Config.Sessions.Codex.Home, result.ResolvedSessions, wantHome)
 			}
 			wantSource := test.wantSource
@@ -119,7 +119,7 @@ func TestCodexDerivedLocationsResolveSymlinkAliases(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.ResolvedSessions.CodexHome != canonical || result.ResolvedSessions.Codex != archive || result.ResolvedSessions.CodexArchived != archive {
+	if result.ResolvedSessions.Codex.Home != canonical || result.ResolvedSessions.Codex.Sessions != archive || result.ResolvedSessions.Codex.ArchivedSessions != archive {
 		t.Errorf("resolved = %+v, want canonical home and shared storage %q", result.ResolvedSessions, archive)
 	}
 }

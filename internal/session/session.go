@@ -144,10 +144,10 @@ type SearchReport struct {
 // Roots locates session storage. Codex and ChatGPT Work share active and
 // archive roots. Empty roots are omitted; callers resolve root aliases.
 type Roots struct {
-	Claude        string
-	Codex         string
-	CodexArchived string
-	Pi            string
+	Claude                string
+	CodexArchivedSessions string
+	CodexSessions         string
+	Pi                    string
 }
 
 // ArchiveState selects active transcripts, archived transcripts, or both.
@@ -443,9 +443,9 @@ type harnessRoot struct {
 func harnessRoots(roots Roots, harnesses []Harness) []harnessRoot {
 	all := []harnessRoot{
 		// Archive locations take ownership before overlapping active locations.
-		{adapter: codexAdapter{}, archived: true, harness: HarnessCodex, root: roots.CodexArchived},
+		{adapter: codexAdapter{}, archived: true, harness: HarnessCodex, root: roots.CodexArchivedSessions},
 		{adapter: claudeAdapter{}, harness: HarnessClaude, root: roots.Claude},
-		{adapter: codexAdapter{}, harness: HarnessCodex, root: roots.Codex},
+		{adapter: codexAdapter{}, harness: HarnessCodex, root: roots.CodexSessions},
 		{adapter: piAdapter{}, harness: HarnessPi, root: roots.Pi},
 	}
 	if len(harnesses) == 0 {

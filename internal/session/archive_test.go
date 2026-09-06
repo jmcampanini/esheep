@@ -17,10 +17,10 @@ import (
 func TestArchivesPreserveHarnessFiltersAndTranscriptLines(t *testing.T) {
 	base := t.TempDir()
 	roots := Roots{
-		Claude:        filepath.Join(base, "claude"),
-		Codex:         filepath.Join(base, "sessions"),
-		CodexArchived: filepath.Join(base, "archived_sessions"),
-		Pi:            filepath.Join(base, "pi"),
+		Claude:                filepath.Join(base, "claude"),
+		CodexSessions:         filepath.Join(base, "sessions"),
+		CodexArchivedSessions: filepath.Join(base, "archived_sessions"),
+		Pi:                    filepath.Join(base, "pi"),
 	}
 	for _, fixture := range []struct {
 		body       string
@@ -29,15 +29,15 @@ func TestArchivesPreserveHarnessFiltersAndTranscriptLines(t *testing.T) {
 		root       string
 		source     string
 	}{
-		{name: "active-codex", originator: "Codex Desktop", root: roots.Codex},
-		{name: "active-work", originator: "codex_work_desktop", root: roots.Codex},
-		{name: "archived-codex", originator: "Codex Desktop", root: roots.CodexArchived},
-		{name: "archived-work", originator: "codex_work_desktop", root: roots.CodexArchived,
+		{name: "active-codex", originator: "Codex Desktop", root: roots.CodexSessions},
+		{name: "active-work", originator: "codex_work_desktop", root: roots.CodexSessions},
+		{name: "archived-codex", originator: "Codex Desktop", root: roots.CodexArchivedSessions},
+		{name: "archived-work", originator: "codex_work_desktop", root: roots.CodexArchivedSessions,
 			body: `{"type":"response_item","payload":{"type":"function_call","name":"shell","call_id":"a","arguments":"needle"}}`},
-		{name: "archived-subagent", originator: "codex_work_desktop", root: roots.CodexArchived, source: `{"subagent":"review"}`},
-		{name: "title-only", originator: "codex_work_desktop", root: roots.CodexArchived,
+		{name: "archived-subagent", originator: "codex_work_desktop", root: roots.CodexArchivedSessions, source: `{"subagent":"review"}`},
+		{name: "title-only", originator: "codex_work_desktop", root: roots.CodexArchivedSessions,
 			body: `{"type":"session_info","payload":{"title":"needle"}}`},
-		{name: "context-only", originator: "codex_work_desktop", root: roots.CodexArchived,
+		{name: "context-only", originator: "codex_work_desktop", root: roots.CodexArchivedSessions,
 			body: `{"type":"response_item","payload":{"type":"message","role":"user","content":[{"text":"needle"}],"internal_chat_message_metadata_passthrough":{"content_item_kinds":["plugins.recommendations"]}}}`},
 	} {
 		source := fixture.source
@@ -185,7 +185,7 @@ func TestArchiveDuplicatesPreferArchivePath(t *testing.T) {
 					`{"type":"event_msg","payload":{"type":"user_message","message":"another needle"}}`)
 				wantAll, wantActive = 2, 1
 			}
-			roots := Roots{Codex: active, CodexArchived: archive}
+			roots := Roots{CodexSessions: active, CodexArchivedSessions: archive}
 			for _, test := range []struct {
 				state ArchiveState
 				want  int
@@ -245,7 +245,7 @@ func TestArchiveReadFailuresAffectCompleteness(t *testing.T) {
 				t.Cleanup(func() { _ = os.Chmod(path, 0o600) })
 				code = codeTranscriptRead
 			}
-			roots := Roots{Codex: active, CodexArchived: archive}
+			roots := Roots{CodexSessions: active, CodexArchivedSessions: archive}
 			filter := Filter{Harnesses: []Harness{HarnessCodex, HarnessChatGPTWork}}
 
 			list := List(context.Background(), roots, filter)

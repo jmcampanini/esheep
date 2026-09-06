@@ -39,12 +39,12 @@ func TestSharedCodexStorageClassifiesAndFiltersProducers(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		writeTranscript(t, filepath.Join(roots.Codex, fixture.name+".jsonl"), time.Date(2026, 9, 6, 10, 0, 0, 0, time.UTC),
+		writeTranscript(t, filepath.Join(roots.CodexSessions, fixture.name+".jsonl"), time.Date(2026, 9, 6, 10, 0, 0, 0, time.UTC),
 			string(header),
 			`{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"text":"migration"}]}}`,
 		)
 	}
-	writeTranscript(t, filepath.Join(roots.Codex, "headerless.jsonl"), time.Date(2026, 9, 6, 10, 0, 0, 0, time.UTC),
+	writeTranscript(t, filepath.Join(roots.CodexSessions, "headerless.jsonl"), time.Date(2026, 9, 6, 10, 0, 0, 0, time.UTC),
 		`{"type":"event_msg","payload":{"type":"user_message","message":"migration"}}`,
 	)
 	for _, selection := range []struct {
@@ -87,7 +87,7 @@ func TestSharedCodexStorageClassifiesAndFiltersProducers(t *testing.T) {
 				got = make(map[string]Harness)
 				for _, entry := range search.Sessions {
 					got[entry.ID] = entry.Harness
-					if len(entry.Hits) != 1 || entry.Hits[0].Line != 2 || entry.Path != filepath.Join(roots.Codex, entry.ID+".jsonl") {
+					if len(entry.Hits) != 1 || entry.Hits[0].Line != 2 || entry.Path != filepath.Join(roots.CodexSessions, entry.ID+".jsonl") {
 						t.Errorf("Search entry = %+v, want one hit at original path and line 2", entry)
 					}
 				}
@@ -136,8 +136,8 @@ func TestWorkInventoryRequiresSavedConversationEvents(t *testing.T) {
 			writeTranscript(t, filepath.Join(root, "work.jsonl"), time.Date(2026, 9, 6, 10, 0, 0, 0, time.UTC), header, test.body)
 			filter := Filter{Harnesses: []Harness{HarnessChatGPTWork}}
 
-			list := List(context.Background(), Roots{Codex: root}, filter)
-			raw := Search(context.Background(), Roots{Codex: root}, filter, SearchQuery{Raw: true, Pattern: regexp.MustCompile(".")})
+			list := List(context.Background(), Roots{CodexSessions: root}, filter)
+			raw := Search(context.Background(), Roots{CodexSessions: root}, filter, SearchQuery{Raw: true, Pattern: regexp.MustCompile(".")})
 
 			if !list.Complete || len(list.Diagnostics) != 0 || len(list.Sessions) != test.want {
 				t.Errorf("List = %+v, want %d sessions", list, test.want)
@@ -179,7 +179,7 @@ func TestWorkSearchPreservesProvenanceToolsAndTranscriptLines(t *testing.T) {
 		{name: "injected", query: SearchQuery{Pattern: regexp.MustCompile("injected")}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			report := Search(context.Background(), Roots{Codex: root}, filter, test.query)
+			report := Search(context.Background(), Roots{CodexSessions: root}, filter, test.query)
 
 			if !report.Complete || len(report.Diagnostics) != 1 || report.Diagnostics[0].Code != codeMalformedLines || report.Diagnostics[0].Harness != HarnessChatGPTWork {
 				t.Fatalf("Search diagnostics = %+v, complete = %v", report.Diagnostics, report.Complete)
@@ -204,11 +204,11 @@ func TestWorkSearchPreservesProvenanceToolsAndTranscriptLines(t *testing.T) {
 }
 
 func TestSharedCodexRootReportsOneDiagnostic(t *testing.T) {
-	roots := Roots{Codex: filepath.Join(t.TempDir(), "missing")}
+	roots := Roots{CodexSessions: filepath.Join(t.TempDir(), "missing")}
 	for _, harnesses := range [][]Harness{{HarnessChatGPTWork}, {HarnessCodex, HarnessChatGPTWork}} {
 		report := List(context.Background(), roots, Filter{Harnesses: harnesses})
 
-		if !report.Complete || len(report.Diagnostics) != 1 || report.Diagnostics[0].Harness != HarnessCodex || report.Diagnostics[0].Path != roots.Codex {
+		if !report.Complete || len(report.Diagnostics) != 1 || report.Diagnostics[0].Harness != HarnessCodex || report.Diagnostics[0].Path != roots.CodexSessions {
 			t.Errorf("List(%v) = %+v, want one shared-root diagnostic", harnesses, report)
 		}
 	}

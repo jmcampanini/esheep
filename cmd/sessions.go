@@ -129,10 +129,10 @@ func (f sessionFilterFlags) filter(now time.Time) (session.Filter, error) {
 
 func sessionRoots(loaded config.LoadResult) session.Roots {
 	return session.Roots{
-		Claude:        loaded.ResolvedSessions.Claude,
-		Codex:         loaded.ResolvedSessions.Codex,
-		CodexArchived: loaded.ResolvedSessions.CodexArchived,
-		Pi:            loaded.ResolvedSessions.Pi,
+		Claude:                loaded.ResolvedSessions.Claude,
+		CodexArchivedSessions: loaded.ResolvedSessions.Codex.ArchivedSessions,
+		CodexSessions:         loaded.ResolvedSessions.Codex.Sessions,
+		Pi:                    loaded.ResolvedSessions.Pi,
 	}
 }
 
