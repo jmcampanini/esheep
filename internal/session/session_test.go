@@ -162,8 +162,8 @@ func TestListFindsTitlesAfterEarlyBookkeepingRecords(t *testing.T) {
 	writeTranscript(t, claudePath, time.Now(), claudeLines...)
 	writeTranscript(t, piPath, time.Now(), piLines...)
 
-	claude, claudeErr := (claudeAdapter{}).meta(transcript{path: claudePath})
-	pi, piErr := (piAdapter{}).meta(transcript{path: piPath})
+	claude, _, claudeErr := (claudeAdapter{}).meta(transcript{path: claudePath})
+	pi, _, piErr := (piAdapter{}).meta(transcript{path: piPath})
 
 	if claudeErr != nil || claude.Title != "Late Claude title" {
 		t.Errorf("Claude metadata = %+v, error = %v", claude, claudeErr)

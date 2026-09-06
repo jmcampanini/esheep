@@ -30,7 +30,7 @@ func (claudeAdapter) discover(root string, includeSubagents bool) ([]transcript,
 // timestamp, and ai-title usually lands early.
 const claudeMetaLimit = 512
 
-func (claudeAdapter) meta(t transcript) (Session, error) {
+func (claudeAdapter) meta(t transcript) (Session, bool, error) {
 	entry := Session{
 		Harness:    HarnessClaude,
 		ID:         strings.TrimSuffix(filepath.Base(t.path), ".jsonl"),
@@ -58,7 +58,7 @@ func (claudeAdapter) meta(t transcript) (Session, error) {
 		}
 		return line < claudeMetaLimit && (entry.Project == "" || entry.StartedAt.IsZero() || entry.Title == "")
 	})
-	return entry, err
+	return entry, true, err
 }
 
 func (claudeAdapter) scan(path string, visit func(event)) (int, error) {

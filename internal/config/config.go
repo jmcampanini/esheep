@@ -70,12 +70,12 @@ type PiSessions struct {
 	Path string `toml:"path" config:"pi-sessions-path" help:"session transcript root for Pi"`
 }
 
-// CodexSessions locates Codex's session transcripts.
+// CodexSessions locates the shared Codex and local ChatGPT Work transcripts.
 type CodexSessions struct {
-	Path string `toml:"path" config:"codex-sessions-path" help:"session transcript root for Codex"`
+	Path string `toml:"path" config:"codex-sessions-path" help:"shared session transcript root for Codex and local ChatGPT Work"`
 }
 
-// Sessions contains the per-harness session transcript roots.
+// Sessions contains the session transcript roots.
 type Sessions struct {
 	Claude ClaudeSessions `toml:"claude"`
 	Pi     PiSessions     `toml:"pi"`

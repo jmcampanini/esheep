@@ -11,6 +11,7 @@ import (
 	"os"
 	"regexp"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -18,23 +19,24 @@ import (
 	"unicode/utf8"
 )
 
-// Harness identifies one supported coding harness.
+// Harness identifies one supported session producer.
 type Harness string
 
 // Supported harnesses.
 const (
-	HarnessClaude Harness = "claude"
-	HarnessCodex  Harness = "codex"
-	HarnessPi     Harness = "pi"
+	HarnessChatGPTWork Harness = "chatgpt-work"
+	HarnessClaude      Harness = "claude"
+	HarnessCodex       Harness = "codex"
+	HarnessPi          Harness = "pi"
 )
 
 // ParseHarness converts a user-supplied harness name.
 func ParseHarness(value string) (Harness, error) {
 	switch Harness(value) {
-	case HarnessClaude, HarnessCodex, HarnessPi:
+	case HarnessChatGPTWork, HarnessClaude, HarnessCodex, HarnessPi:
 		return Harness(value), nil
 	default:
-		return "", fmt.Errorf("session: unknown harness %q (expected claude, codex, or pi)", value)
+		return "", fmt.Errorf("session: unknown harness %q (expected chatgpt-work, claude, codex, or pi)", value)
 	}
 }
 
@@ -138,7 +140,7 @@ type SearchReport struct {
 	Sessions    []Match      `json:"sessions"`
 }
 
-// Roots locates the per-harness session transcript directories.
+// Roots locates session storage. Codex and ChatGPT Work share the Codex root.
 type Roots struct {
 	Claude string
 	Codex  string
@@ -193,8 +195,9 @@ func ParseTimeFlag(value string, now time.Time) (time.Time, error) {
 type adapter interface {
 	// discover returns transcript references under root in walk order.
 	discover(root string, includeSubagents bool) ([]transcript, []Diagnostic)
-	// meta extracts cheap best-effort metadata for one transcript.
-	meta(t transcript) (Session, error)
+	// meta extracts best-effort metadata and reports whether the transcript
+	// qualifies for inventory. Work transcripts require saved conversation events.
+	meta(t transcript) (Session, bool, error)
 	// scan interprets the transcript and calls visit once per event,
 	// returning the count of unparseable lines.
 	scan(path string, visit func(event)) (int, error)
@@ -336,16 +339,16 @@ func collect(ctx context.Context, roots Roots, filter Filter) ([]located, []Diag
 		}
 
 		metas := parallelMap(ctx, kept, func(t transcript) describedSession {
-			s, err := root.adapter.meta(t)
-			return describedSession{err: err, session: s}
+			s, eligible, err := root.adapter.meta(t)
+			return describedSession{eligible: eligible, err: err, session: s}
 		})
 		for _, meta := range metas {
 			if meta.err != nil {
 				diagnostics = append(diagnostics, Diagnostic{
-					Code: codeTranscriptRead, Harness: root.harness, Message: meta.err.Error(), Path: meta.session.Path,
+					Code: codeTranscriptRead, Harness: meta.session.Harness, Message: meta.err.Error(), Path: meta.session.Path,
 				})
 			}
-			if meta.session.Path == "" || (meta.session.Subagent && !filter.IncludeSubagents) {
+			if !meta.eligible || meta.session.Path == "" || (meta.session.Subagent && !filter.IncludeSubagents) {
 				continue
 			}
 			if filter.matchesSession(meta.session) {
@@ -376,8 +379,9 @@ func collect(ctx context.Context, roots Roots, filter Filter) ([]located, []Diag
 }
 
 type describedSession struct {
-	err     error
-	session Session
+	eligible bool
+	err      error
+	session  Session
 }
 
 type harnessRoot struct {
@@ -397,6 +401,9 @@ func harnessRoots(roots Roots, harnesses []Harness) []harnessRoot {
 	}
 	wanted := make(map[Harness]struct{}, len(harnesses))
 	for _, harness := range harnesses {
+		if harness == HarnessChatGPTWork {
+			harness = HarnessCodex
+		}
 		wanted[harness] = struct{}{}
 	}
 	selected := make([]harnessRoot, 0, len(all))
@@ -430,6 +437,9 @@ func discoverRoot(root harnessRoot, includeSubagents bool) ([]transcript, []Diag
 }
 
 func (f Filter) matchesSession(s Session) bool {
+	if len(f.Harnesses) != 0 && !slices.Contains(f.Harnesses, s.Harness) {
+		return false
+	}
 	if !f.Until.IsZero() && s.sortTime().After(f.Until) {
 		return false
 	}
