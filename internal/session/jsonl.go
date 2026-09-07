@@ -68,10 +68,12 @@ type fileIdentity struct {
 
 // walkRules parameterizes JSONL transcript discovery for one harness grammar.
 type walkRules struct {
+	// accept reports whether a JSONL file is a session transcript.
+	accept func(path string) bool
 	// isSubagent reports whether a transcript belongs to a subagent.
 	isSubagent func(path string) bool
 	// skipDir reports whether a directory subtree holds no wanted transcripts.
-	skipDir func(entry fs.DirEntry) bool
+	skipDir func(path string, entry fs.DirEntry) bool
 }
 
 // walkJSONLTranscripts discovers transcript files under root, tolerating and
@@ -85,12 +87,15 @@ func walkJSONLTranscripts(root string, rules walkRules) ([]transcript, []Diagnos
 			return nil
 		}
 		if entry.IsDir() {
-			if path != root && rules.skipDir != nil && rules.skipDir(entry) {
+			if path != root && rules.skipDir != nil && rules.skipDir(path, entry) {
 				return fs.SkipDir
 			}
 			return nil
 		}
 		if !entry.Type().IsRegular() || filepath.Ext(path) != ".jsonl" {
+			return nil
+		}
+		if rules.accept != nil && !rules.accept(path) {
 			return nil
 		}
 		subagent := rules.isSubagent != nil && rules.isSubagent(path)

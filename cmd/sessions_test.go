@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +15,129 @@ import (
 	"github.com/jmcampanini/esheep/internal/config"
 	"github.com/jmcampanini/esheep/internal/session"
 )
+
+func TestCoworkCommandsUseConfiguredStorageAndSharedOutput(t *testing.T) {
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(base, "cowork")
+	for _, name := range []string{"local_main", "local_partial"} {
+		directory := filepath.Join(root, "scope", "group", name)
+		if err := os.MkdirAll(directory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(directory, "audit.jsonl"), []byte(`{"type":"user","message":{"content":"migration plan"}}`+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	path := filepath.Join(root, "scope", "group", "local_main", "audit.jsonl")
+	if err := os.WriteFile(filepath.Dir(path)+".json", []byte(`{"sessionId":"local_main","title":"Migration","isArchived":true,"userSelectedFolders":["/work/api","/work/docs"]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	load := func(options config.LoadOptions) (config.LoadResult, error) {
+		options.Env = map[string]string{"HOME": base, "XDG_CONFIG_HOME": filepath.Join(base, "config")}
+		return config.Load(options)
+	}
+	operations := commandOperations{sessionList: session.List, sessionSearch: session.Search}
+
+	code, stdout, stderr := runCommandWithOperations(t, load, operations,
+		"sessions", "list", "--harness", "claude-cowork", "--claude-cowork-sessions-path", root, "--json")
+
+	if code != 0 || stderr != "" {
+		t.Fatalf("list exit = %d, stderr = %q", code, stderr)
+	}
+	var inventory session.ListReport
+	if err := json.Unmarshal([]byte(stdout), &inventory); err != nil {
+		t.Fatal(err)
+	}
+	if !inventory.Complete || len(inventory.Diagnostics) != 0 || len(inventory.Sessions) != 2 {
+		t.Fatalf("inventory = %+v", inventory)
+	}
+	for _, entry := range inventory.Sessions {
+		if entry.Harness != session.HarnessClaudeCowork || entry.Projects == nil {
+			t.Errorf("session = %+v, want Cowork with a projects array", entry)
+		}
+	}
+	for _, jsonOutput := range []bool{false, true} {
+		args := []string{"sessions", "search", "migration", "--harness", "claude-cowork", "--claude-cowork-sessions-path", root, "--project", "DOCS", "--archive-state", "archived"}
+		if jsonOutput {
+			args = append(args, "--json")
+		}
+
+		code, stdout, stderr := runCommandWithOperations(t, load, operations, args...)
+
+		if code != 0 || stderr != "" {
+			t.Fatalf("search exit = %d, stderr = %q", code, stderr)
+		}
+		if !jsonOutput {
+			for _, want := range []string{"claude-cowork", "/work/api", "/work/docs", "Migration", "archived", path, ":1"} {
+				if !strings.Contains(stdout, want) {
+					t.Errorf("search output missing %q: %s", want, stdout)
+				}
+			}
+			continue
+		}
+		var report session.SearchReport
+		if err := json.Unmarshal([]byte(stdout), &report); err != nil {
+			t.Fatal(err)
+		}
+		if !report.Complete || len(report.Diagnostics) != 0 || len(report.Sessions) != 1 {
+			t.Fatalf("search report = %+v", report)
+		}
+		entry := report.Sessions[0]
+		if !slices.Equal(entry.Projects, []string{"/work/api", "/work/docs"}) || entry.Path != path || !entry.Archived ||
+			len(entry.Hits) != 1 || entry.Hits[0].Line != 1 || entry.Hits[0].Role != session.RoleUser {
+			t.Errorf("search match = %+v", entry)
+		}
+	}
+}
+
+func TestDisabledCoworkCommandsReportConfigurationWithoutFailing(t *testing.T) {
+	base := t.TempDir()
+	load := func(options config.LoadOptions) (config.LoadResult, error) {
+		options.Env = map[string]string{"HOME": base, "XDG_CONFIG_HOME": filepath.Join(base, "config")}
+		return config.Load(options)
+	}
+	operations := commandOperations{sessionList: session.List, sessionSearch: session.Search}
+	for _, command := range [][]string{{"list"}, {"search", "needle"}} {
+		for _, jsonOutput := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/json=%t", command[0], jsonOutput), func(t *testing.T) {
+				args := append([]string{"sessions"}, command...)
+				args = append(args, "--harness", "claude-cowork", "--claude-cowork-sessions-path", "")
+				if jsonOutput {
+					args = append(args, "--json")
+				}
+
+				code, stdout, stderr := runCommandWithOperations(t, load, operations, args...)
+
+				if code != 0 {
+					t.Fatalf("exit = %d, stdout = %q, stderr = %q", code, stdout, stderr)
+				}
+				if !jsonOutput {
+					if !strings.Contains(stderr, "root-disabled") || !strings.Contains(stderr, "[sessions.claude-cowork].path") || strings.Contains(stdout, "root-disabled") {
+						t.Errorf("stdout = %q, stderr = %q, want configuration diagnostic only on stderr", stdout, stderr)
+					}
+					return
+				}
+				var report struct {
+					Complete    bool                 `json:"complete"`
+					Diagnostics []session.Diagnostic `json:"diagnostics"`
+				}
+				if err := json.Unmarshal([]byte(stdout), &report); err != nil {
+					t.Fatal(err)
+				}
+				if stderr != "" || !report.Complete || len(report.Diagnostics) != 1 {
+					t.Fatalf("report = %+v, stderr = %q, want complete report with one JSON diagnostic", report, stderr)
+				}
+				diagnostic := report.Diagnostics[0]
+				if diagnostic.Code != "root-disabled" || !strings.Contains(diagnostic.Message, "[sessions.claude-cowork].path") {
+					t.Errorf("JSON diagnostic = %+v, want configuration diagnostic", diagnostic)
+				}
+			})
+		}
+	}
+}
 
 func sessionLoader(t *testing.T) configLoader {
 	t.Helper()
@@ -153,7 +277,7 @@ func TestSessionsSearchWritesHitsGroupedBySession(t *testing.T) {
 				Harness:   session.HarnessClaude,
 				ID:        "abc",
 				Path:      "/roots/claude/p/abc.jsonl",
-				Project:   "/Users/u/proj",
+				Projects:  []string{"/Users/u/proj"},
 				StartedAt: time.Date(2026, 8, 20, 10, 0, 0, 0, time.Local),
 				Title:     "Debug permissions",
 			},

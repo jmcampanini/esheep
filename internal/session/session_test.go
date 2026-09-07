@@ -126,15 +126,15 @@ func TestListInventoriesMainSessionsAcrossHarnesses(t *testing.T) {
 	if claude.ID != "11111111-aaaa-bbbb-cccc-222222222222" {
 		t.Errorf("claude ID = %q", claude.ID)
 	}
-	if claude.Project != "/Users/u/proj" || claude.Title != "Debug permissions" {
-		t.Errorf("claude metadata = %q %q", claude.Project, claude.Title)
+	if len(claude.Projects) != 1 || claude.Projects[0] != "/Users/u/proj" || claude.Title != "Debug permissions" {
+		t.Errorf("claude metadata = %q %q", claude.Projects, claude.Title)
 	}
 	if got := claude.StartedAt; !got.Equal(time.Date(2026, 8, 20, 10, 0, 0, 0, time.UTC)) {
 		t.Errorf("claude StartedAt = %v", got)
 	}
 	codex := report.Sessions[0]
-	if codex.ID != "33333333-dddd-eeee-ffff-444444444444" || codex.Project != "/Users/u/codexproj" {
-		t.Errorf("codex metadata = %q %q", codex.ID, codex.Project)
+	if codex.ID != "33333333-dddd-eeee-ffff-444444444444" || len(codex.Projects) != 1 || codex.Projects[0] != "/Users/u/codexproj" {
+		t.Errorf("codex metadata = %q %q", codex.ID, codex.Projects)
 	}
 	pi := report.Sessions[2]
 	if pi.ID != "55555555-aaaa-bbbb-cccc-666666666666" || pi.Title != "Fix the suite" {
@@ -162,14 +162,14 @@ func TestListFindsTitlesAfterEarlyBookkeepingRecords(t *testing.T) {
 	writeTranscript(t, claudePath, time.Now(), claudeLines...)
 	writeTranscript(t, piPath, time.Now(), piLines...)
 
-	claude, _, claudeErr := (claudeAdapter{}).meta(transcript{path: claudePath})
-	pi, _, piErr := (piAdapter{}).meta(transcript{path: piPath})
+	claude := (claudeAdapter{}).meta(transcript{path: claudePath})
+	pi := (piAdapter{}).meta(transcript{path: piPath})
 
-	if claudeErr != nil || claude.Title != "Late Claude title" {
-		t.Errorf("Claude metadata = %+v, error = %v", claude, claudeErr)
+	if claude.err != nil || claude.session.Title != "Late Claude title" {
+		t.Errorf("Claude metadata = %+v", claude)
 	}
-	if piErr != nil || pi.Title != "Late Pi title" {
-		t.Errorf("Pi metadata = %+v, error = %v", pi, piErr)
+	if pi.err != nil || pi.session.Title != "Late Pi title" {
+		t.Errorf("Pi metadata = %+v", pi)
 	}
 }
 
@@ -245,6 +245,48 @@ func TestListMissingRootSkipsHarness(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("diagnostics = %+v, want root-missing for codex", report.Diagnostics)
+	}
+}
+
+func TestListDiagnosesOnlyExplicitlySelectedDisabledHarnesses(t *testing.T) {
+	configured := t.TempDir()
+	for _, test := range []struct {
+		filter  Filter
+		harness Harness
+		name    string
+		roots   Roots
+		setting string
+	}{
+		{name: "unfiltered disabled harnesses"},
+		{name: "unselected disabled harness", roots: Roots{Pi: configured}, filter: Filter{Harnesses: []Harness{HarnessPi}}},
+		{name: "Cowork selected repeatedly", filter: Filter{Harnesses: []Harness{HarnessClaudeCowork, HarnessClaudeCowork}}, harness: HarnessClaudeCowork, setting: "[sessions.claude-cowork].path"},
+		{name: "Claude", filter: Filter{Harnesses: []Harness{HarnessClaude}}, harness: HarnessClaude, setting: "[sessions.claude].path"},
+		{name: "Pi", filter: Filter{Harnesses: []Harness{HarnessPi}}, harness: HarnessPi, setting: "[sessions.pi].path"},
+		{name: "Work", filter: Filter{Harnesses: []Harness{HarnessChatGPTWork}}, harness: HarnessCodex, setting: "[sessions.codex].home"},
+		{name: "shared Codex and Work", filter: Filter{Harnesses: []Harness{HarnessCodex, HarnessChatGPTWork}}, harness: HarnessCodex, setting: "[sessions.codex].home"},
+		{name: "Codex active root configured", roots: Roots{CodexSessions: configured}, filter: Filter{Harnesses: []Harness{HarnessCodex, HarnessChatGPTWork}}},
+		{name: "Codex archive root configured", roots: Roots{CodexArchivedSessions: configured}, filter: Filter{Harnesses: []Harness{HarnessCodex, HarnessChatGPTWork}}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			report := List(context.Background(), test.roots, test.filter)
+
+			if !report.Complete || len(report.Sessions) != 0 {
+				t.Fatalf("List = %+v, want complete empty inventory", report)
+			}
+			if test.harness == "" {
+				if len(report.Diagnostics) != 0 {
+					t.Errorf("List diagnostics = %+v, want none", report.Diagnostics)
+				}
+				return
+			}
+			if len(report.Diagnostics) != 1 {
+				t.Fatalf("List diagnostics = %+v, want one disabled-harness diagnostic", report.Diagnostics)
+			}
+			diagnostic := report.Diagnostics[0]
+			if diagnostic.Code != codeRootDisabled || diagnostic.Harness != test.harness || diagnostic.Path != "" || !strings.Contains(diagnostic.Message, test.setting) {
+				t.Errorf("List diagnostic = %+v, want root-disabled for %s naming %s", diagnostic, test.harness, test.setting)
+			}
+		})
 	}
 }
 

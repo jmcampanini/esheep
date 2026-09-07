@@ -13,7 +13,15 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const sessionHarnessHelp = `The codex harness includes Codex CLI and desktop sessions. chatgpt-work
+const sessionHarnessHelp = `claude-cowork reads local Cowork conversations from
+[sessions.claude-cowork].path. Its precedence is --claude-cowork-sessions-path,
+ESHEEP_CLAUDE_COWORK_SESSIONS_PATH, TOML, then the platform default. On macOS,
+the default is ~/Library/Application Support/Claude/local-agent-mode-sessions.
+Linux requires an explicit path; an empty path disables Cowork discovery.
+Only <scope>/<scope>/local_<id>/audit.jsonl files are discovered. Scope names
+are opaque. Supporting files and regular Claude chats are not session sources.
+
+The codex harness includes Codex CLI and desktop sessions. chatgpt-work
 identifies local ChatGPT Work tasks whose recorded originator is exactly
 codex_work_desktop. Missing or unrecognized originators are classified as codex.
 Subagents use their own recorded originator.
@@ -25,24 +33,48 @@ home is scanned. Shared storage is discovered once; root diagnostics use
 codex. Omit --harness to include all harnesses, or use
 --harness codex,chatgpt-work to select both.
 
-Work transcripts qualify when they contain a supported user message,
+Work and Cowork transcripts qualify when they contain a supported user message,
 assistant message, tool call, or tool result. Title-only and injected-context-only
 records are excluded, including from --raw searches. Partial or unknown local
 history qualifies; results do not imply complete remote history. A transcript's
 history_base may reference earlier history elsewhere. That history is not
 expanded or searched through the reference; hits address only saved lines in
-each discovered file.
+each discovered file. Cowork uses its session folder's relative path, including
+both scopes, as its ID. Companion metadata supplies title, creation time,
+selected host folders, and the archive flag. Missing or invalid companions
+do not exclude readable messages. Invalid or mismatched companions produce
+diagnostics; a mismatched sessionId discards that companion's metadata.
+Cowork event times prefer timestamp, then _audit_timestamp. A missing creation
+time falls back to the first recorded event time.
+
+Every session has a projects array. Claude Code and Pi supply their recorded
+working directory. Cowork supplies userSelectedFolders, excluding its execution
+working directory. Codex and Work supply the distinct workspace_roots across
+saved turn_context records, falling back to the session header's cwd when no
+workspace roots are recorded. --project matches any path, case-insensitively.
+Unknown folders produce an empty array and do not match --project.
 
 Active and archived transcripts are included by default. --archive-state
-all|active|archived selects archive placement independently of --subagents.
-Claude and Pi are treated as active for this filter. Both Codex directories
+all|active|archived selects archive state independently of --subagents.
+Cowork uses its companion's isArchived flag; absent or invalid evidence means
+not archived. Claude and Pi are treated as active. Both Codex directories
 are discovered before filtering so overlapping files have one archive state.
 Repeated physical files, including hard links, appear once; archive placement
 and its path win when a file occurs in both locations. Distinct files with
 the same session ID remain separate.
 
-Missing locations are skipped with diagnostics. Unreadable inputs and detected
-file moves make the scan incomplete; rerun after moves finish. Scans are not
+Primary activity includes requests to subagents and their returned results.
+--subagents additionally includes child activity, including Cowork records
+marked with parent_tool_use_id inside the primary audit. An audit remains one
+session result. --raw searches all original lines in included transcripts,
+including embedded child activity, without decoding event roles.
+
+Selecting a harness with no configured path reports a nonfatal diagnostic
+naming its setting. Disabled harnesses are skipped quietly when --harness is
+omitted. Missing locations are skipped with diagnostics. Unreadable inputs and
+detected file moves make the scan incomplete; rerun after moves finish. Unreadable
+Cowork companions make the scan incomplete while preserving readable hits.
+Scans are not
 atomic snapshots and do not retry. "complete" describes the filesystem scan,
 not conversation or remote-history completeness.`
 
@@ -51,7 +83,8 @@ func newSessionsCommand(load configLoader, operations commandOperations) *cobra.
 		Use:   "sessions",
 		Short: "Find historical harness sessions",
 		Long: `Find historical session transcripts recorded by Claude Code, Pi,
-Codex, and local ChatGPT Work tasks, reading the harness-owned files in place.
+Codex, local ChatGPT Work tasks, and local Claude Cowork conversations,
+reading the harness-owned files in place.
 
 Transcripts are read-only inputs: esheep never creates, updates, or deletes
 anything under a session root and keeps no copies or indexes. Every result
@@ -60,7 +93,8 @@ points at the canonical transcript file so the original can be read directly.
 Session roots default to ~/.claude/projects, ~/.pi/agent/sessions,
 ~/.codex/sessions, and ~/.codex/archived_sessions. Configure the Claude and Pi
 paths and the Codex home under [sessions] in TOML; Codex transcript paths are
-derived from its home. A missing root skips that location with a diagnostic.
+derived from its home. Cowork's platform defaults and configuration are
+described below. A missing root skips that location with a diagnostic.
 
 'sessions list' inventories sessions; 'sessions search' finds sessions whose
 transcripts match a pattern or structural criteria.
@@ -89,11 +123,11 @@ type sessionFilterFlags struct {
 }
 
 func registerSessionFilterFlags(command *cobra.Command, flags *sessionFilterFlags) {
-	command.Flags().StringVar(&flags.archiveState, "archive-state", "all", "limit to archive placement (all, active, archived)")
-	command.Flags().StringSliceVar(&flags.harnesses, "harness", nil, "limit to harnesses (chatgpt-work, claude, codex, pi); repeatable or comma-separated")
-	command.Flags().StringVar(&flags.project, "project", "", "limit to sessions whose project path contains this text")
+	command.Flags().StringVar(&flags.archiveState, "archive-state", "all", "limit to archive state (all, active, archived)")
+	command.Flags().StringSliceVar(&flags.harnesses, "harness", nil, "limit to harnesses (chatgpt-work, claude, claude-cowork, codex, pi); repeatable or comma-separated")
+	command.Flags().StringVar(&flags.project, "project", "", "limit to sessions with any project path containing this text")
 	command.Flags().StringVar(&flags.since, "since", "", "limit to sessions active since a day count (7d), duration (36h), or date (2026-01-02)")
-	command.Flags().BoolVar(&flags.subagents, "subagents", false, "include subagent and sidechain transcripts")
+	command.Flags().BoolVar(&flags.subagents, "subagents", false, "include subagent transcripts and embedded child activity")
 	command.Flags().StringVar(&flags.until, "until", "", "limit to sessions started before a day count, duration, or date")
 }
 
@@ -130,6 +164,7 @@ func (f sessionFilterFlags) filter(now time.Time) (session.Filter, error) {
 func sessionRoots(loaded config.LoadResult) session.Roots {
 	return session.Roots{
 		Claude:                loaded.ResolvedSessions.Claude,
+		ClaudeCowork:          loaded.ResolvedSessions.ClaudeCowork,
 		CodexArchivedSessions: loaded.ResolvedSessions.Codex.ArchivedSessions,
 		CodexSessions:         loaded.ResolvedSessions.Codex.Sessions,
 		Pi:                    loaded.ResolvedSessions.Pi,
@@ -143,12 +178,13 @@ func newSessionsListCommand(load configLoader, list func(context.Context, sessio
 		Use:   "list",
 		Short: "List historical sessions, most recent first",
 		Long: `List historical sessions under the configured session roots, most
-recently started first. Most transcripts need only a short metadata read.
-Work transcripts are read until the first qualifying conversation event or
-the end of the file.
+recently started first. Claude Code, Pi, and Cowork usually need only a short
+metadata read. Codex and Work transcripts are read in full to collect workspace
+roots across saved turns. Cowork audits are read until a supported conversation
+event and a start time are found, or the end of the file.
 
 Each row carries the harness, recorded start time (or file modification time
-when unavailable), archive state, project directory, title where the grammar
+when unavailable), archive state, project directories, title where the grammar
 records one, and the canonical transcript path. Subagent and
 sidechain transcripts are excluded unless --subagents is set. --since keeps
 sessions still active at the given time; --until drops sessions started
@@ -163,8 +199,8 @@ diagnostic.
 ` + streamContractHelp + `
 
 ` + jsonContractHelp + ` List JSON includes "complete"; timestamps are
-RFC 3339, "archived" marks archive placement, and "subagent" marks
-non-primary transcripts.`,
+RFC 3339, "projects" is an array of paths, "archived" marks archive state,
+and "subagent" marks non-primary transcripts.`,
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			filter, err := filterFlags.filter(time.Now())
@@ -234,6 +270,13 @@ Codex and ChatGPT Work limitations: decoded search omits web-search events
 and may report one MCP call twice under different tool names. Use --raw to
 inspect those records in qualifying transcripts.
 
+Cowork decoded search supports user and assistant text, tool_use inputs,
+and tool_result text. Thinking, images, documents, system events, rate-limit
+events, and result summaries are not decoded search events. Only tool_result
+is_error flags match --errors; a session-level result.is_error is not a tool
+failure. Unknown tool names remain unset when the call is absent from the
+saved history. Use --raw to inspect other records in qualifying audits.
+
 ` + sessionHarnessHelp + `
 
 Unparseable transcript lines are skipped and reported as diagnostics without
@@ -243,7 +286,7 @@ prevent a complete search.
 ` + streamContractHelp + `
 
 ` + jsonContractHelp + ` Search JSON includes "complete"; each session
-carries an "archived" boolean and a "hits" array. Each hit carries "line", "role",
+carries "projects", an "archived" boolean, and a "hits" array. Each hit carries "line", "role",
 and "excerpt"; "tool" and "timestamp" appear when known, and "error" appears
 for known failures.`,
 		Args: cobra.MaximumNArgs(1),

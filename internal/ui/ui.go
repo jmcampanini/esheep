@@ -178,12 +178,12 @@ func WriteSessionList(writer io.Writer, report session.ListReport, color bool) e
 			string(entry.Harness),
 			sessionTime(entry),
 			sessionArchiveState(entry),
-			dashIfEmpty(clean(entry.Project)),
+			dashIfEmpty(clean(strings.Join(entry.Projects, ", "))),
 			dashIfEmpty(clean(entry.Title)),
 			clean(entry.Path),
 		})
 	}
-	return writeTable(writer, []string{"HARNESS", "STARTED", "ARCHIVE STATE", "PROJECT", "TITLE", "PATH"}, rows, color)
+	return writeTable(writer, []string{"HARNESS", "STARTED", "ARCHIVE STATE", "PROJECTS", "TITLE", "PATH"}, rows, color)
 }
 
 // WriteSessionListJSON writes one complete session inventory JSON document.
@@ -207,8 +207,8 @@ func WriteSessionSearch(writer io.Writer, report session.SearchReport) error {
 			}
 		}
 		header := []string{string(entry.Harness), sessionTime(entry.Session)}
-		if entry.Project != "" {
-			header = append(header, clean(entry.Project))
+		if len(entry.Projects) != 0 {
+			header = append(header, clean(strings.Join(entry.Projects, ", ")))
 		}
 		if entry.Title != "" {
 			header = append(header, clean(entry.Title))

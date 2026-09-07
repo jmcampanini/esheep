@@ -2,9 +2,13 @@
 
 esheep manages Agent Skills and a global agents file from human-maintained source directories and renders them for Claude Code, Pi, and Codex. The Codex target installs skills into the shared Agent Skills directory (`~/.agents/skills`) that Codex reads. esheep never accesses the network, executes source content, or creates, updates, or deletes source directories.
 
-esheep also finds historical harness sessions. `esheep sessions list` and `esheep sessions search` read the session transcripts Claude Code, Pi, Codex, and local ChatGPT Work tasks leave on disk, in place and read-only. Every result points at the canonical transcript file.
+esheep also finds historical harness sessions. `esheep sessions list` and `esheep sessions search` read the session transcripts Claude Code, Pi, Codex, local ChatGPT Work tasks, and local Claude Cowork conversations leave on disk, in place and read-only. Every result points at the canonical transcript file.
 
 Use `--harness chatgpt-work` to select identified local Work tasks, `--harness codex` for Codex CLI and desktop, or `--harness codex,chatgpt-work` for both. Unfiltered queries include all harnesses. Codex and Work share `[sessions.codex].home`, reading its `sessions/` and `archived_sessions/` directories. Both locations are included by default; use `--archive-state active` or `--archive-state archived` to select one. Work results require saved messages or supported tool records; partial history qualifies, while title-only and injected-context-only records do not. Results do not imply complete remote history.
+
+Use `--harness claude-cowork` for locally saved Cowork conversations. On macOS, esheep discovers their `audit.jsonl` files under Claude's standard Application Support location. Linux requires a configured path. Missing companion metadata does not hide readable messages; conversations without an archive flag are treated as active. Primary requests to subagents and their returned results are searchable by default; `--subagents` adds child activity, including records embedded in a Cowork audit.
+
+Every session reports a `projects` array. `--project` matches any recorded folder, including Cowork's selected host folders and Codex/Work workspace roots across saved turns. Folder filtering does not read the folders themselves.
 
 Command help is the canonical reference: `esheep --help` and each command's `--help` describe every user-facing contract, `esheep help skill-format` describes the authoring format, and `esheep help exit-codes` describes exit statuses.
 
@@ -82,5 +86,7 @@ agents_md_path = "~/custom-codex/AGENTS.md"
 Omitted settings retain their defaults. `esheep config --help` lists the target paths; `esheep config` shows every effective setting, including defaults.
 
 The Codex session home is selected by `--codex-home`, `ESHEEP_CODEX_HOME`, the TOML setting, `CODEX_HOME`, then `~/.codex`, in that order. Configuring one home determines both transcript locations.
+
+Set `[sessions.claude-cowork].path` to override Cowork's macOS default or provide its required path on Linux.
 
 Users own the settings file and source directories and choose how both are maintained. esheep never creates, updates, or deletes either one.

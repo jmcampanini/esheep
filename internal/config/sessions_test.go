@@ -5,11 +5,79 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/spf13/pflag"
 )
+
+func TestCoworkSessionLocationPrecedence(t *testing.T) {
+	for _, source := range []string{"default", "TOML", "environment", "flag", "disabled"} {
+		t.Run(source, func(t *testing.T) {
+			home, err := filepath.EvalSymlinks(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			env := testEnv(home, filepath.Join(home, "config"))
+			flags := pflag.NewFlagSet("test", pflag.ContinueOnError)
+			flags.SetOutput(io.Discard)
+			if err := RegisterFlags(flags); err != nil {
+				t.Fatal(err)
+			}
+			options := LoadOptions{Env: env, Flags: flags}
+			var want string
+			if runtime.GOOS == "darwin" {
+				want = "~/Library/Application Support/Claude/local-agent-mode-sessions"
+			}
+			if source != "default" {
+				options.ConfigPath = filepath.Join(home, "settings.toml")
+				want = "~/cowork-toml"
+				if err := os.WriteFile(options.ConfigPath, []byte("[sessions.claude-cowork]\npath = '~/cowork-toml'\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if source == "environment" || source == "flag" || source == "disabled" {
+				want = "~/cowork-env"
+				env["ESHEEP_CLAUDE_COWORK_SESSIONS_PATH"] = want
+			}
+			if source == "flag" || source == "disabled" {
+				want = "~/cowork-flag"
+				if source == "disabled" {
+					want = ""
+				}
+				if err := flags.Parse([]string{"--claude-cowork-sessions-path", want}); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			loaded, err := Load(options)
+
+			if err != nil {
+				t.Fatal(err)
+			}
+			resolved := ""
+			if want != "" {
+				resolved = filepath.Join(home, strings.TrimPrefix(want, "~/"))
+			}
+			if loaded.Config.Sessions.ClaudeCowork.Path != want || loaded.ResolvedSessions.ClaudeCowork != resolved {
+				t.Errorf("Cowork path = %q, resolved = %q, want %q / %q", loaded.Config.Sessions.ClaudeCowork.Path, loaded.ResolvedSessions.ClaudeCowork, want, resolved)
+			}
+			rendered, err := Render(loaded, ReportOptions{Provenance: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(string(rendered), "[sessions.claude-cowork]") || !strings.Contains(string(rendered), "# sessions.claude-cowork.path = ") {
+				t.Errorf("config report missing Cowork configuration: %s", rendered)
+			}
+			if resolved != "" {
+				if _, err := os.Stat(resolved); !os.IsNotExist(err) {
+					t.Errorf("configuration created Cowork storage: %v", err)
+				}
+			}
+		})
+	}
+}
 
 func TestCodexHomePrecedenceAndDerivedLocations(t *testing.T) {
 	for _, test := range []struct {
