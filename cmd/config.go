@@ -14,6 +14,18 @@ func newConfigCommand(load configLoader) *cobra.Command {
 by comments showing resolved configuration, source, and target paths.
 --provenance adds the source of each setting.
 
+Claude, Pi, and Codex are enabled by default. Target sections are optional.
+Set enabled = false to disable a target, or set skills_path or agents_md_path
+to override a path. Omitted settings retain these defaults:
+
+  Target  skills_path           agents_md_path
+  claude  ~/.claude/skills      ~/.claude/CLAUDE.md
+  pi      ~/.pi/agent/skills    ~/.pi/agent/AGENTS.md
+  codex   ~/.agents/skills      ~/.codex/AGENTS.md
+
+The output includes all effective settings, including defaults, so it
+contains more than you need to put in esheep.toml.
+
 ` + configResolutionHelp + `
 
 Source and target paths must be absolute, exactly '~', or begin with '~/'.

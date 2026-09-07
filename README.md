@@ -61,42 +61,25 @@ Each source is a container: skill directories live under `<source>/skills/`, and
 
 Profiles gate when a skill applies: a skill limited by an `esheep-only-profiles` frontmatter field or a `SKILL.<profile>.md` manifest variant installs only while one of its profiles is active. Agents file selection walks the active profiles in the same spirit. `esheep help skill-format` describes the formats.
 
-```toml
-profiles = ["work"]
-env_profiles = ["MACHINE_PROFILES"]
+Claude, Pi, and Codex are enabled by default and have built-in skills, agents file, and session paths. A source is enough to get started:
 
+```toml
 [[sources]]
 name = "personal"
 path = "~/Code/skills"
+```
 
-[[sources]]
-name = "work"
-path = "~/Code/work-skills"
+Add target settings only to disable a target or override a path. For example:
 
-[targets.claude]
-enabled = true
-skills_path = "~/.claude/skills"
-agents_md_path = "~/.claude/CLAUDE.md"
-
+```toml
 [targets.pi]
-enabled = true
-skills_path = "~/.pi/agent/skills"
-agents_md_path = "~/.pi/agent/AGENTS.md"
+enabled = false
 
 [targets.codex]
-enabled = true
-skills_path = "~/.agents/skills"
-agents_md_path = "~/.codex/AGENTS.md"
-
-[sessions.claude]
-path = "~/.claude/projects"
-
-[sessions.pi]
-path = "~/.pi/agent/sessions"
-
-[sessions.codex]
-home = "~/.codex"
+agents_md_path = "~/custom-codex/AGENTS.md"
 ```
+
+Omitted settings retain their defaults. `esheep config --help` lists the target paths; `esheep config` shows every effective setting, including defaults.
 
 The Codex session home is selected by `--codex-home`, `ESHEEP_CODEX_HOME`, the TOML setting, `CODEX_HOME`, then `~/.codex`, in that order. Configuring one home determines both transcript locations.
 
