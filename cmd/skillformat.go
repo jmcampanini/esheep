@@ -24,6 +24,7 @@ skipped at every depth before validation or copying. Hidden directories
 are not traversed, and hidden symlinks are not resolved. The exception is
 the skill-root .esheep.toml name, which is reserved case-insensitively for
 ownership metadata and is an error in a source skill.
+Visible directories remain even when all their contents are skipped.
 
 Sources are trusted: included symlinks are followed wherever they resolve,
 even when the resolved path contains hidden names. An included link that

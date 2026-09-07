@@ -157,7 +157,7 @@ func (walker *treeWalker) walkEntries(relative string, entries []os.DirEntry, an
 				continue
 			}
 			if strings.EqualFold(name, ".esheep.toml") {
-				walker.diagnostics = append(walker.diagnostics, Diagnostic{Code: CodeReservedPath, Path: name})
+				walker.diagnostics = append(walker.diagnostics, Diagnostic{Code: CodeReservedPath, Path: name, Detail: "skill-root name is reserved for esheep ownership metadata"})
 				continue
 			}
 		}

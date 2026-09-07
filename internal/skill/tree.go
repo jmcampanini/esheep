@@ -29,7 +29,7 @@ func validateTreeEntry(entries map[string]bool, relative string, directory bool)
 	}
 	key := naming.PathKey(relative)
 	if !strings.ContainsRune(key, '/') && key == ".esheep.toml" {
-		return []Diagnostic{{Code: CodeReservedPath, Path: relative}}
+		return []Diagnostic{{Code: CodeReservedPath, Path: relative, Detail: "skill-root name is reserved for esheep ownership metadata"}}
 	}
 	if _, duplicate := entries[key]; duplicate {
 		return []Diagnostic{{Code: CodePathCollision, Path: relative, Detail: "path is duplicated under case-insensitive Unicode-normalized comparison"}}
