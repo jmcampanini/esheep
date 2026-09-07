@@ -16,14 +16,22 @@ provide skills, an agents file, or both; a container without a skills/
 directory provides no skills, and one without an agents-md/ directory
 provides no agents file. Container-root files, including a
 repository-local AGENTS.md, are ignored: only agents-md/ holds managed
-instruction files. Dot-entries and node_modules are skipped. Sources are
-trusted: symlinks anywhere beneath a source are followed wherever they
-resolve. A link that does not resolve or produces a directory cycle is an
-error.
+instruction files. Skill discovery skips immediate children of skills/
+whose names start with '.' or equal node_modules.
+
+Within each skill, files and directories whose names start with '.' are
+skipped at every depth before validation or copying. Hidden directories
+are not traversed, and hidden symlinks are not resolved. The exception is
+the skill-root .esheep.toml name, which is reserved case-insensitively for
+ownership metadata and is an error in a source skill.
+Visible directories remain even when all their contents are skipped.
+
+Sources are trusted: included symlinks are followed wherever they resolve,
+even when the resolved path contains hidden names. An included link that
+does not resolve or produces a directory cycle is an error.
 Supporting files are validated and rendered as non-executable data, and
 supporting paths must be unique under case-insensitive Unicode-normalized
-comparison. The skill-root .esheep.toml name is reserved for ownership
-metadata.
+comparison.
 
 The agents file is opaque: esheep validates nothing inside it, copies it
 byte-identical, and an empty file is legal. Variants share the profile

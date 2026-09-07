@@ -206,7 +206,7 @@ func TestDiscoverRejectsCaseInsensitiveRootReservedNameOnly(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(nested, "support"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(nested, "support", ".EsHeEp.ToMl"), []byte("allowed"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(nested, "support", ".EsHeEp.ToMl"), []byte("ignored"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -214,7 +214,7 @@ func TestDiscoverRejectsCaseInsensitiveRootReservedNameOnly(t *testing.T) {
 	if len(catalog.ValidCandidates()) != 1 || catalog.ValidCandidates()[0].Package.Manifests[0].Document.Name != "nested" {
 		t.Fatalf("valid candidates = %#v", catalog.ValidCandidates())
 	}
-	if !hasSupportingPath(catalog.ValidCandidates()[0].Package.Files, "support/.EsHeEp.ToMl") {
+	if len(catalog.ValidCandidates()[0].Package.Files) != 0 {
 		t.Fatalf("nested support paths = %#v", catalog.ValidCandidates()[0].Package.Files)
 	}
 	for _, diagnostic := range catalog.Diagnostics {

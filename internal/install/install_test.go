@@ -91,6 +91,81 @@ func TestReconcileInstallsDetectsDriftAndRepairs(t *testing.T) {
 	}
 }
 
+func TestReconcileExcludesHiddenSourceEntriesAndRepairsHiddenDrift(t *testing.T) {
+	t.Parallel()
+	for _, target := range []render.Target{render.TargetClaude, render.TargetPi, render.TargetCodex} {
+		t.Run(string(target), func(t *testing.T) {
+			t.Parallel()
+			request := installRequest(t, filepath.Join(t.TempDir(), "target"))
+			request.Identity.Target = target
+			hiddenPaths := []string{".DS_Store", "support/.cache/data"}
+			for _, path := range append([]string{"support/guide.md"}, hiddenPaths...) {
+				absolute := filepath.Join(request.Package.Root, path)
+				if err := os.MkdirAll(filepath.Dir(absolute), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(absolute, []byte("payload"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			sourceBefore := snapshotDirectory(t, request.Package.Root)
+			loaded, err := skill.Load(request.Package.Root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			request.Package = loaded
+
+			installed, err := Reconcile(t.Context(), request)
+			if err != nil || installed.Action != ActionInstalled {
+				t.Fatalf("Reconcile() = %#v, %v, want %q", installed, err, ActionInstalled)
+			}
+
+			destination := filepath.Join(request.Root, request.Identity.Skill)
+			for _, path := range []string{".DS_Store", "support/.cache"} {
+				if _, err := os.Lstat(filepath.Join(destination, path)); !errors.Is(err, os.ErrNotExist) {
+					t.Errorf("installed hidden path %q: %v, want absent", path, err)
+				}
+			}
+			if data, err := os.ReadFile(filepath.Join(destination, "support/guide.md")); err != nil || string(data) != "payload" {
+				t.Fatalf("installed support file = %q, %v, want payload", data, err)
+			}
+			if state, err := Inspect(t.Context(), request); err != nil || state != StateSynced {
+				t.Fatalf("Inspect() = %q, %v, want %q", state, err, StateSynced)
+			}
+			installedTree := snapshotDirectory(t, destination)
+
+			for _, path := range hiddenPaths {
+				absolute := filepath.Join(destination, path)
+				if err := os.MkdirAll(filepath.Dir(absolute), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(absolute, []byte("payload"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if state, err := Inspect(t.Context(), request); err != nil || state != StateDrifted {
+				t.Fatalf("Inspect() with hidden content = %q, %v, want %q", state, err, StateDrifted)
+			}
+
+			repaired, err := Reconcile(t.Context(), request)
+			if err != nil || repaired.Action != ActionRepaired {
+				t.Fatalf("Reconcile() with hidden content = %#v, %v, want %q", repaired, err, ActionRepaired)
+			}
+
+			if got := snapshotDirectory(t, destination); got != installedTree {
+				t.Errorf("repaired tree = %q, want %q", got, installedTree)
+			}
+			if got := snapshotDirectory(t, request.Package.Root); got != sourceBefore {
+				t.Errorf("source tree = %q, want unchanged %q", got, sourceBefore)
+			}
+			unchanged, err := Reconcile(t.Context(), request)
+			if err != nil || unchanged.Action != ActionUnchanged {
+				t.Fatalf("Reconcile() after repair = %#v, %v, want %q", unchanged, err, ActionUnchanged)
+			}
+		})
+	}
+}
+
 func TestReconcileRefusesUnownedDestinationsAndAliases(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

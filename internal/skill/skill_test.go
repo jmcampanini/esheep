@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -201,14 +202,68 @@ func TestLoadFollowsCrossRepositorySymlinks(t *testing.T) {
 	}
 }
 
-func TestLoadTraversesDirectorySymlinks(t *testing.T) {
+func TestLoadSkipsHiddenEntriesBeforeValidation(t *testing.T) {
+	t.Parallel()
+	root := filepath.Join(t.TempDir(), "demo")
+	for _, directory := range []string{".git", "support/.cache"} {
+		if err := os.MkdirAll(filepath.Join(root, directory), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeLoadManifest(t, root)
+	for _, directory := range []string{".", "support"} {
+		for _, name := range []string{".env", ".DS_Store"} {
+			if err := os.WriteFile(filepath.Join(root, directory, name), []byte("hidden"), 0); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := os.WriteFile(filepath.Join(root, directory, "guide.v1.md"), []byte("visible"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := syscall.Mkfifo(filepath.Join(root, directory, ".pipe"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for name, target := range map[string]string{
+		".broken":              "missing",
+		".cycle":               ".",
+		".git/broken":          "missing",
+		"support/.broken":      "missing",
+		"support/.cycle":       ".",
+		"support/.cache/cycle": ".",
+	} {
+		if err := os.Symlink(target, filepath.Join(root, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	loaded, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if want := []string{"support"}; !slices.Equal(loaded.Directories, want) {
+		t.Errorf("Load().Directories = %#v, want %#v", loaded.Directories, want)
+	}
+	if want := []File{{Path: "guide.v1.md"}, {Path: "support/guide.v1.md"}}; !slices.Equal(loaded.Files, want) {
+		t.Errorf("Load().Files = %#v, want %#v", loaded.Files, want)
+	}
+}
+
+func TestLoadTraversesVisibleSymlinksToHiddenTargets(t *testing.T) {
 	t.Parallel()
 	parent := t.TempDir()
-	shared := filepath.Join(parent, "shared")
+	shared := filepath.Join(parent, ".shared")
 	if err := os.MkdirAll(filepath.Join(shared, "nested"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(shared, "nested", "data"), []byte("payload"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(shared, ".payload"), []byte("linked payload"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("missing", filepath.Join(shared, "nested", ".broken")); err != nil {
 		t.Fatal(err)
 	}
 	root := filepath.Join(parent, "demo")
@@ -218,7 +273,10 @@ func TestLoadTraversesDirectorySymlinks(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "SKILL.md"), []byte("---\nname: demo\ndescription: ok\nesheep-targets: [claude]\n---\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink("../shared", filepath.Join(root, "reference")); err != nil {
+	if err := os.Symlink("../.shared", filepath.Join(root, "reference")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("../.shared/.payload", filepath.Join(root, "data")); err != nil {
 		t.Fatal(err)
 	}
 
@@ -231,8 +289,8 @@ func TestLoadTraversesDirectorySymlinks(t *testing.T) {
 	if len(loaded.Directories) != len(wantDirectories) || loaded.Directories[0] != wantDirectories[0] || loaded.Directories[1] != wantDirectories[1] {
 		t.Fatalf("directories = %#v, want %#v", loaded.Directories, wantDirectories)
 	}
-	if len(loaded.Files) != 1 || loaded.Files[0].Path != "reference/nested/data" {
-		t.Fatalf("files = %#v", loaded.Files)
+	if want := []File{{Path: "data"}, {Path: "reference/nested/data"}}; !slices.Equal(loaded.Files, want) {
+		t.Errorf("Load().Files = %#v, want %#v", loaded.Files, want)
 	}
 }
 

@@ -35,8 +35,9 @@ func ParseManifestName(name string) (string, bool, error) {
 }
 
 // Load reads and validates one recognized skill directory without modifying
-// it. Symlinks are followed wherever they resolve; a link that does not
-// resolve is a diagnostic.
+// it. Dot entries are skipped before inspection at every depth, except the
+// reserved skill-root .esheep.toml name. Included symlinks are followed wherever
+// they resolve; a link that does not resolve is a diagnostic.
 func Load(root string) (Package, error) {
 	result := Package{Root: root}
 	entries, err := os.ReadDir(root)
@@ -156,10 +157,14 @@ func (walker *treeWalker) walkEntries(relative string, entries []os.DirEntry, an
 				continue
 			}
 			if strings.EqualFold(name, ".esheep.toml") {
-				walker.diagnostics = append(walker.diagnostics, Diagnostic{Code: CodeReservedPath, Path: name})
+				walker.diagnostics = append(walker.diagnostics, Diagnostic{Code: CodeReservedPath, Path: name, Detail: "skill-root name is reserved for esheep ownership metadata"})
 				continue
 			}
 		}
+		if strings.HasPrefix(name, ".") {
+			continue
+		}
+
 		walker.walkEntry(childRelative, ancestors)
 	}
 }
