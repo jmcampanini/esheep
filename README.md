@@ -57,6 +57,8 @@ make build
 
 The typical loop after changing a source skill is `esheep sync` followed by `esheep skills status`.
 
+Source skill manifests declare when to invoke the skill in `esheep-trigger`. esheep renders that text as `description` for each harness and reports it as `trigger` in list/status JSON. `esheep help skill-format` documents the source requirements.
+
 ## Configuration
 
 Settings are discovered at `$XDG_CONFIG_HOME/esheep/esheep.toml`, or `$HOME/.config/esheep/esheep.toml`; `--config PATH` replaces discovery. Source directories are configured only in the TOML file. Target enablement, paths, and active profiles can also come from `ESHEEP_*` variables and flags, with the full precedence documented in `esheep config --help`.

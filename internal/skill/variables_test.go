@@ -21,7 +21,7 @@ func TestParseAcceptsSourcesVariableOnOwnLine(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			input := "---\nname: demo\ndescription: ok\nesheep-targets: [claude]\n---\n" + test.body
+			input := "---\nname: demo\nesheep-trigger: ok\nesheep-targets: [claude]\n---\n" + test.body
 			if _, err := Parse([]byte(input), "demo", "SKILL.md"); err != nil {
 				t.Fatalf("Parse(%q): %v", test.body, err)
 			}
@@ -31,7 +31,7 @@ func TestParseAcceptsSourcesVariableOnOwnLine(t *testing.T) {
 
 func TestParseIgnoresVariableTextInFrontmatter(t *testing.T) {
 	t.Parallel()
-	input := "---\nname: demo\ndescription: '{{esheep.sources}}'\nesheep-targets: [claude]\n---\nbody"
+	input := "---\nname: demo\nesheep-trigger: '{{esheep.sources}}'\nesheep-targets: [claude]\n---\nbody"
 	if _, err := Parse([]byte(input), "demo", "SKILL.md"); err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +55,7 @@ func TestParseRejectsInvalidBodyVariables(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			input := "---\nname: demo\ndescription: ok\nesheep-targets: [claude]\n---\n" + test.body
+			input := "---\nname: demo\nesheep-trigger: ok\nesheep-targets: [claude]\n---\n" + test.body
 			_, err := Parse([]byte(input), "demo", "SKILL.md")
 			if err == nil {
 				t.Fatalf("Parse(%q) succeeded", test.body)

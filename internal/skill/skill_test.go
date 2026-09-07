@@ -15,13 +15,16 @@ import (
 func TestParsePreservesCRLFBodyAndOptionalPresence(t *testing.T) {
 	t.Parallel()
 	body := []byte("# Hello\r\n\x00tail")
-	input := append([]byte("---\r\nname: demo-skill\r\ndescription: ' useful '\r\nlicense: ''\r\ncompatibility: ''\r\nmetadata: {}\r\nesheep-targets: [claude, pi: [work]]\r\nesheep-only-profiles: [work]\r\n---\r\n"), body...)
+	input := append([]byte("---\r\nname: demo-skill\r\nesheep-trigger: ' useful '\r\nlicense: ''\r\ncompatibility: ''\r\nmetadata: {}\r\nesheep-targets: [claude, pi: [work]]\r\nesheep-only-profiles: [work]\r\n---\r\n"), body...)
 	document, err := Parse(input, "demo-skill", "SKILL.md")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if string(document.Body) != string(body) {
 		t.Fatalf("body = %q, want %q", document.Body, body)
+	}
+	if document.Trigger != " useful " {
+		t.Fatalf("trigger = %q, want preserved whitespace", document.Trigger)
 	}
 	if document.License == nil || *document.License != "" || document.Compatibility == nil || *document.Compatibility != "" {
 		t.Fatalf("optional strings = license %#v, compatibility %#v", document.License, document.Compatibility)
@@ -45,7 +48,7 @@ func TestParsePreservesCRLFBodyAndOptionalPresence(t *testing.T) {
 
 func TestParseDistinguishesAbsentOptionalFields(t *testing.T) {
 	t.Parallel()
-	document, err := Parse([]byte("---\nname: demo\ndescription: ok\nesheep-targets: [claude]\n---\n"), "demo", "SKILL.md")
+	document, err := Parse([]byte("---\nname: demo\nesheep-trigger: ok\nesheep-targets: [claude]\n---\n"), "demo", "SKILL.md")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +62,7 @@ func TestParsePreservesUninterpretedFieldsInOrder(t *testing.T) {
 	input := []byte("---\n" +
 		"name: demo\n" +
 		"allowed-tools: Bash\n" +
-		"description: ok\n" +
+		"esheep-trigger: ok\n" +
 		"disable-model-invocation: true\n" +
 		"hooks:\n" +
 		"  PreToolUse:\n" +
@@ -106,39 +109,43 @@ func TestParseRejectsInvalidDeclarativeFormat(t *testing.T) {
 		code Code
 	}{
 		{name: "missing frontmatter", dir: "demo", yaml: "name: demo\n", code: CodeFrontmatter},
-		{name: "duplicate common key", dir: "demo", yaml: "name: demo\nname: demo\ndescription: ok\nesheep-targets: [claude]\n", code: CodeYAML},
-		{name: "duplicate uninterpreted key", dir: "demo", yaml: "name: demo\ndescription: ok\nesheep-targets: [claude]\nextra: 1\nextra: 2\n", code: CodeInvalidValue},
-		{name: "unknown esheep key", dir: "demo", yaml: "name: demo\ndescription: ok\nesheep-targets: [claude]\nesheep-only-profile: [work]\n", code: CodeUnknownField},
-		{name: "invocation toggle is string", dir: "demo", yaml: "name: demo\ndescription: ok\nesheep-targets: [claude]\ndisable-model-invocation: 'yes'\n", code: CodeInvalidValue},
-		{name: "name is map", dir: "demo", yaml: "name: {}\ndescription: ok\nesheep-targets: [claude]\n", code: CodeInvalidValue},
-		{name: "license is boolean", dir: "demo", yaml: "name: demo\ndescription: ok\nesheep-targets: [claude]\nlicense: true\n", code: CodeInvalidValue},
-		{name: "metadata is scalar", dir: "demo", yaml: "name: demo\ndescription: ok\nesheep-targets: [claude]\nmetadata: no\n", code: CodeInvalidValue},
-		{name: "metadata value type", dir: "demo", yaml: "name: demo\ndescription: ok\nesheep-targets: [claude]\nmetadata:\n  count: 2\n", code: CodeInvalidValue},
-		{name: "targets missing", dir: "demo", yaml: "name: demo\ndescription: ok\n", code: CodeRequiredField},
-		{name: "targets is scalar", dir: "demo", yaml: "name: demo\ndescription: ok\nesheep-targets: claude\n", code: CodeInvalidValue},
-		{name: "targets is empty", dir: "demo", yaml: "name: demo\ndescription: ok\nesheep-targets: []\n", code: CodeInvalidValue},
-		{name: "target name is empty", dir: "demo", yaml: "name: demo\ndescription: ok\nesheep-targets: ['']\n", code: CodeInvalidValue},
-		{name: "targets unknown name", dir: "demo", yaml: "name: demo\ndescription: ok\nesheep-targets: [opencode]\n", code: CodeInvalidValue},
-		{name: "targets item is number", dir: "demo", yaml: "name: demo\ndescription: ok\nesheep-targets: [3]\n", code: CodeInvalidValue},
-		{name: "targets duplicate", dir: "demo", yaml: "name: demo\ndescription: ok\nesheep-targets: [claude, claude]\n", code: CodeInvalidValue},
-		{name: "targets entry multiple pairs", dir: "demo", yaml: "name: demo\ndescription: ok\nesheep-targets:\n  - claude: [work]\n    pi: [work]\n", code: CodeInvalidValue},
-		{name: "target gate is scalar", dir: "demo", yaml: "name: demo\ndescription: ok\nesheep-targets: [claude: work]\n", code: CodeInvalidValue},
-		{name: "target gate is empty", dir: "demo", yaml: "name: demo\ndescription: ok\nesheep-targets: [claude: []]\n", code: CodeInvalidValue},
-		{name: "target gate item is number", dir: "demo", yaml: "name: demo\ndescription: ok\nesheep-targets: [claude: [3]]\n", code: CodeInvalidValue},
-		{name: "target gate bad grammar", dir: "demo", yaml: "name: demo\ndescription: ok\nesheep-targets: [claude: [Work]]\n", code: CodeInvalidProfile},
-		{name: "target gate reserved name", dir: "demo", yaml: "name: demo\ndescription: ok\nesheep-targets: [claude: [base]]\n", code: CodeInvalidProfile},
-		{name: "target gate duplicate", dir: "demo", yaml: "name: demo\ndescription: ok\nesheep-targets: [claude: [work, work]]\n", code: CodeInvalidValue},
-		{name: "only-profiles is scalar", dir: "demo", yaml: "name: demo\ndescription: ok\nesheep-targets: [claude]\nesheep-only-profiles: work\n", code: CodeInvalidValue},
-		{name: "only-profiles is empty", dir: "demo", yaml: "name: demo\ndescription: ok\nesheep-targets: [claude]\nesheep-only-profiles: []\n", code: CodeInvalidValue},
-		{name: "only-profiles item is number", dir: "demo", yaml: "name: demo\ndescription: ok\nesheep-targets: [claude]\nesheep-only-profiles: [3]\n", code: CodeInvalidValue},
-		{name: "only-profiles bad grammar", dir: "demo", yaml: "name: demo\ndescription: ok\nesheep-targets: [claude]\nesheep-only-profiles: [Work]\n", code: CodeInvalidProfile},
-		{name: "only-profiles reserved name", dir: "demo", yaml: "name: demo\ndescription: ok\nesheep-targets: [claude]\nesheep-only-profiles: [base]\n", code: CodeInvalidProfile},
-		{name: "only-profiles duplicate", dir: "demo", yaml: "name: demo\ndescription: ok\nesheep-targets: [claude]\nesheep-only-profiles: [work, work]\n", code: CodeInvalidValue},
-		{name: "invalid name", dir: "bad_name", yaml: "name: bad_name\ndescription: ok\nesheep-targets: [claude]\n", code: CodeInvalidName},
-		{name: "directory mismatch", dir: "other", yaml: "name: demo\ndescription: ok\nesheep-targets: [claude]\n", code: CodeNameMismatch},
-		{name: "blank description", dir: "demo", yaml: "name: demo\ndescription: '  '\nesheep-targets: [claude]\n", code: CodeRequiredField},
-		{name: "long description", dir: "demo", yaml: "name: demo\ndescription: " + strings.Repeat("界", 1025) + "\nesheep-targets: [claude]\n", code: CodeInvalidValue},
-		{name: "long compatibility", dir: "demo", yaml: "name: demo\ndescription: ok\nesheep-targets: [claude]\ncompatibility: " + strings.Repeat("界", 501) + "\n", code: CodeInvalidValue},
+		{name: "duplicate common key", dir: "demo", yaml: "name: demo\nname: demo\nesheep-trigger: ok\nesheep-targets: [claude]\n", code: CodeYAML},
+		{name: "duplicate uninterpreted key", dir: "demo", yaml: "name: demo\nesheep-trigger: ok\nesheep-targets: [claude]\nextra: 1\nextra: 2\n", code: CodeInvalidValue},
+		{name: "unknown esheep key", dir: "demo", yaml: "name: demo\nesheep-trigger: ok\nesheep-targets: [claude]\nesheep-only-profile: [work]\n", code: CodeUnknownField},
+		{name: "invocation toggle is string", dir: "demo", yaml: "name: demo\nesheep-trigger: ok\nesheep-targets: [claude]\ndisable-model-invocation: 'yes'\n", code: CodeInvalidValue},
+		{name: "name is map", dir: "demo", yaml: "name: {}\nesheep-trigger: ok\nesheep-targets: [claude]\n", code: CodeInvalidValue},
+		{name: "license is boolean", dir: "demo", yaml: "name: demo\nesheep-trigger: ok\nesheep-targets: [claude]\nlicense: true\n", code: CodeInvalidValue},
+		{name: "metadata is scalar", dir: "demo", yaml: "name: demo\nesheep-trigger: ok\nesheep-targets: [claude]\nmetadata: no\n", code: CodeInvalidValue},
+		{name: "metadata value type", dir: "demo", yaml: "name: demo\nesheep-trigger: ok\nesheep-targets: [claude]\nmetadata:\n  count: 2\n", code: CodeInvalidValue},
+		{name: "targets missing", dir: "demo", yaml: "name: demo\nesheep-trigger: ok\n", code: CodeRequiredField},
+		{name: "targets is scalar", dir: "demo", yaml: "name: demo\nesheep-trigger: ok\nesheep-targets: claude\n", code: CodeInvalidValue},
+		{name: "targets is empty", dir: "demo", yaml: "name: demo\nesheep-trigger: ok\nesheep-targets: []\n", code: CodeInvalidValue},
+		{name: "target name is empty", dir: "demo", yaml: "name: demo\nesheep-trigger: ok\nesheep-targets: ['']\n", code: CodeInvalidValue},
+		{name: "targets unknown name", dir: "demo", yaml: "name: demo\nesheep-trigger: ok\nesheep-targets: [opencode]\n", code: CodeInvalidValue},
+		{name: "targets item is number", dir: "demo", yaml: "name: demo\nesheep-trigger: ok\nesheep-targets: [3]\n", code: CodeInvalidValue},
+		{name: "targets duplicate", dir: "demo", yaml: "name: demo\nesheep-trigger: ok\nesheep-targets: [claude, claude]\n", code: CodeInvalidValue},
+		{name: "targets entry multiple pairs", dir: "demo", yaml: "name: demo\nesheep-trigger: ok\nesheep-targets:\n  - claude: [work]\n    pi: [work]\n", code: CodeInvalidValue},
+		{name: "target gate is scalar", dir: "demo", yaml: "name: demo\nesheep-trigger: ok\nesheep-targets: [claude: work]\n", code: CodeInvalidValue},
+		{name: "target gate is empty", dir: "demo", yaml: "name: demo\nesheep-trigger: ok\nesheep-targets: [claude: []]\n", code: CodeInvalidValue},
+		{name: "target gate item is number", dir: "demo", yaml: "name: demo\nesheep-trigger: ok\nesheep-targets: [claude: [3]]\n", code: CodeInvalidValue},
+		{name: "target gate bad grammar", dir: "demo", yaml: "name: demo\nesheep-trigger: ok\nesheep-targets: [claude: [Work]]\n", code: CodeInvalidProfile},
+		{name: "target gate reserved name", dir: "demo", yaml: "name: demo\nesheep-trigger: ok\nesheep-targets: [claude: [base]]\n", code: CodeInvalidProfile},
+		{name: "target gate duplicate", dir: "demo", yaml: "name: demo\nesheep-trigger: ok\nesheep-targets: [claude: [work, work]]\n", code: CodeInvalidValue},
+		{name: "only-profiles is scalar", dir: "demo", yaml: "name: demo\nesheep-trigger: ok\nesheep-targets: [claude]\nesheep-only-profiles: work\n", code: CodeInvalidValue},
+		{name: "only-profiles is empty", dir: "demo", yaml: "name: demo\nesheep-trigger: ok\nesheep-targets: [claude]\nesheep-only-profiles: []\n", code: CodeInvalidValue},
+		{name: "only-profiles item is number", dir: "demo", yaml: "name: demo\nesheep-trigger: ok\nesheep-targets: [claude]\nesheep-only-profiles: [3]\n", code: CodeInvalidValue},
+		{name: "only-profiles bad grammar", dir: "demo", yaml: "name: demo\nesheep-trigger: ok\nesheep-targets: [claude]\nesheep-only-profiles: [Work]\n", code: CodeInvalidProfile},
+		{name: "only-profiles reserved name", dir: "demo", yaml: "name: demo\nesheep-trigger: ok\nesheep-targets: [claude]\nesheep-only-profiles: [base]\n", code: CodeInvalidProfile},
+		{name: "only-profiles duplicate", dir: "demo", yaml: "name: demo\nesheep-trigger: ok\nesheep-targets: [claude]\nesheep-only-profiles: [work, work]\n", code: CodeInvalidValue},
+		{name: "invalid name", dir: "bad_name", yaml: "name: bad_name\nesheep-trigger: ok\nesheep-targets: [claude]\n", code: CodeInvalidName},
+		{name: "directory mismatch", dir: "other", yaml: "name: demo\nesheep-trigger: ok\nesheep-targets: [claude]\n", code: CodeNameMismatch},
+		{name: "blank trigger", dir: "demo", yaml: "name: demo\nesheep-trigger: '  '\nesheep-targets: [claude]\n", code: CodeRequiredField},
+		{name: "missing trigger", dir: "demo", yaml: "name: demo\nesheep-targets: [claude]\n", code: CodeRequiredField},
+		{name: "trigger is number", dir: "demo", yaml: "name: demo\nesheep-trigger: 12\nesheep-targets: [claude]\n", code: CodeInvalidValue},
+		{name: "trigger is null", dir: "demo", yaml: "name: demo\nesheep-trigger: null\nesheep-targets: [claude]\n", code: CodeInvalidValue},
+		{name: "trigger is mapping", dir: "demo", yaml: "name: demo\nesheep-trigger: {}\nesheep-targets: [claude]\n", code: CodeInvalidValue},
+		{name: "long trigger", dir: "demo", yaml: "name: demo\nesheep-trigger: " + strings.Repeat("界", 1025) + "\nesheep-targets: [claude]\n", code: CodeInvalidValue},
+		{name: "long compatibility", dir: "demo", yaml: "name: demo\nesheep-trigger: ok\nesheep-targets: [claude]\ncompatibility: " + strings.Repeat("界", 501) + "\n", code: CodeInvalidValue},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -165,6 +172,63 @@ func TestParseRejectsInvalidDeclarativeFormat(t *testing.T) {
 	}
 }
 
+func TestParseRejectsRenderedDescription(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name   string
+		fields string
+	}{
+		{name: "description alone", fields: "description: invoke when asked\n"},
+		{name: "both fields", fields: "esheep-trigger: invoke when asked\ndescription: conflicting text\n"},
+		{name: "empty description", fields: "esheep-trigger: invoke when asked\ndescription: ''\n"},
+		{name: "null description", fields: "esheep-trigger: invoke when asked\ndescription: null\n"},
+		{name: "structured description", fields: "esheep-trigger: invoke when asked\ndescription: {text: invoke}\n"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			input := []byte("---\nname: demo\nesheep-targets: [claude]\n" + test.fields + "---\nbody\n")
+
+			document, err := Parse(input, "demo", "SKILL.md")
+
+			diagnostics := ErrorDiagnostics(err)
+			if !slices.ContainsFunc(diagnostics, func(diagnostic Diagnostic) bool {
+				return diagnostic.Code == CodeUnknownField && diagnostic.Field == "description" && diagnostic.Path == "SKILL.md"
+			}) {
+				t.Fatalf("Parse diagnostics = %#v, want rejected rendered field", diagnostics)
+			}
+			if len(document.Extra) != 0 {
+				t.Fatalf("Extra = %#v, want no rendered field passed through", document.Extra)
+			}
+		})
+	}
+}
+
+func TestParsePreservesDescriptionOutsideTopLevelFields(t *testing.T) {
+	t.Parallel()
+	const body = "Explain the description field.\n"
+	input := []byte("---\nname: demo\nesheep-trigger: invoke when asked\nesheep-targets: [claude]\ncustom:\n  description: nested text\n---\n" + body)
+
+	document, err := Parse(input, "demo", "SKILL.md")
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(document.Body) != body {
+		t.Fatalf("body = %q, want %q", document.Body, body)
+	}
+	if len(document.Extra) != 1 || document.Extra[0].Key != "custom" {
+		t.Fatalf("Extra = %#v, want custom field", document.Extra)
+	}
+	var custom map[string]string
+	if err := document.Extra[0].Value.Decode(&custom); err != nil {
+		t.Fatal(err)
+	}
+	if custom["description"] != "nested text" {
+		t.Fatalf("custom = %#v, want nested description preserved", custom)
+	}
+}
+
 func TestLoadFollowsCrossRepositorySymlinks(t *testing.T) {
 	t.Parallel()
 	parent := t.TempDir()
@@ -172,7 +236,7 @@ func TestLoadFollowsCrossRepositorySymlinks(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(overlay, "scripts"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(overlay, "SKILL.md"), []byte("---\nname: demo\ndescription: ok\nesheep-targets: [claude]\n---\nbody\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(overlay, "SKILL.md"), []byte("---\nname: demo\nesheep-trigger: ok\nesheep-targets: [claude]\n---\nbody\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(overlay, "scripts", "run.sh"), []byte("echo overlay\n"), 0o700); err != nil {
@@ -270,7 +334,7 @@ func TestLoadTraversesVisibleSymlinksToHiddenTargets(t *testing.T) {
 	if err := os.Mkdir(root, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "SKILL.md"), []byte("---\nname: demo\ndescription: ok\nesheep-targets: [claude]\n---\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "SKILL.md"), []byte("---\nname: demo\nesheep-trigger: ok\nesheep-targets: [claude]\n---\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Symlink("../.shared", filepath.Join(root, "reference")); err != nil {
@@ -366,7 +430,7 @@ func TestLoadReportsUnresolvableSymlinks(t *testing.T) {
 
 func writeLoadManifest(t *testing.T, root string) {
 	t.Helper()
-	if err := os.WriteFile(filepath.Join(root, "SKILL.md"), []byte("---\nname: demo\ndescription: ok\nesheep-targets: [claude]\n---\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "SKILL.md"), []byte("---\nname: demo\nesheep-trigger: ok\nesheep-targets: [claude]\n---\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -466,7 +530,7 @@ func TestValidateTreeRejectsPortablePathCollisionsAndTopology(t *testing.T) {
 
 func TestParseCountsUnicodeCharactersAtLimits(t *testing.T) {
 	t.Parallel()
-	input := "---\nname: demo\ndescription: " + strings.Repeat("界", 1024) + "\ncompatibility: " + strings.Repeat("界", 500) + "\nesheep-targets: [claude]\n---\n"
+	input := "---\nname: demo\nesheep-trigger: " + strings.Repeat("界", 1024) + "\ncompatibility: " + strings.Repeat("界", 500) + "\nesheep-targets: [claude]\n---\n"
 	if _, err := Parse([]byte(input), "demo", "SKILL.md"); err != nil {
 		t.Fatal(err)
 	}
@@ -635,8 +699,8 @@ func TestLoadReadsProfileVariantManifests(t *testing.T) {
 	if err := os.Mkdir(root, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeManifest := func(name, description string) {
-		content := "---\nname: demo\ndescription: " + description + "\nesheep-targets: [claude]\n---\nbody\n"
+	writeManifest := func(name, trigger string) {
+		content := "---\nname: demo\nesheep-trigger: " + trigger + "\nesheep-targets: [claude]\n---\nbody\n"
 		if err := os.WriteFile(filepath.Join(root, name), []byte(content), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -672,7 +736,7 @@ func TestLoadRejectsInvalidVariantProfileSegment(t *testing.T) {
 	if err := os.Mkdir(root, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "SKILL.Work.md"), []byte("---\nname: demo\ndescription: ok\n---\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "SKILL.Work.md"), []byte("---\nname: demo\nesheep-trigger: ok\n---\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -690,7 +754,7 @@ func TestLoadReportsVariantDiagnosticsUnderVariantPath(t *testing.T) {
 	if err := os.Mkdir(root, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "SKILL.md"), []byte("---\nname: demo\ndescription: ok\nesheep-targets: [claude]\n---\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "SKILL.md"), []byte("---\nname: demo\nesheep-trigger: ok\nesheep-targets: [claude]\n---\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(root, "SKILL.work.md"), []byte("---\nname: demo\nesheep-targets: [claude]\n---\n"), 0o600); err != nil {

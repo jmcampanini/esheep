@@ -16,7 +16,7 @@ import (
 
 const (
 	maxNameLength          = 64
-	maxDescriptionLength   = 1024
+	maxTriggerLength       = 1024
 	maxCompatibilityLength = 500
 )
 
@@ -122,10 +122,10 @@ type ExtraField struct {
 	Value *yaml.Node
 }
 
-// Document is a parsed manifest and its byte-exact Markdown body.
+// Document is a parsed source manifest and its byte-exact Markdown body.
 type Document struct {
 	Name                   string
-	Description            string
+	Trigger                string
 	License                *string
 	Compatibility          *string
 	Metadata               map[string]string
@@ -287,7 +287,7 @@ func intersects(gate, profiles []string) bool {
 
 type rawDocument struct {
 	Name                   string            `yaml:"name"`
-	Description            string            `yaml:"description"`
+	Trigger                string            `yaml:"esheep-trigger"`
 	License                *string           `yaml:"license"`
 	Compatibility          *string           `yaml:"compatibility"`
 	Metadata               map[string]string `yaml:"metadata"`
@@ -297,12 +297,11 @@ type rawDocument struct {
 
 // Parse parses frontmatter, preserves the Markdown body, and validates the
 // fields esheep interprets and the esheep variables the body uses. Fields it
-// does not interpret are preserved in
-// order for pass-through rendering, except that the esheep- key prefix is a
-// reserved namespace and unknown keys within it are errors. It returns a
-// partially decoded document with a ValidationError when possible so
-// discovery can still classify identities. Diagnostics report fileName as
-// their path.
+// does not interpret are preserved in order for pass-through rendering,
+// except description is reserved for rendered output and the esheep- key
+// prefix is a reserved namespace. It returns a partially decoded document
+// with a ValidationError when possible so discovery can still classify
+// identities. Diagnostics report fileName as their path.
 func Parse(data []byte, directoryName, fileName string) (Document, error) {
 	document, diagnostics := parse(data, directoryName)
 	for index := range diagnostics {
@@ -346,7 +345,7 @@ func parse(data []byte, directoryName string) (Document, []Diagnostic) {
 	}
 	document := Document{
 		Name:                   raw.Name,
-		Description:            raw.Description,
+		Trigger:                raw.Trigger,
 		License:                raw.License,
 		Compatibility:          raw.Compatibility,
 		Metadata:               raw.Metadata,
@@ -437,10 +436,12 @@ func validateShape(mapping *yaml.Node) ([]ExtraField, Targets, bool, []Diagnosti
 		}
 		seen[key] = struct{}{}
 		switch key {
-		case "name", "description", "license", "compatibility":
+		case "name", "esheep-trigger", "license", "compatibility":
 			if value.Kind != yaml.ScalarNode || value.Tag != "!!str" {
 				diagnostics = append(diagnostics, invalidType(key, "string"))
 			}
+		case "description":
+			diagnostics = append(diagnostics, Diagnostic{Code: CodeUnknownField, Field: key, Detail: "field is reserved for rendered output"})
 		case "disable-model-invocation":
 			if value.Kind != yaml.ScalarNode || value.Tag != "!!bool" {
 				diagnostics = append(diagnostics, invalidType(key, "boolean"))
@@ -583,10 +584,10 @@ func validateValues(document Document, directoryName string) []Diagnostic {
 			diagnostics = append(diagnostics, Diagnostic{Code: CodeNameMismatch, Field: "name"})
 		}
 	}
-	if strings.TrimSpace(document.Description) == "" {
-		diagnostics = append(diagnostics, Diagnostic{Code: CodeRequiredField, Field: "description"})
-	} else if utf8.RuneCountInString(document.Description) > maxDescriptionLength {
-		diagnostics = append(diagnostics, Diagnostic{Code: CodeInvalidValue, Field: "description", Detail: "value exceeds 1024 characters"})
+	if strings.TrimSpace(document.Trigger) == "" {
+		diagnostics = append(diagnostics, Diagnostic{Code: CodeRequiredField, Field: "esheep-trigger"})
+	} else if utf8.RuneCountInString(document.Trigger) > maxTriggerLength {
+		diagnostics = append(diagnostics, Diagnostic{Code: CodeInvalidValue, Field: "esheep-trigger", Detail: "value exceeds 1024 characters"})
 	}
 	if document.Compatibility != nil && utf8.RuneCountInString(*document.Compatibility) > maxCompatibilityLength {
 		diagnostics = append(diagnostics, Diagnostic{Code: CodeInvalidValue, Field: "compatibility", Detail: "value exceeds 500 characters"})

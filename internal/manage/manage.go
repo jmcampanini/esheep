@@ -44,13 +44,13 @@ type Diagnostic struct {
 // KnownSkill is one discovered source skill. ProfileGate limits when the skill
 // applies; an absent gate means every profile when HasManifest is true.
 type KnownSkill struct {
-	Description string    `json:"description,omitempty"`
 	Directory   string    `json:"directory"`
 	HasManifest bool      `json:"-"`
 	Path        string    `json:"path"`
 	ProfileGate []string  `json:"profile_gate,omitempty"`
 	Readiness   Readiness `json:"readiness"`
 	Source      string    `json:"source"`
+	Trigger     string    `json:"trigger,omitempty"`
 }
 
 // ListReport is the complete known-skill inventory.
@@ -63,7 +63,6 @@ type ListReport struct {
 
 // SkillStatus contains source readiness and available target states.
 type SkillStatus struct {
-	Description string                   `json:"description,omitempty"`
 	Directory   string                   `json:"directory"`
 	HasManifest bool                     `json:"-"`
 	Path        string                   `json:"path"`
@@ -71,6 +70,7 @@ type SkillStatus struct {
 	Readiness   Readiness                `json:"readiness"`
 	Source      string                   `json:"source"`
 	Targets     map[string]install.State `json:"targets"`
+	Trigger     string                   `json:"trigger,omitempty"`
 }
 
 // AgentsFileStatus reports the selected agents file and each target's
@@ -195,7 +195,6 @@ func Status(ctx context.Context, loaded config.LoadResult) StatusReport {
 		known := catalog.skills[index]
 		selection := catalog.selections[index]
 		row := SkillStatus{
-			Description: known.Description,
 			Directory:   known.Directory,
 			HasManifest: known.HasManifest,
 			Path:        known.Path,
@@ -203,6 +202,7 @@ func Status(ctx context.Context, loaded config.LoadResult) StatusReport {
 			Readiness:   known.Readiness,
 			Source:      known.Source,
 			Targets:     make(map[string]install.State),
+			Trigger:     known.Trigger,
 		}
 		if known.Readiness != ReadinessReady {
 			report.Healthy = false
@@ -390,26 +390,26 @@ func buildCatalog(ctx context.Context, loaded config.LoadResult) catalogResult {
 			})
 		}
 		result.skills = append(result.skills, KnownSkill{
-			Description: describe(candidate, selection),
 			Directory:   candidate.Location.RelativePath,
 			HasManifest: len(candidate.Package.Manifests) != 0,
 			Path:        candidate.Location.Path,
 			ProfileGate: candidate.Package.Gate(),
 			Readiness:   readiness,
 			Source:      candidate.Location.Source,
+			Trigger:     skillTrigger(candidate, selection),
 		})
 	}
 	return result
 }
 
-// describe prefers the selected manifest's description so reports reflect
+// skillTrigger prefers the selected manifest's trigger so reports reflect
 // what would render under the active profiles.
-func describe(candidate discovery.Candidate, selection skill.Selection) string {
+func skillTrigger(candidate discovery.Candidate, selection skill.Selection) string {
 	if selection.Active {
-		return selection.Manifest.Document.Description
+		return selection.Manifest.Document.Trigger
 	}
 	if len(candidate.Package.Manifests) != 0 {
-		return candidate.Package.Manifests[0].Document.Description
+		return candidate.Package.Manifests[0].Document.Trigger
 	}
 	return ""
 }

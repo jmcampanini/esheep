@@ -19,11 +19,11 @@ func TestSkillsListReportsAllKnownSkillsWithoutFailingOnValidation(t *testing.T)
 		return manage.ListReport{
 			Complete: true,
 			Diagnostics: []manage.Diagnostic{{
-				Code: "required-field", Field: "description", Message: "value is required",
+				Code: "required-field", Field: "esheep-trigger", Message: "value is required",
 				Path: "/source/broken/SKILL.md", Skill: "broken", Source: "local",
 			}},
 			Skills: []manage.KnownSkill{
-				{Description: "Ready skill", Directory: "ready", HasManifest: true, Path: "/source/ready", Readiness: manage.ReadinessReady, Source: "local"},
+				{Trigger: "Ready skill", Directory: "ready", HasManifest: true, Path: "/source/ready", Readiness: manage.ReadinessReady, Source: "local"},
 				{Directory: "broken", HasManifest: true, Path: "/source/broken", Readiness: manage.ReadinessInvalid, Source: "local"},
 			},
 		}
@@ -38,7 +38,7 @@ func TestSkillsListReportsAllKnownSkillsWithoutFailingOnValidation(t *testing.T)
 			t.Fatalf("stdout missing %q:\n%s", content, stdout)
 		}
 	}
-	if !strings.Contains(stderr, "/source/broken/SKILL.md: required-field: description: value is required") {
+	if !strings.Contains(stderr, "/source/broken/SKILL.md: required-field: esheep-trigger: value is required") {
 		t.Fatalf("stderr = %q", stderr)
 	}
 }
