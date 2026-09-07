@@ -69,8 +69,10 @@ marked with parent_tool_use_id inside the primary audit. An audit remains one
 session result. --raw searches all original lines in included transcripts,
 including embedded child activity, without decoding event roles.
 
-Missing locations are skipped with diagnostics. Unreadable inputs and detected
-file moves make the scan incomplete; rerun after moves finish. Unreadable
+Selecting a harness with no configured path reports a nonfatal diagnostic
+naming its setting. Disabled harnesses are skipped quietly when --harness is
+omitted. Missing locations are skipped with diagnostics. Unreadable inputs and
+detected file moves make the scan incomplete; rerun after moves finish. Unreadable
 Cowork companions make the scan incomplete while preserving readable hits.
 Scans are not
 atomic snapshots and do not retry. "complete" describes the filesystem scan,

@@ -248,6 +248,48 @@ func TestListMissingRootSkipsHarness(t *testing.T) {
 	}
 }
 
+func TestListDiagnosesOnlyExplicitlySelectedDisabledHarnesses(t *testing.T) {
+	configured := t.TempDir()
+	for _, test := range []struct {
+		filter  Filter
+		harness Harness
+		name    string
+		roots   Roots
+		setting string
+	}{
+		{name: "unfiltered disabled harnesses"},
+		{name: "unselected disabled harness", roots: Roots{Pi: configured}, filter: Filter{Harnesses: []Harness{HarnessPi}}},
+		{name: "Cowork selected repeatedly", filter: Filter{Harnesses: []Harness{HarnessClaudeCowork, HarnessClaudeCowork}}, harness: HarnessClaudeCowork, setting: "[sessions.claude-cowork].path"},
+		{name: "Claude", filter: Filter{Harnesses: []Harness{HarnessClaude}}, harness: HarnessClaude, setting: "[sessions.claude].path"},
+		{name: "Pi", filter: Filter{Harnesses: []Harness{HarnessPi}}, harness: HarnessPi, setting: "[sessions.pi].path"},
+		{name: "Work", filter: Filter{Harnesses: []Harness{HarnessChatGPTWork}}, harness: HarnessCodex, setting: "[sessions.codex].home"},
+		{name: "shared Codex and Work", filter: Filter{Harnesses: []Harness{HarnessCodex, HarnessChatGPTWork}}, harness: HarnessCodex, setting: "[sessions.codex].home"},
+		{name: "Codex active root configured", roots: Roots{CodexSessions: configured}, filter: Filter{Harnesses: []Harness{HarnessCodex, HarnessChatGPTWork}}},
+		{name: "Codex archive root configured", roots: Roots{CodexArchivedSessions: configured}, filter: Filter{Harnesses: []Harness{HarnessCodex, HarnessChatGPTWork}}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			report := List(context.Background(), test.roots, test.filter)
+
+			if !report.Complete || len(report.Sessions) != 0 {
+				t.Fatalf("List = %+v, want complete empty inventory", report)
+			}
+			if test.harness == "" {
+				if len(report.Diagnostics) != 0 {
+					t.Errorf("List diagnostics = %+v, want none", report.Diagnostics)
+				}
+				return
+			}
+			if len(report.Diagnostics) != 1 {
+				t.Fatalf("List diagnostics = %+v, want one disabled-harness diagnostic", report.Diagnostics)
+			}
+			diagnostic := report.Diagnostics[0]
+			if diagnostic.Code != codeRootDisabled || diagnostic.Harness != test.harness || diagnostic.Path != "" || !strings.Contains(diagnostic.Message, test.setting) {
+				t.Errorf("List diagnostic = %+v, want root-disabled for %s naming %s", diagnostic, test.harness, test.setting)
+			}
+		})
+	}
+}
+
 func TestSearchDecodedTextAcrossGrammars(t *testing.T) {
 	roots := fixtureRoots(t)
 

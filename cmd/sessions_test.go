@@ -93,6 +93,52 @@ func TestCoworkCommandsUseConfiguredStorageAndSharedOutput(t *testing.T) {
 	}
 }
 
+func TestDisabledCoworkCommandsReportConfigurationWithoutFailing(t *testing.T) {
+	base := t.TempDir()
+	load := func(options config.LoadOptions) (config.LoadResult, error) {
+		options.Env = map[string]string{"HOME": base, "XDG_CONFIG_HOME": filepath.Join(base, "config")}
+		return config.Load(options)
+	}
+	operations := commandOperations{sessionList: session.List, sessionSearch: session.Search}
+	for _, command := range [][]string{{"list"}, {"search", "needle"}} {
+		for _, jsonOutput := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/json=%t", command[0], jsonOutput), func(t *testing.T) {
+				args := append([]string{"sessions"}, command...)
+				args = append(args, "--harness", "claude-cowork", "--claude-cowork-sessions-path", "")
+				if jsonOutput {
+					args = append(args, "--json")
+				}
+
+				code, stdout, stderr := runCommandWithOperations(t, load, operations, args...)
+
+				if code != 0 {
+					t.Fatalf("exit = %d, stdout = %q, stderr = %q", code, stdout, stderr)
+				}
+				if !jsonOutput {
+					if !strings.Contains(stderr, "root-disabled") || !strings.Contains(stderr, "[sessions.claude-cowork].path") || strings.Contains(stdout, "root-disabled") {
+						t.Errorf("stdout = %q, stderr = %q, want configuration diagnostic only on stderr", stdout, stderr)
+					}
+					return
+				}
+				var report struct {
+					Complete    bool                 `json:"complete"`
+					Diagnostics []session.Diagnostic `json:"diagnostics"`
+				}
+				if err := json.Unmarshal([]byte(stdout), &report); err != nil {
+					t.Fatal(err)
+				}
+				if stderr != "" || !report.Complete || len(report.Diagnostics) != 1 {
+					t.Fatalf("report = %+v, stderr = %q, want complete report with one JSON diagnostic", report, stderr)
+				}
+				diagnostic := report.Diagnostics[0]
+				if diagnostic.Code != "root-disabled" || !strings.Contains(diagnostic.Message, "[sessions.claude-cowork].path") {
+					t.Errorf("JSON diagnostic = %+v, want configuration diagnostic", diagnostic)
+				}
+			})
+		}
+	}
+}
+
 func sessionLoader(t *testing.T) configLoader {
 	t.Helper()
 	return func(config.LoadOptions) (config.LoadResult, error) {

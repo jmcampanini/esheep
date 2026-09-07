@@ -105,7 +105,7 @@ type Match struct {
 	Hits []Hit `json:"hits"`
 }
 
-// Diagnostic is a stable session-reading failure record.
+// Diagnostic is a stable record of a session-reading issue.
 type Diagnostic struct {
 	Code    string  `json:"code"`
 	Harness Harness `json:"harness,omitempty"`
@@ -118,6 +118,7 @@ const (
 	codeMalformedLines  = "malformed-lines"
 	codeMetadataInvalid = "metadata-invalid"
 	codeMetadataRead    = "metadata-read"
+	codeRootDisabled    = "root-disabled"
 	codeRootMissing     = "root-missing"
 	codeRootUnusable    = "root-unusable"
 	codeTranscriptRead  = "transcript-read"
@@ -146,7 +147,8 @@ type SearchReport struct {
 }
 
 // Roots locates session storage. Codex and ChatGPT Work share active and
-// archive roots. Empty roots are omitted; callers resolve root aliases.
+// archive roots. Empty roots are omitted; an explicitly selected harness
+// with no roots produces a diagnostic. Callers resolve root aliases.
 type Roots struct {
 	Claude                string
 	ClaudeCowork          string
@@ -360,11 +362,16 @@ func matchEvent(e event, query SearchQuery) (Hit, bool) {
 // collect discovers, describes, filters, and orders the sessions in scope.
 func collect(ctx context.Context, roots Roots, filter Filter) ([]located, []Diagnostic, bool) {
 	var diagnostics []Diagnostic
+	selectedRoots := harnessRoots(roots, filter.Harnesses)
+	if len(filter.Harnesses) != 0 {
+		diagnostics = disabledHarnessDiagnostics(selectedRoots)
+	}
+
 	complete := true
 	var sessions []located
 	seen := make(map[fileIdentity]struct{})
 	seenRoots := make(map[string]struct{})
-	for _, root := range harnessRoots(roots, filter.Harnesses) {
+	for _, root := range selectedRoots {
 		if root.root == "" || (filter.ArchiveState == ArchiveArchived && root.harness != HarnessCodex && root.archiveState == ArchiveActive) {
 			continue
 		}
@@ -454,16 +461,17 @@ type harnessRoot struct {
 	archiveState ArchiveState
 	harness      Harness
 	root         string
+	setting      string
 }
 
 func harnessRoots(roots Roots, harnesses []Harness) []harnessRoot {
 	all := []harnessRoot{
 		// Archive locations take ownership before overlapping active locations.
-		{adapter: codexAdapter{}, archiveState: ArchiveArchived, harness: HarnessCodex, root: roots.CodexArchivedSessions},
-		{adapter: claudeAdapter{}, archiveState: ArchiveActive, harness: HarnessClaude, root: roots.Claude},
-		{adapter: coworkAdapter{root: roots.ClaudeCowork}, harness: HarnessClaudeCowork, root: roots.ClaudeCowork},
-		{adapter: codexAdapter{}, archiveState: ArchiveActive, harness: HarnessCodex, root: roots.CodexSessions},
-		{adapter: piAdapter{}, archiveState: ArchiveActive, harness: HarnessPi, root: roots.Pi},
+		{adapter: codexAdapter{}, archiveState: ArchiveArchived, harness: HarnessCodex, root: roots.CodexArchivedSessions, setting: "[sessions.codex].home"},
+		{adapter: claudeAdapter{}, archiveState: ArchiveActive, harness: HarnessClaude, root: roots.Claude, setting: "[sessions.claude].path"},
+		{adapter: coworkAdapter{root: roots.ClaudeCowork}, harness: HarnessClaudeCowork, root: roots.ClaudeCowork, setting: "[sessions.claude-cowork].path"},
+		{adapter: codexAdapter{}, archiveState: ArchiveActive, harness: HarnessCodex, root: roots.CodexSessions, setting: "[sessions.codex].home"},
+		{adapter: piAdapter{}, archiveState: ArchiveActive, harness: HarnessPi, root: roots.Pi, setting: "[sessions.pi].path"},
 	}
 	if len(harnesses) == 0 {
 		return all
@@ -482,6 +490,24 @@ func harnessRoots(roots Roots, harnesses []Harness) []harnessRoot {
 		}
 	}
 	return selected
+}
+
+func disabledHarnessDiagnostics(roots []harnessRoot) []Diagnostic {
+	var diagnostics []Diagnostic
+	for _, root := range roots {
+		if slices.ContainsFunc(roots, func(other harnessRoot) bool {
+			return other.harness == root.harness && other.root != ""
+		}) || slices.ContainsFunc(diagnostics, func(diagnostic Diagnostic) bool {
+			return diagnostic.Harness == root.harness
+		}) {
+			continue
+		}
+		diagnostics = append(diagnostics, Diagnostic{
+			Code: codeRootDisabled, Harness: root.harness,
+			Message: fmt.Sprintf("no session path configured; set %s to enable discovery", root.setting),
+		})
+	}
+	return diagnostics
 }
 
 func discoverRoot(root harnessRoot, includeSubagents bool) ([]transcript, []Diagnostic) {

@@ -46,6 +46,7 @@ func TestCoworkDiscoversOnlyQualifyingSessionAudits(t *testing.T) {
 		{name: "title", body: `{"type":"system","title":"needle"}`},
 		{name: "result", body: `{"type":"result","is_error":true,"result":"needle"}`},
 		{name: "injected", body: `{"type":"user","isMeta":true,"message":{"content":"needle"}}`},
+		{name: "synthetic", body: `{"type":"user","isSynthetic":true,"message":{"content":"needle"}}`},
 		{name: "unsupported", body: `{"type":"assistant","message":{"content":[{"type":"thinking","thinking":"needle"},{"type":"image"},{"type":"document"}]}}`},
 		{name: "empty"},
 	} {
@@ -93,7 +94,7 @@ func TestCoworkSearchKeepsPrimaryRequestsAndResponses(t *testing.T) {
 		`{"type":"user","parent_tool_use_id":"call","message":{"content":[{"type":"text","text":"needle child prompt"}]}}`,
 		`{"type":"assistant","parent_tool_use_id":"call","message":{"content":[{"type":"tool_use","id":"call","name":"Read","input":{"file":"needle.txt"}}]}}`,
 		`{"type":"user","parent_tool_use_id":"call","message":{"content":[{"type":"tool_result","tool_use_id":"call","is_error":true,"content":[{"type":"text","text":"needle child failure"}]}]}}`,
-		`{"type":"user","parent_tool_use_id":null,"message":{"content":[{"type":"tool_result","tool_use_id":"call","content":"needle child response with error text"}]}}`,
+		`{"type":"user","isSynthetic":true,"parent_tool_use_id":null,"message":{"content":[{"type":"text","text":"needle injected context"},{"type":"tool_result","tool_use_id":"call","content":"needle child response with error text"}]}}`,
 		`{"type":"assistant","message":{"content":[{"type":"text","text":"needle final"},{"type":"thinking","thinking":"needle hidden"},{"type":"image"},{"type":"document"}]}}`,
 		`{"type":"result","is_error":true,"result":"needle summary"}`,
 		`{"type":"rate_limit_event","details":"needle ignored"}`,

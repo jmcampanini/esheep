@@ -121,6 +121,7 @@ func readCoworkCompanion(path string, info os.FileInfo) ([]byte, error) {
 type coworkEnvelope struct {
 	AuditTimestamp  string          `json:"_audit_timestamp"`
 	IsMeta          bool            `json:"isMeta"`
+	IsSynthetic     bool            `json:"isSynthetic"`
 	Message         json.RawMessage `json:"message"`
 	ParentToolUseID string          `json:"parent_tool_use_id"`
 	Timestamp       string          `json:"timestamp"`
@@ -150,7 +151,7 @@ func (d *coworkDecoder) decode(envelope coworkEnvelope, base event, visit func(e
 	}
 	switch envelope.Type {
 	case "user":
-		claudeUserEvents(envelope.Message, envelope.IsMeta, base, names, visit)
+		claudeUserEvents(envelope.Message, envelope.IsMeta || envelope.IsSynthetic, base, names, visit)
 	case "assistant":
 		claudeAssistantEvents(envelope.Message, base, names, visit)
 	}
