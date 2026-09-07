@@ -26,7 +26,8 @@
 - Never modify an unmarked skill directory during install or prune operations.
 - Install managed skills atomically and record `source`, `skill`, and `target` ownership in `.esheep.toml` markers.
 - Leave disabled targets untouched during synchronization and pruning.
-- Treat sources as trusted: follow their symlinks wherever they resolve, and treat a link that does not resolve or produces a directory cycle as an error.
+- Skip dot-prefixed supporting entries before validation at every depth, except the reserved skill-root `.esheep.toml` name.
+- Treat sources as trusted: follow included symlinks wherever they resolve, and treat an included link that does not resolve or produces a directory cycle as an error.
 - Discover managed global instruction files only under each source's `agents-md/` directory; container-root `AGENTS*.md` files are repository content esheep never reads.
 - Preserve supporting files as non-executable data.
 - Validate the frontmatter fields esheep interprets; pass every other top-level field through verbatim without granting it any meaning of esheep's own.

@@ -240,33 +240,6 @@ func TestRenderRejectsInvalidConstructedTrees(t *testing.T) {
 	}
 }
 
-func TestRenderAllowsNestedReservedName(t *testing.T) {
-	t.Parallel()
-	staging := t.TempDir()
-	root := filepath.Join(t.TempDir(), "demo")
-	if err := os.MkdirAll(filepath.Join(root, "support"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "support", ".ESHEEP.TOML"), []byte("allowed"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	writeSkillManifest(t, root)
-	source, err := skill.Load(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := Render(staging, source, source.Manifests[0].Document, TargetClaude, nil, skill.Variables{}); err != nil {
-		t.Fatal(err)
-	}
-	data, err := os.ReadFile(filepath.Join(staging, "support", ".ESHEEP.TOML"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(data) != "allowed" {
-		t.Fatalf("nested data = %q", data)
-	}
-}
-
 func TestRenderRejectsNonemptyStaging(t *testing.T) {
 	t.Parallel()
 	staging := t.TempDir()
