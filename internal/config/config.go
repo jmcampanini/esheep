@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -65,6 +66,11 @@ type ClaudeSessions struct {
 	Path string `toml:"path" config:"claude-sessions-path" help:"session transcript root for Claude Code"`
 }
 
+// CoworkSessions locates Claude Cowork's local conversation storage.
+type CoworkSessions struct {
+	Path string `toml:"path" config:"claude-cowork-sessions-path" help:"local session root for Claude Cowork; empty disables discovery"`
+}
+
 // PiSessions locates Pi's session transcripts.
 type PiSessions struct {
 	Path string `toml:"path" config:"pi-sessions-path" help:"session transcript root for Pi"`
@@ -77,9 +83,10 @@ type CodexSessions struct {
 
 // Sessions contains the session transcript roots.
 type Sessions struct {
-	Claude ClaudeSessions `toml:"claude"`
-	Pi     PiSessions     `toml:"pi"`
-	Codex  CodexSessions  `toml:"codex"`
+	Claude       ClaudeSessions `toml:"claude"`
+	ClaudeCowork CoworkSessions `toml:"claude-cowork"`
+	Pi           PiSessions     `toml:"pi"`
+	Codex        CodexSessions  `toml:"codex"`
 }
 
 // Config is the complete human-owned esheep configuration.
@@ -132,9 +139,10 @@ type ResolvedCodexSessions struct {
 
 // ResolvedSessions contains canonical locations for each harness's session storage.
 type ResolvedSessions struct {
-	Claude string
-	Codex  ResolvedCodexSessions
-	Pi     string
+	Claude       string
+	ClaudeCowork string
+	Codex        ResolvedCodexSessions
+	Pi           string
 }
 
 // LoadResult is an effective configuration together with provenance and resolved paths.
@@ -334,6 +342,7 @@ func Render(result LoadResult, options ReportOptions) ([]byte, error) {
 	writeResolved("targets.codex.skills_path", result.ResolvedTargets.Codex.Skills)
 	writeResolved("targets.codex.agents_md_path", result.ResolvedTargets.Codex.AgentsMD)
 	writeResolved("sessions.claude.path", result.ResolvedSessions.Claude)
+	writeResolved("sessions.claude-cowork.path", result.ResolvedSessions.ClaudeCowork)
 	writeResolved("sessions.pi.path", result.ResolvedSessions.Pi)
 	writeResolved("sessions.codex.home", result.ResolvedSessions.Codex.Home)
 	writeResolved("sessions.codex.sessions", result.ResolvedSessions.Codex.Sessions)
@@ -370,6 +379,10 @@ func WriteReport(w io.Writer, result LoadResult, options ReportOptions) error {
 type flagConfig Config
 
 func defaults() flagConfig {
+	var coworkPath string
+	if runtime.GOOS == "darwin" {
+		coworkPath = "~/Library/Application Support/Claude/local-agent-mode-sessions"
+	}
 	return flagConfig{
 		Targets: Targets{
 			Claude: ClaudeTarget{Enabled: true, SkillsPath: "~/.claude/skills", AgentsMDPath: "~/.claude/CLAUDE.md"},
@@ -377,9 +390,10 @@ func defaults() flagConfig {
 			Codex:  CodexTarget{Enabled: true, SkillsPath: "~/.agents/skills", AgentsMDPath: "~/.codex/AGENTS.md"},
 		},
 		Sessions: Sessions{
-			Claude: ClaudeSessions{Path: "~/.claude/projects"},
-			Pi:     PiSessions{Path: "~/.pi/agent/sessions"},
-			Codex:  CodexSessions{Home: "~/.codex"},
+			Claude:       ClaudeSessions{Path: "~/.claude/projects"},
+			ClaudeCowork: CoworkSessions{Path: coworkPath},
+			Pi:           PiSessions{Path: "~/.pi/agent/sessions"},
+			Codex:        CodexSessions{Home: "~/.codex"},
 		},
 	}
 }
@@ -549,6 +563,12 @@ func resolveSessions(cfg Sessions, home string) (ResolvedSessions, error) {
 		return ResolvedSessions{}, err
 	}
 	resolved := ResolvedSessions{Codex: ResolvedCodexSessions{Home: codexHome}}
+	if cfg.ClaudeCowork.Path != "" {
+		resolved.ClaudeCowork, err = resolveManagedPath("sessions.claude-cowork.path", cfg.ClaudeCowork.Path, home)
+		if err != nil {
+			return ResolvedSessions{}, err
+		}
+	}
 	configured := []struct {
 		name     string
 		path     string

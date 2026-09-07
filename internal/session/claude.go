@@ -19,7 +19,7 @@ func (claudeAdapter) discover(root string, includeSubagents bool) ([]transcript,
 		isSubagent: func(path string) bool {
 			return filepath.Base(filepath.Dir(path)) == "subagents"
 		},
-		skipDir: func(entry fs.DirEntry) bool {
+		skipDir: func(_ string, entry fs.DirEntry) bool {
 			return !includeSubagents && entry.Name() == "subagents"
 		},
 	})
@@ -30,7 +30,7 @@ func (claudeAdapter) discover(root string, includeSubagents bool) ([]transcript,
 // timestamp, and ai-title usually lands early.
 const claudeMetaLimit = 512
 
-func (claudeAdapter) meta(t transcript) (Session, bool, error) {
+func (claudeAdapter) meta(t transcript) describedSession {
 	entry := Session{
 		Harness:    HarnessClaude,
 		ID:         strings.TrimSuffix(filepath.Base(t.path), ".jsonl"),
@@ -47,8 +47,8 @@ func (claudeAdapter) meta(t transcript) (Session, bool, error) {
 		if json.Unmarshal(data, &record) != nil {
 			return line < claudeMetaLimit
 		}
-		if entry.Project == "" {
-			entry.Project = record.Cwd
+		if len(entry.Projects) == 0 {
+			entry.Projects = projectPaths(record.Cwd)
 		}
 		if entry.StartedAt.IsZero() {
 			entry.StartedAt = parseTimestamp(record.Timestamp)
@@ -56,9 +56,9 @@ func (claudeAdapter) meta(t transcript) (Session, bool, error) {
 		if entry.Title == "" {
 			entry.Title = record.AiTitle
 		}
-		return line < claudeMetaLimit && (entry.Project == "" || entry.StartedAt.IsZero() || entry.Title == "")
+		return line < claudeMetaLimit && (len(entry.Projects) == 0 || entry.StartedAt.IsZero() || entry.Title == "")
 	})
-	return entry, true, err
+	return describedSession{eligible: true, err: err, session: entry}
 }
 
 func (claudeAdapter) scan(path string, visit func(event)) (int, error) {

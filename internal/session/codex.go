@@ -22,7 +22,7 @@ func (codexAdapter) discover(root string, _ bool) ([]transcript, []Diagnostic) {
 	return walkJSONLTranscripts(root, walkRules{})
 }
 
-func (codexAdapter) meta(t transcript) (Session, bool, error) {
+func (codexAdapter) meta(t transcript) describedSession {
 	entry := Session{
 		Harness:    HarnessCodex,
 		ID:         codexFallbackID(t.path),
@@ -31,18 +31,29 @@ func (codexAdapter) meta(t transcript) (Session, bool, error) {
 		Subagent:   t.subagent,
 	}
 	eligible := true
+	var cwd string
 	decoder := codexDecoder{toolNames: make(map[string]string)}
 	err := forEachLine(t.path, func(line int, data []byte) bool {
 		var envelope codexEnvelope
 		if json.Unmarshal(data, &envelope) != nil {
-			return !eligible
+			return true
 		}
 		if line > 1 {
-			decoder.decode(envelope, event{line: line}, func(event) { eligible = true })
-			return !eligible
+			if envelope.Type == "turn_context" {
+				var context struct {
+					WorkspaceRoots []string `json:"workspace_roots"`
+				}
+				if json.Unmarshal(envelope.Payload, &context) == nil {
+					entry.Projects = projectPaths(append(entry.Projects, context.WorkspaceRoots...)...)
+				}
+			}
+			if !eligible {
+				decoder.decode(envelope, event{line: line}, func(event) { eligible = true })
+			}
+			return true
 		}
 		if envelope.Type != "session_meta" {
-			return false
+			return true
 		}
 		entry.StartedAt = parseTimestamp(envelope.Timestamp)
 		var payload struct {
@@ -53,12 +64,12 @@ func (codexAdapter) meta(t transcript) (Session, bool, error) {
 			Timestamp  string          `json:"timestamp"`
 		}
 		if json.Unmarshal(envelope.Payload, &payload) != nil {
-			return false
+			return true
 		}
 		if payload.ID != "" {
 			entry.ID = payload.ID
 		}
-		entry.Project = payload.Cwd
+		cwd = payload.Cwd
 		if payload.Originator == "codex_work_desktop" {
 			entry.Harness = HarnessChatGPTWork
 			eligible = false
@@ -67,9 +78,12 @@ func (codexAdapter) meta(t transcript) (Session, bool, error) {
 		if entry.StartedAt.IsZero() {
 			entry.StartedAt = parseTimestamp(payload.Timestamp)
 		}
-		return !eligible
+		return true
 	})
-	return entry, eligible, err
+	if len(entry.Projects) == 0 {
+		entry.Projects = projectPaths(cwd)
+	}
+	return describedSession{eligible: eligible, err: err, session: entry}
 }
 
 func codexSubagentSource(raw json.RawMessage) bool {

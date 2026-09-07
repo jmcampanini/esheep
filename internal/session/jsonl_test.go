@@ -27,10 +27,10 @@ func TestTranscriptMovedBetweenDiscoveryAndMetadata(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, _, err := reader.meta(transcripts[0])
+	meta := reader.meta(transcripts[0])
 
-	if !errors.Is(err, os.ErrNotExist) {
-		t.Errorf("meta after move = %v, want not-exist", err)
+	if !errors.Is(meta.err, os.ErrNotExist) {
+		t.Errorf("meta after move = %v, want not-exist", meta.err)
 	}
 }
 

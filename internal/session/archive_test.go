@@ -263,3 +263,24 @@ func TestArchiveReadFailuresAffectCompleteness(t *testing.T) {
 		})
 	}
 }
+
+func TestArchiveFilterDoesNotReadExcludedTranscripts(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root can read permission-denied files")
+	}
+	base := t.TempDir()
+	roots := Roots{CodexSessions: filepath.Join(base, "sessions"), CodexArchivedSessions: filepath.Join(base, "archived_sessions")}
+	writeTranscript(t, filepath.Join(roots.CodexSessions, "active.jsonl"), time.Now(), `{"type":"session_meta","payload":{"id":"active"}}`)
+	archived := filepath.Join(roots.CodexArchivedSessions, "unreadable.jsonl")
+	writeTranscript(t, archived, time.Now(), `{"type":"session_meta","payload":{"id":"archived"}}`)
+	if err := os.Chmod(archived, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(archived, 0o600) })
+
+	report := List(context.Background(), roots, Filter{ArchiveState: ArchiveActive})
+
+	if !report.Complete || len(report.Diagnostics) != 0 || len(report.Sessions) != 1 || report.Sessions[0].ID != "active" {
+		t.Fatalf("active inventory = %+v", report)
+	}
+}

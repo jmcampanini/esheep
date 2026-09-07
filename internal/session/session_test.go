@@ -126,15 +126,15 @@ func TestListInventoriesMainSessionsAcrossHarnesses(t *testing.T) {
 	if claude.ID != "11111111-aaaa-bbbb-cccc-222222222222" {
 		t.Errorf("claude ID = %q", claude.ID)
 	}
-	if claude.Project != "/Users/u/proj" || claude.Title != "Debug permissions" {
-		t.Errorf("claude metadata = %q %q", claude.Project, claude.Title)
+	if len(claude.Projects) != 1 || claude.Projects[0] != "/Users/u/proj" || claude.Title != "Debug permissions" {
+		t.Errorf("claude metadata = %q %q", claude.Projects, claude.Title)
 	}
 	if got := claude.StartedAt; !got.Equal(time.Date(2026, 8, 20, 10, 0, 0, 0, time.UTC)) {
 		t.Errorf("claude StartedAt = %v", got)
 	}
 	codex := report.Sessions[0]
-	if codex.ID != "33333333-dddd-eeee-ffff-444444444444" || codex.Project != "/Users/u/codexproj" {
-		t.Errorf("codex metadata = %q %q", codex.ID, codex.Project)
+	if codex.ID != "33333333-dddd-eeee-ffff-444444444444" || len(codex.Projects) != 1 || codex.Projects[0] != "/Users/u/codexproj" {
+		t.Errorf("codex metadata = %q %q", codex.ID, codex.Projects)
 	}
 	pi := report.Sessions[2]
 	if pi.ID != "55555555-aaaa-bbbb-cccc-666666666666" || pi.Title != "Fix the suite" {
@@ -162,14 +162,14 @@ func TestListFindsTitlesAfterEarlyBookkeepingRecords(t *testing.T) {
 	writeTranscript(t, claudePath, time.Now(), claudeLines...)
 	writeTranscript(t, piPath, time.Now(), piLines...)
 
-	claude, _, claudeErr := (claudeAdapter{}).meta(transcript{path: claudePath})
-	pi, _, piErr := (piAdapter{}).meta(transcript{path: piPath})
+	claude := (claudeAdapter{}).meta(transcript{path: claudePath})
+	pi := (piAdapter{}).meta(transcript{path: piPath})
 
-	if claudeErr != nil || claude.Title != "Late Claude title" {
-		t.Errorf("Claude metadata = %+v, error = %v", claude, claudeErr)
+	if claude.err != nil || claude.session.Title != "Late Claude title" {
+		t.Errorf("Claude metadata = %+v", claude)
 	}
-	if piErr != nil || pi.Title != "Late Pi title" {
-		t.Errorf("Pi metadata = %+v, error = %v", pi, piErr)
+	if pi.err != nil || pi.session.Title != "Late Pi title" {
+		t.Errorf("Pi metadata = %+v", pi)
 	}
 }
 

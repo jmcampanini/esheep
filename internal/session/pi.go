@@ -18,7 +18,7 @@ func (piAdapter) discover(root string, _ bool) ([]transcript, []Diagnostic) {
 		isSubagent: func(path string) bool {
 			return fileExists(path + ".meta")
 		},
-		skipDir: func(entry fs.DirEntry) bool {
+		skipDir: func(_ string, entry fs.DirEntry) bool {
 			return entry.Name() == "artifacts"
 		},
 	})
@@ -27,7 +27,7 @@ func (piAdapter) discover(root string, _ bool) ([]transcript, []Diagnostic) {
 // piMetaLimit bounds the title prescan; session_info records land early.
 const piMetaLimit = 512
 
-func (piAdapter) meta(t transcript) (Session, bool, error) {
+func (piAdapter) meta(t transcript) describedSession {
 	entry := Session{Harness: HarnessPi, ModifiedAt: t.modTime, Path: t.path, Subagent: t.subagent}
 	err := forEachLine(t.path, func(line int, data []byte) bool {
 		var record struct {
@@ -43,22 +43,22 @@ func (piAdapter) meta(t transcript) (Session, bool, error) {
 		switch record.Type {
 		case "session":
 			entry.ID = record.ID
-			entry.Project = record.Cwd
+			entry.Projects = projectPaths(record.Cwd)
 			entry.StartedAt = parseTimestamp(record.Timestamp)
 		case "session_info":
 			if entry.Title == "" {
 				entry.Title = record.Name
 			}
 		}
-		return line < piMetaLimit && (entry.ID == "" || entry.Project == "" || entry.StartedAt.IsZero() || entry.Title == "")
+		return line < piMetaLimit && (entry.ID == "" || len(entry.Projects) == 0 || entry.StartedAt.IsZero() || entry.Title == "")
 	})
 	if err != nil {
-		return entry, true, err
+		return describedSession{eligible: true, err: err, session: entry}
 	}
 	if entry.ID == "" {
 		entry.ID = filepath.Base(t.path)
 	}
-	return entry, true, nil
+	return describedSession{eligible: true, session: entry}
 }
 
 func (piAdapter) scan(path string, visit func(event)) (int, error) {

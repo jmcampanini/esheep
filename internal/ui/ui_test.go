@@ -204,7 +204,7 @@ func TestWriteSessionListRendersPlaceholdersAndTimes(t *testing.T) {
 				Harness:   session.HarnessClaude,
 				ID:        "abc",
 				Path:      "/roots/claude/p/abc.jsonl",
-				Project:   "/Users/u/proj",
+				Projects:  []string{"/Users/u/proj"},
 				StartedAt: time.Date(2026, 8, 20, 10, 0, 0, 0, time.Local),
 				Title:     "Debug permissions",
 			},
