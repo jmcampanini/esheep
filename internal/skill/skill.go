@@ -334,7 +334,7 @@ func parse(data []byte, directoryName string) (Document, []Diagnostic) {
 		diagnostics = append(diagnostics, Diagnostic{Code: CodeYAML, Err: unmarshalErr})
 	}
 	if !targetsSeen {
-		diagnostics = append(diagnostics, Diagnostic{Code: CodeRequiredField, Field: "esheep-targets"})
+		diagnostics = append(diagnostics, Diagnostic{Code: CodeRequiredField, Field: "esheep-targets", Detail: "value is required"})
 	}
 	var raw rawDocument
 	if err := mapping.Decode(&raw); err != nil {
@@ -342,6 +342,9 @@ func parse(data []byte, directoryName string) (Document, []Diagnostic) {
 	}
 	if raw.Name == "" {
 		raw.Name = scalarField(mapping, "name")
+	}
+	if raw.Trigger == "" {
+		raw.Trigger = scalarField(mapping, "esheep-trigger")
 	}
 	document := Document{
 		Name:                   raw.Name,
@@ -441,7 +444,7 @@ func validateShape(mapping *yaml.Node) ([]ExtraField, Targets, bool, []Diagnosti
 				diagnostics = append(diagnostics, invalidType(key, "string"))
 			}
 		case "description":
-			diagnostics = append(diagnostics, Diagnostic{Code: CodeUnknownField, Field: key, Detail: "field is reserved for rendered output"})
+			diagnostics = append(diagnostics, Diagnostic{Code: CodeUnknownField, Field: key, Detail: "field is reserved for rendered output; invocation text belongs in esheep-trigger"})
 		case "disable-model-invocation":
 			if value.Kind != yaml.ScalarNode || value.Tag != "!!bool" {
 				diagnostics = append(diagnostics, invalidType(key, "boolean"))
@@ -575,7 +578,7 @@ func invalidType(field, expected string) Diagnostic {
 func validateValues(document Document, directoryName string) []Diagnostic {
 	var diagnostics []Diagnostic
 	if document.Name == "" {
-		diagnostics = append(diagnostics, Diagnostic{Code: CodeRequiredField, Field: "name"})
+		diagnostics = append(diagnostics, Diagnostic{Code: CodeRequiredField, Field: "name", Detail: "value is required"})
 	} else {
 		if len(document.Name) > maxNameLength || !namePattern.MatchString(document.Name) {
 			diagnostics = append(diagnostics, Diagnostic{Code: CodeInvalidName, Field: "name"})
@@ -585,7 +588,7 @@ func validateValues(document Document, directoryName string) []Diagnostic {
 		}
 	}
 	if strings.TrimSpace(document.Trigger) == "" {
-		diagnostics = append(diagnostics, Diagnostic{Code: CodeRequiredField, Field: "esheep-trigger"})
+		diagnostics = append(diagnostics, Diagnostic{Code: CodeRequiredField, Field: "esheep-trigger", Detail: "value is required"})
 	} else if utf8.RuneCountInString(document.Trigger) > maxTriggerLength {
 		diagnostics = append(diagnostics, Diagnostic{Code: CodeInvalidValue, Field: "esheep-trigger", Detail: "value exceeds 1024 characters"})
 	}
