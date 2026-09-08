@@ -61,6 +61,8 @@ func Render(staging string, source skill.Package, document skill.Document, targe
 		return false, err
 	}
 
+	variables.Harness = string(target)
+	variables.SkillRoot = source.Root
 	manifest, err := renderManifest(document, variables)
 	if err != nil {
 		return false, err
@@ -83,6 +85,9 @@ func renderTree(staging string, source skill.Package, document skill.Document, m
 		return err
 	}
 	for _, directory := range source.Directories {
+		if skill.SourceOnly(directory) {
+			continue
+		}
 		if err := makeDirectory(staging, directory); err != nil {
 			return err
 		}
@@ -91,6 +96,9 @@ func renderTree(staging string, source skill.Package, document skill.Document, m
 		return err
 	}
 	for _, file := range source.Files {
+		if skill.SourceOnly(file.Path) {
+			continue
+		}
 		if err := copySupportFile(source.Root, staging, file.Path); err != nil {
 			return err
 		}

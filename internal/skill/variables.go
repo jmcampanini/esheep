@@ -6,46 +6,84 @@ import (
 	"strings"
 )
 
-// The variablePrefix text is reserved everywhere in a manifest body: every
-// occurrence must begin a known variable, and a known variable must occupy
-// its own line. There is no escape syntax.
 const (
-	variablePrefix  = "{{esheep."
-	sourcesVariable = "{{esheep.sources}}"
+	variablePrefix        = "{{esheep."
+	sourcesVariable       = "{{esheep.sources}}"
+	includeVariablePrefix = "{{esheep.include-by-harness \""
 )
 
-// Variables contains the values substituted for esheep variables during
-// rendering.
+// Variables supplies source paths and the current skill and harness for body
+// expansion. SkillRoot and Harness are required only when an include is used.
 type Variables struct {
-	Sources []string
+	Harness   string
+	SkillRoot string
+	Sources   []string
 }
 
-// ExpandVariables replaces each esheep variable in body with its value:
-// {{esheep.sources}} becomes a Markdown bullet list of the source directories
-// in configuration order. A body that uses the variable requires at least one
-// source directory.
+type variableKind uint8
+
+const (
+	variableSources variableKind = iota
+	variableIncludeByHarness
+)
+
+type bodyVariable struct {
+	argument string
+	end      int
+	kind     variableKind
+	start    int
+}
+
+// ExpandVariables replaces whole-line esheep variables, recursively expanding
+// included harness files. Other bytes, including line endings, are preserved.
+// Generated source paths are literal values and are not expanded again.
 func ExpandVariables(body []byte, variables Variables) ([]byte, error) {
-	if !bytes.Contains(body, []byte(sourcesVariable)) {
+	return variables.expand(body, nil)
+}
+
+func (variables Variables) expand(body []byte, chain []includedFile) ([]byte, error) {
+	tokens, diagnostics := parseBodyVariables(body)
+	if len(diagnostics) != 0 {
+		return nil, fmt.Errorf("expand body: %s: %w", diagnostics[0].Detail, &ValidationError{Diagnostics: diagnostics})
+	}
+	if len(tokens) == 0 {
 		return body, nil
 	}
-	if len(variables.Sources) == 0 {
-		return nil, fmt.Errorf("expand %s: no source directories provided", sourcesVariable)
-	}
 
-	list := "- " + strings.Join(variables.Sources, "\n- ")
-	return bytes.ReplaceAll(body, []byte(sourcesVariable), []byte(list)), nil
+	var expanded bytes.Buffer
+	offset := 0
+	for _, token := range tokens {
+		expanded.Write(body[offset:token.start])
+		switch token.kind {
+		case variableSources:
+			if len(variables.Sources) == 0 {
+				return nil, fmt.Errorf("expand %s: no source directories provided", sourcesVariable)
+			}
+			expanded.WriteString("- " + strings.Join(variables.Sources, "\n- "))
+		case variableIncludeByHarness:
+			content, err := variables.include(token.argument, chain)
+			if err != nil {
+				return nil, err
+			}
+			expanded.Write(content)
+		}
+		offset = token.end
+	}
+	expanded.Write(body[offset:])
+	return expanded.Bytes(), nil
 }
 
-// validateBody rejects variable text that rendering would not replace.
-func validateBody(body []byte) []Diagnostic {
+func parseBodyVariables(body []byte) ([]bodyVariable, []Diagnostic) {
+	var tokens []bodyVariable
 	var diagnostics []Diagnostic
 	for offset := 0; ; {
 		index := bytes.Index(body[offset:], []byte(variablePrefix))
 		if index < 0 {
-			return diagnostics
+			return tokens, diagnostics
 		}
 		start := offset + index
-		if !bytes.HasPrefix(body[start:], []byte(sourcesVariable)) {
+		token, ok := parseVariable(body[start:])
+		if !ok {
 			diagnostics = append(diagnostics, Diagnostic{
 				Code:   CodeInvalidVariable,
 				Detail: fmt.Sprintf("unknown esheep variable %q", variableSnippet(body[start:])),
@@ -53,14 +91,40 @@ func validateBody(body []byte) []Diagnostic {
 			offset = start + len(variablePrefix)
 			continue
 		}
-		if !ownsLine(body, start, start+len(sourcesVariable)) {
+		token.start = start
+		token.end += start
+		if !ownsLine(body, token.start, token.end) {
 			diagnostics = append(diagnostics, Diagnostic{
 				Code:   CodeInvalidVariable,
-				Detail: sourcesVariable + " must occupy its own line",
+				Detail: string(body[token.start:token.end]) + " must occupy its own line",
 			})
 		}
-		offset = start + len(sourcesVariable)
+		tokens = append(tokens, token)
+		offset = token.end
 	}
+}
+
+func parseVariable(text []byte) (bodyVariable, bool) {
+	if bytes.HasPrefix(text, []byte(sourcesVariable)) {
+		return bodyVariable{end: len(sourcesVariable), kind: variableSources}, true
+	}
+	argument, ok := bytes.CutPrefix(text, []byte(includeVariablePrefix))
+	if !ok {
+		return bodyVariable{}, false
+	}
+	end := bytes.Index(argument, []byte("\"}}"))
+	if end < 0 {
+		return bodyVariable{}, false
+	}
+	prefix := string(argument[:end])
+	if !ValidName(prefix) {
+		return bodyVariable{}, false
+	}
+	return bodyVariable{
+		argument: prefix,
+		end:      len(includeVariablePrefix) + end + len("\"}}"),
+		kind:     variableIncludeByHarness,
+	}, true
 }
 
 // ownsLine reports whether body[start:end] is a complete line, allowing a
@@ -79,7 +143,7 @@ func ownsLine(body []byte, start, end int) bool {
 // variableSnippet extracts the unrecognized token for a diagnostic, ending at
 // its closing braces when they are near.
 func variableSnippet(text []byte) string {
-	const limit = 40
+	const limit = 120
 	if end := bytes.Index(text, []byte("}}")); end >= 0 && end+2 <= limit {
 		return string(text[:end+2])
 	}

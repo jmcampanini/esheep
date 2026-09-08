@@ -7,6 +7,19 @@ import (
 	"github.com/jmcampanini/esheep/internal/naming"
 )
 
+const sourceOnlyPrefix = "esheep-"
+
+// SourceOnly reports whether a skill-relative path or any ancestor has the
+// esheep- prefix. These entries are validated source inputs, never installed.
+func SourceOnly(relative string) bool {
+	for _, component := range strings.Split(relative, "/") {
+		if strings.HasPrefix(component, sourceOnlyPrefix) {
+			return true
+		}
+	}
+	return false
+}
+
 // ValidateTree validates package paths using target-filesystem comparison rules.
 func ValidateTree(source Package) []Diagnostic {
 	entries := map[string]bool{naming.PathKey(manifestName): false}

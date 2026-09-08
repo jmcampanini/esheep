@@ -359,13 +359,19 @@ func parse(data []byte, directoryName string) (Document, []Diagnostic) {
 		Body:                   body,
 	}
 	diagnostics = append(diagnostics, validateValues(document, directoryName)...)
-	diagnostics = append(diagnostics, validateBody(body)...)
+	_, bodyDiagnostics := parseBodyVariables(body)
+	diagnostics = append(diagnostics, bodyDiagnostics...)
 	return document, diagnostics
 }
 
 // ValidIdentity reports whether name has the approved grammar and matches its directory.
 func ValidIdentity(name, directoryName string) bool {
-	return len(name) <= maxNameLength && namePattern.MatchString(name) && name == directoryName
+	return ValidName(name) && name == directoryName
+}
+
+// ValidName reports whether name has the approved skill-name grammar.
+func ValidName(name string) bool {
+	return len(name) <= maxNameLength && namePattern.MatchString(name)
 }
 
 // ErrorDiagnostics returns validation diagnostics carried by err.
@@ -582,7 +588,7 @@ func validateValues(document Document, directoryName string) []Diagnostic {
 	if document.Name == "" {
 		diagnostics = append(diagnostics, Diagnostic{Code: CodeRequiredField, Field: "name", Detail: "value is required"})
 	} else {
-		if len(document.Name) > maxNameLength || !namePattern.MatchString(document.Name) {
+		if !ValidName(document.Name) {
 			diagnostics = append(diagnostics, Diagnostic{Code: CodeInvalidName, Field: "name"})
 		}
 		if document.Name != directoryName {

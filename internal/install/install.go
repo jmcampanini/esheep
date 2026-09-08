@@ -245,6 +245,7 @@ func reconcile(ctx context.Context, request Request, fsys filesystem) (result Re
 	stagingPath, err := renderInTransaction(transactionPath, request)
 	if err != nil {
 		result.Action = ActionFailed
+		result.Detail = err.Error()
 		return result, errors.Join(err, cleanupTransaction(fsys, root, transactionName))
 	}
 	stagingName := filepath.Join(transactionName, "staging")
