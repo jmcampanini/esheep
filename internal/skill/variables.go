@@ -117,7 +117,7 @@ func parseVariable(text []byte) (bodyVariable, bool) {
 		return bodyVariable{}, false
 	}
 	prefix := string(argument[:end])
-	if !ValidIdentity(prefix, prefix) {
+	if !ValidName(prefix) {
 		return bodyVariable{}, false
 	}
 	return bodyVariable{

@@ -432,6 +432,31 @@ func TestLoadReportsUnresolvableSymlinks(t *testing.T) {
 	}
 }
 
+func TestSourceOnlyEntriesRemainValidated(t *testing.T) {
+	t.Parallel()
+	root := filepath.Join(t.TempDir(), "demo")
+	directory := filepath.Join(root, "esheep-inputs")
+	if err := os.MkdirAll(directory, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeLoadManifest(t, root)
+	if err := os.Symlink("absent", filepath.Join(directory, "broken")); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := Load(root)
+	var invalid *ValidationError
+	if !errors.As(err, &invalid) {
+		t.Fatalf("Load() error = %v, want invalid source-only input", err)
+	}
+	for _, diagnostic := range invalid.Diagnostics {
+		if diagnostic.Path == "esheep-inputs/broken" && diagnostic.Code == CodeUnreadable {
+			return
+		}
+	}
+	t.Fatalf("diagnostics = %#v, want unreadable source-only path", invalid.Diagnostics)
+}
+
 func writeLoadManifest(t *testing.T, root string) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(root, "SKILL.md"), []byte("---\nname: demo\nesheep-trigger: ok\nesheep-targets: [claude]\n---\n"), 0o600); err != nil {

@@ -83,27 +83,3 @@ func TestRenderMissingIncludeLeavesStagingEmpty(t *testing.T) {
 		t.Fatalf("staging after failed render = %v, %v, want empty", entries, err)
 	}
 }
-
-func TestSourceOnlyEntriesRemainValidated(t *testing.T) {
-	t.Parallel()
-	source := loadManifestOnlyPackage(t)
-	directory := filepath.Join(source.Root, "esheep-inputs")
-	if err := os.Mkdir(directory, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink("absent", filepath.Join(directory, "broken")); err != nil {
-		t.Fatal(err)
-	}
-
-	_, err := skill.Load(source.Root)
-	var invalid *skill.ValidationError
-	if !errors.As(err, &invalid) {
-		t.Fatalf("Load() error = %v, want invalid source-only input", err)
-	}
-	for _, diagnostic := range invalid.Diagnostics {
-		if diagnostic.Path == "esheep-inputs/broken" && diagnostic.Code == skill.CodeUnreadable {
-			return
-		}
-	}
-	t.Fatalf("diagnostics = %#v, want unreadable source-only path", invalid.Diagnostics)
-}

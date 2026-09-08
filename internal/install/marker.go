@@ -37,7 +37,7 @@ func ParseMarker(data []byte) (Marker, error) {
 	if err := naming.ValidateSourceName(decoded.Source); err != nil {
 		return Marker{}, fmt.Errorf("parse ownership marker: %w", err)
 	}
-	if !skill.ValidIdentity(decoded.Skill, decoded.Skill) {
+	if !skill.ValidName(decoded.Skill) {
 		return Marker{}, fmt.Errorf("parse ownership marker: invalid skill %q", decoded.Skill)
 	}
 	target := render.Target(decoded.Target)
@@ -53,7 +53,7 @@ func MarshalMarker(marker Marker) ([]byte, error) {
 	if err := naming.ValidateSourceName(marker.Source); err != nil {
 		return nil, fmt.Errorf("marshal ownership marker: %w", err)
 	}
-	if !skill.ValidIdentity(marker.Skill, marker.Skill) {
+	if !skill.ValidName(marker.Skill) {
 		return nil, fmt.Errorf("marshal ownership marker: invalid skill %q", marker.Skill)
 	}
 	if !validTarget(marker.Target) {

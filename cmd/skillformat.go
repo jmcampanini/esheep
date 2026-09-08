@@ -29,7 +29,7 @@ the skill-root .esheep.toml name, which is reserved case-insensitively for
 ownership metadata and is an error in a source skill.
 Visible directories remain even when all their contents are skipped.
 
-Files and directories whose names start with the case-sensitive esheep-
+Within each skill, files and directories with the case-sensitive esheep-
 prefix are source-only at every depth. They and all descendants remain
 subject to source validation but are never copied into an installation.
 Harness include files use this prefix and stay in the source skill root.
