@@ -359,7 +359,8 @@ func parse(data []byte, directoryName string) (Document, []Diagnostic) {
 		Body:                   body,
 	}
 	diagnostics = append(diagnostics, validateValues(document, directoryName)...)
-	diagnostics = append(diagnostics, validateBody(body)...)
+	_, bodyDiagnostics := parseBodyVariables(body)
+	diagnostics = append(diagnostics, bodyDiagnostics...)
 	return document, diagnostics
 }
 

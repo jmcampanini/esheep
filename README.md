@@ -67,6 +67,8 @@ Each source is a container: skill directories live under `<source>/skills/`, and
 
 Profiles gate when a skill applies: a skill limited by an `esheep-only-profiles` frontmatter field or a `SKILL.<profile>.md` manifest variant installs only while one of its profiles is active. Agents file selection walks the active profiles in the same spirit. `esheep help skill-format` describes the formats.
 
+A skill can keep one name and shared frontmatter while varying its instructions by harness. A whole-line `{{esheep.include-by-harness "body"}}` inserts `esheep-body-pi.md`, `esheep-body-codex.md`, or `esheep-body-claude.md` from that skill's root. Included variables expand recursively with cycle detection and a nesting limit. Files and directories prefixed with `esheep-` are source-only and never installed. See `esheep help skill-format` for the complete include contract.
+
 Claude, Pi, and Codex are enabled by default and have built-in skills, agents file, and session paths. A source is enough to get started:
 
 ```toml

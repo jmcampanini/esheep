@@ -1,6 +1,9 @@
 package cmd
 
 import (
+	"fmt"
+
+	"github.com/jmcampanini/esheep/internal/skill"
 	"github.com/spf13/cobra"
 )
 
@@ -8,7 +11,7 @@ func newSkillFormatTopic() *cobra.Command {
 	return &cobra.Command{
 		Use:   "skill-format",
 		Short: "Source container layout, SKILL.md frontmatter, and the agents file",
-		Long: `Each source is a read-only container: skills are the immediate child
+		Long: fmt.Sprintf(`Each source is a read-only container: skills are the immediate child
 directories of its skills/ directory that contain a manifest, and an
 optional global agents file lives in the sibling agents-md/ directory as
 AGENTS.md or a profile variant AGENTS.<profile>.md. A container may
@@ -25,6 +28,11 @@ are not traversed, and hidden symlinks are not resolved. The exception is
 the skill-root .esheep.toml name, which is reserved case-insensitively for
 ownership metadata and is an error in a source skill.
 Visible directories remain even when all their contents are skipped.
+
+Files and directories whose names start with the case-sensitive esheep-
+prefix are source-only at every depth. They and all descendants remain
+subject to source validation but are never copied into an installation.
+Harness include files use this prefix and stay in the source skill root.
 
 Sources are trusted: included symlinks are followed wherever they resolve,
 even when the resolved path contains hidden names. An included link that
@@ -87,13 +95,16 @@ order and rendered for every target. esheep grants nothing itself; a
 passed-through field carries only the meaning the receiving harness gives
 it.
 
-The {{esheep. text is reserved everywhere in the body: every occurrence
-must be exactly a known variable, a known variable must occupy its own
-line, and there is no escape syntax. Anything else fails validation.
-Rendering replaces the variable line with its value on every target, and
-frontmatter and supporting files are never substituted. When a variable's
-value changes, the installed skills that use it drift and the next sync
-repairs them.
+The {{esheep. text is reserved everywhere in the manifest body and in
+included body files: every occurrence must be exactly a known variable,
+a known variable must occupy its own line without indentation, and there
+is no escape syntax. Anything else fails validation. Rendering substitutes
+each variable with its value, preserving all other bytes, including line
+endings. Included files are body text, without interpreted frontmatter.
+Frontmatter and copied supporting files are never substituted. When a
+variable or an included file changes the rendered output, that target's
+installation drifts and the next sync repairs it. Unused include files
+do not affect the installed output.
 
 Body variables:
 
@@ -102,11 +113,46 @@ Body variables:
                             absolute paths, one per line, in
                             configuration order.
 
+  {{esheep.include-by-harness "body"}}
+                            Insert esheep-body-<harness>.md from the skill
+                            root, using claude, pi, or codex for the current
+                            installation harness. Replace "body" with a
+                            1-64 character lowercase name using the skill
+                            name grammar. esheep adds the esheep- prefix,
+                            harness suffix, and .md extension. Paths are
+                            not accepted; every nested include also resolves
+                            from the skill root for the same harness.
+
+Variables in included files expand recursively. Include cycles, including
+symlink aliases, fail immediately. At most %d included-file levels are
+allowed; the manifest is level zero. Repeated includes outside the active
+include chain are allowed. Source-list values are literal paths and are
+not expanded again. There are no template expressions or executable hooks.
+
+Only enabled targets to which the selected manifest applies require their
+include files. Missing, unreadable, malformed, cyclic, or too deeply nested
+includes fail that target's rendering without replacing its existing
+managed installation. Synchronization continues unrelated work and exits
+nonzero on failure. Status compares managed installations against the same
+expanded output; absent installations are reported missing.
+
+For one personal skill with different Pi and Codex instructions, use:
+
+  skills/fable-review/SKILL.personal.md
+  skills/fable-review/esheep-body-pi.md
+  skills/fable-review/esheep-body-codex.md
+
+Keep name: fable-review, esheep-trigger describing when to invoke the skill,
+and esheep-targets: [pi, codex] in the manifest. Place
+{{esheep.include-by-harness "body"}} on its own body line. Both installations
+receive the same name and shared frontmatter, their expanded body, and
+ordinary supporting files. The include files are not installed.
+
 Rendering is deterministic. Every target receives the interpreted content
 fields and the passed-through fields. When disable-model-invocation is
 true, the Codex render also writes agents/openai.yaml containing
 'policy.allow_implicit_invocation: false' unless the skill provides that
-file itself.`,
+file itself.`, skill.MaxIncludeDepth),
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			return command.Help()

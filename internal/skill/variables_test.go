@@ -51,6 +51,12 @@ func TestParseRejectsInvalidBodyVariables(t *testing.T) {
 		{name: "trailing text", body: "{{esheep.sources}} here\n", detail: "must occupy its own line"},
 		{name: "indented", body: "  {{esheep.sources}}\n", detail: "must occupy its own line"},
 		{name: "adjacent variables", body: "{{esheep.sources}}{{esheep.sources}}\n", detail: "must occupy its own line"},
+		{name: "include relative path", body: "{{esheep.include-by-harness \"../body\"}}", detail: "unknown esheep variable"},
+		{name: "include empty prefix", body: "{{esheep.include-by-harness \"\"}}", detail: "unknown esheep variable"},
+		{name: "include unquoted prefix", body: "{{esheep.include-by-harness body}}", detail: "unknown esheep variable"},
+		{name: "include uppercase prefix", body: "{{esheep.include-by-harness \"Body\"}}", detail: "unknown esheep variable"},
+		{name: "include long prefix", body: "{{esheep.include-by-harness \"" + strings.Repeat("a", 65) + "\"}}", detail: "unknown esheep variable"},
+		{name: "include indented", body: "  {{esheep.include-by-harness \"body\"}}", detail: "must occupy its own line"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
