@@ -17,7 +17,7 @@ func TestHumanOutputRemovesTerminalControlsFromSourceData(t *testing.T) {
 	report := manage.ListReport{
 		Complete: true,
 		Skills: []manage.KnownSkill{{
-			Description: "safe\x1b[31m\nnext\u202espoof",
+			Trigger:     "safe\x1b[31m\nnext\u202espoof",
 			Directory:   "demo\rskill",
 			HasManifest: true,
 			Readiness:   manage.ReadinessReady,
@@ -32,7 +32,7 @@ func TestHumanOutputRemovesTerminalControlsFromSourceData(t *testing.T) {
 	if strings.ContainsRune(output.String(), '\x1b') || strings.ContainsRune(output.String(), '\r') || strings.ContainsRune(output.String(), '\u202e') {
 		t.Fatalf("output contains terminal controls: %q", output.String())
 	}
-	if !strings.Contains(output.String(), "safe [31m next") {
+	if !strings.Contains(output.String(), "TRIGGER") || !strings.Contains(output.String(), "safe [31m next") {
 		t.Fatalf("output = %q", output.String())
 	}
 }
@@ -113,7 +113,7 @@ func TestProfileGateCellDistinguishesUniversalFromMissingManifest(t *testing.T) 
 	}
 }
 
-func TestListAndStatusJSONNameEffectiveProfilesAndProfileGate(t *testing.T) {
+func TestListAndStatusJSONReportSourceFields(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name  string
@@ -125,7 +125,7 @@ func TestListAndStatusJSONNameEffectiveProfilesAndProfileGate(t *testing.T) {
 				return WriteListJSON(output, manage.ListReport{
 					Complete:          true,
 					EffectiveProfiles: []string{"work"},
-					Skills:            []manage.KnownSkill{{Directory: "gated", ProfileGate: []string{"work"}, Readiness: manage.ReadinessReady, Source: "local"}},
+					Skills:            []manage.KnownSkill{{Directory: "gated", ProfileGate: []string{"work"}, Readiness: manage.ReadinessReady, Source: "local", Trigger: "Use when asked"}},
 				})
 			},
 		},
@@ -135,7 +135,7 @@ func TestListAndStatusJSONNameEffectiveProfilesAndProfileGate(t *testing.T) {
 				return WriteStatusJSON(output, manage.StatusReport{
 					EffectiveProfiles: []string{"work"},
 					Healthy:           true,
-					Skills:            []manage.SkillStatus{{Directory: "gated", ProfileGate: []string{"work"}, Readiness: manage.ReadinessReady, Source: "local"}},
+					Skills:            []manage.SkillStatus{{Directory: "gated", ProfileGate: []string{"work"}, Readiness: manage.ReadinessReady, Source: "local", Trigger: "Use when asked"}},
 				})
 			},
 		},
@@ -153,6 +153,7 @@ func TestListAndStatusJSONNameEffectiveProfilesAndProfileGate(t *testing.T) {
 				EffectiveProfiles []string `json:"effective_profiles"`
 				Skills            []struct {
 					ProfileGate []string `json:"profile_gate"`
+					Trigger     string   `json:"trigger"`
 				} `json:"skills"`
 			}
 			if err := json.Unmarshal(output.Bytes(), &document); err != nil {
@@ -161,6 +162,9 @@ func TestListAndStatusJSONNameEffectiveProfilesAndProfileGate(t *testing.T) {
 			if len(document.EffectiveProfiles) != 1 || document.EffectiveProfiles[0] != "work" ||
 				len(document.Skills) != 1 || len(document.Skills[0].ProfileGate) != 1 || document.Skills[0].ProfileGate[0] != "work" {
 				t.Fatalf("document = %#v", document)
+			}
+			if document.Skills[0].Trigger != "Use when asked" {
+				t.Fatalf("trigger = %q, want invocation text", document.Skills[0].Trigger)
 			}
 		})
 	}

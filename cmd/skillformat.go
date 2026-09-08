@@ -58,9 +58,11 @@ Interpreted fields:
   name                      Required. 1-64 characters, lowercase
                             alphanumeric words separated by single hyphens,
                             equal to the skill directory name.
-  description               Required and nonempty. At most 1024 characters.
+  esheep-trigger            Required nonblank string. At most 1024 Unicode
+                            characters. States when to invoke the skill;
+                            renders as description for every target.
   license                   Optional string.
-  compatibility             Optional string. At most 500 characters.
+  compatibility             Optional string. At most 500 Unicode characters.
   metadata                  Optional string-to-string map.
   disable-model-invocation  Optional boolean. When true, rendered output
                             tells each target not to invoke the skill
@@ -76,8 +78,10 @@ Interpreted fields:
                             profile list matches no active profile are not
                             installed.
 
-The esheep- key prefix is reserved: interpreted esheep- keys configure
-esheep and are never rendered, and any other esheep- key is an error.
+The top-level description field is reserved case-insensitively for rendered
+output and is an error in every source manifest, including profile variants.
+The esheep- key prefix is reserved. Interpreted esheep- keys are never
+emitted under their source names; any other esheep- key is an error.
 Every other top-level field passes through unchanged, preserved in source
 order and rendered for every target. esheep grants nothing itself; a
 passed-through field carries only the meaning the receiving harness gives

@@ -128,7 +128,7 @@ func renderManifest(document skill.Document, variables skill.Variables) ([]byte,
 		)
 	}
 	appendString("name", document.Name)
-	appendString("description", document.Description)
+	appendString("description", document.Trigger)
 	if document.License != nil {
 		appendString("license", *document.License)
 	}

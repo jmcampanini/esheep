@@ -406,17 +406,17 @@ func TestDiscoverDoesNotOpenSpecialSourceRoot(t *testing.T) {
 	}
 }
 
-func writeSkill(t *testing.T, root, name, description string) {
+func writeSkill(t *testing.T, root, name, trigger string) {
 	t.Helper()
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeManifest(t, filepath.Join(root, "SKILL.md"), name, description)
+	writeManifest(t, filepath.Join(root, "SKILL.md"), name, trigger)
 }
 
-func writeManifest(t *testing.T, path, name, description string) {
+func writeManifest(t *testing.T, path, name, trigger string) {
 	t.Helper()
-	contents := "---\nname: " + name + "\ndescription: '" + description + "'\nesheep-targets: [claude, pi, codex]\n---\n# Body\n"
+	contents := "---\nname: " + name + "\nesheep-trigger: '" + trigger + "'\nesheep-targets: [claude, pi, codex]\n---\n# Body\n"
 	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
 		t.Fatal(err)
 	}

@@ -494,7 +494,7 @@ func TestSourcesVariableWorkflow(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	manifest := "---\nname: locator\ndescription: 'Locator skill'\nesheep-targets: [claude]\n---\n# Sources\n\n{{esheep.sources}}\n"
+	manifest := "---\nname: locator\nesheep-trigger: 'Locator skill'\nesheep-targets: [claude]\n---\n# Sources\n\n{{esheep.sources}}\n"
 	if err := os.WriteFile(filepath.Join(alpha, "skills", "locator", "SKILL.md"), []byte(manifest), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -717,13 +717,13 @@ enabled = false
 	}
 }
 
-func writeE2ESkill(t *testing.T, source, name, description, extra string, support map[string]string) {
+func writeE2ESkill(t *testing.T, source, name, trigger, extra string, support map[string]string) {
 	t.Helper()
 	root := filepath.Join(source, name)
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	manifest := "---\nname: " + name + "\ndescription: '" + description + "'\n"
+	manifest := "---\nname: " + name + "\nesheep-trigger: '" + trigger + "'\n"
 	if !strings.Contains(extra, "esheep-targets:") {
 		manifest += "esheep-targets: [claude, pi, codex]\n"
 	}
@@ -742,13 +742,13 @@ func writeE2ESkill(t *testing.T, source, name, description, extra string, suppor
 	}
 }
 
-func writeE2EVariantManifest(t *testing.T, source, name, profile, description string) {
+func writeE2EVariantManifest(t *testing.T, source, name, profile, trigger string) {
 	t.Helper()
 	root := filepath.Join(source, name)
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	manifest := "---\nname: " + name + "\ndescription: '" + description + "'\nesheep-targets: [claude, pi, codex]\n---\n# Body\n"
+	manifest := "---\nname: " + name + "\nesheep-trigger: '" + trigger + "'\nesheep-targets: [claude, pi, codex]\n---\n# Body\n"
 	if err := os.WriteFile(filepath.Join(root, "SKILL."+profile+".md"), []byte(manifest), 0o600); err != nil {
 		t.Fatal(err)
 	}

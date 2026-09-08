@@ -37,10 +37,10 @@ func WriteList(writer io.Writer, report manage.ListReport, color bool) error {
 	rows := make([][]string, 0, len(report.Skills))
 	for _, known := range report.Skills {
 		rows = append(rows, []string{
-			clean(known.Source), clean(known.Directory), string(known.Readiness), profileGateCell(known.ProfileGate, known.HasManifest), clean(known.Description),
+			clean(known.Source), clean(known.Directory), string(known.Readiness), profileGateCell(known.ProfileGate, known.HasManifest), clean(known.Trigger),
 		})
 	}
-	return writeTable(writer, []string{"SOURCE", "SKILL", "READINESS", "PROFILE GATE", "DESCRIPTION"}, rows, color)
+	return writeTable(writer, []string{"SOURCE", "SKILL", "READINESS", "PROFILE GATE", "TRIGGER"}, rows, color)
 }
 
 // WriteListJSON writes one complete known-skill JSON document.

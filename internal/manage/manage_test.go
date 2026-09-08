@@ -291,6 +291,12 @@ func TestSyncSelectsVariantsAndPrunesInactiveProfileSkills(t *testing.T) {
 		t.Fatalf("summary = %#v", report.Summary)
 	}
 	assertManifestContains(t, filepath.Join(claude, "variant", "SKILL.md"), "Work")
+	if got := findKnownSkill(t, List(context.Background(), loaded), "source", "variant").Trigger; got != "Work" {
+		t.Fatalf("list trigger = %q, want selected variant", got)
+	}
+	if got := findStatus(t, Status(context.Background(), loaded), "source", "variant").Trigger; got != "Work" {
+		t.Fatalf("status trigger = %q, want selected variant", got)
+	}
 
 	loaded.EffectiveProfiles = nil
 	report = Sync(context.Background(), loaded)
@@ -609,13 +615,13 @@ func writeSourceAgentsFile(t *testing.T, source, name, content string) {
 	}
 }
 
-func writeSourceSkill(t *testing.T, source, name, description, extra string) {
+func writeSourceSkill(t *testing.T, source, name, trigger, extra string) {
 	t.Helper()
 	root := filepath.Join(source, "skills", name)
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	manifest := "---\nname: " + name + "\ndescription: '" + description + "'\n"
+	manifest := "---\nname: " + name + "\nesheep-trigger: '" + trigger + "'\n"
 	if !strings.Contains(extra, "esheep-targets:") {
 		manifest += "esheep-targets: [claude, pi, codex]\n"
 	}
@@ -625,13 +631,13 @@ func writeSourceSkill(t *testing.T, source, name, description, extra string) {
 	}
 }
 
-func writeVariantManifest(t *testing.T, source, name, profile, description string) {
+func writeVariantManifest(t *testing.T, source, name, profile, trigger string) {
 	t.Helper()
 	root := filepath.Join(source, "skills", name)
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	manifest := "---\nname: " + name + "\ndescription: '" + description + "'\nesheep-targets: [claude, pi, codex]\n---\nbody\n"
+	manifest := "---\nname: " + name + "\nesheep-trigger: '" + trigger + "'\nesheep-targets: [claude, pi, codex]\n---\nbody\n"
 	if err := os.WriteFile(filepath.Join(root, "SKILL."+profile+".md"), []byte(manifest), 0o600); err != nil {
 		t.Fatal(err)
 	}

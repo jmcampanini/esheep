@@ -48,7 +48,8 @@ filesystem failures prevent complete discovery.
 ` + streamContractHelp + `
 
 ` + jsonContractHelp + ` List JSON includes "complete" and
-"effective_profiles". Each skill's optional "profile_gate" lists the profiles
+"effective_profiles". Each skill's optional "trigger" contains its invocation
+text from esheep-trigger. Its optional "profile_gate" lists the profiles
 that limit manifest selection.`,
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
@@ -110,8 +111,9 @@ target's agents file is synced.
 
 ` + jsonContractHelp + ` Status JSON includes "healthy",
 "effective_profiles", and an optional "agents_file" section naming the
-selected source file and per-target states. Each skill's optional
-"profile_gate" lists the profiles that limit manifest selection.`,
+selected source file and per-target states. Each skill's optional "trigger"
+contains its invocation text from esheep-trigger. Its optional "profile_gate"
+lists the profiles that limit manifest selection.`,
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			loaded, err := loadConfiguration(command, load)

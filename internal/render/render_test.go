@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/jmcampanini/esheep/internal/skill"
-	"go.yaml.in/yaml/v3"
 )
 
 func TestRenderExactTargetTrees(t *testing.T) {
@@ -20,7 +19,20 @@ func TestRenderExactTargetTrees(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(root, "empty"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeSkillManifest(t, root)
+	const manifest = "---\n" +
+		"name: demo\n" +
+		"esheep-trigger: A demo\n" +
+		"license: MIT\n" +
+		"compatibility: macOS and Linux\n" +
+		"metadata: {z: last, a: first}\n" +
+		"disable-model-invocation: true\n" +
+		"allowed-tools: Bash\n" +
+		"hooks:\n  PreToolUse:\n    - matcher: Bash\n" +
+		"esheep-targets: [claude, pi, codex]\n" +
+		"---\n# Body\r\nexact\x00"
+	if err := os.WriteFile(filepath.Join(root, "SKILL.md"), []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(root, "nested", "data"), []byte{0, 1, 2}, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -28,20 +40,7 @@ func TestRenderExactTargetTrees(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	document := skill.Document{
-		Name:                   "demo",
-		Description:            "A demo",
-		License:                stringPointer("MIT"),
-		Compatibility:          stringPointer("macOS and Linux"),
-		Metadata:               map[string]string{"z": "last", "a": "first"},
-		DisableModelInvocation: true,
-		Extra: []skill.ExtraField{
-			{Key: "allowed-tools", Value: yamlValue(t, "Bash")},
-			{Key: "hooks", Value: yamlValue(t, "PreToolUse:\n  - matcher: Bash\n")},
-		},
-		Targets: allTargetsListed(),
-		Body:    []byte("# Body\r\nexact\x00"),
-	}
+	document := source.Manifests[0].Document
 	tests := []struct {
 		target      Target
 		golden      string
@@ -85,22 +84,12 @@ func TestRenderExactTargetTrees(t *testing.T) {
 	}
 }
 
-// yamlValue parses text and returns its root value node for pass-through tests.
-func yamlValue(t *testing.T, text string) *yaml.Node {
-	t.Helper()
-	var node yaml.Node
-	if err := yaml.Unmarshal([]byte(text), &node); err != nil {
-		t.Fatal(err)
-	}
-	return node.Content[0]
-}
-
 func TestRenderPreservesEmptyOptionalFields(t *testing.T) {
 	t.Parallel()
 	source := loadManifestOnlyPackage(t)
 	document := skill.Document{
 		Name:          "demo",
-		Description:   "ok",
+		Trigger:       "ok",
 		License:       stringPointer(""),
 		Compatibility: stringPointer(""),
 		Metadata:      map[string]string{},
@@ -124,10 +113,10 @@ func TestRenderExpandsSourcesVariable(t *testing.T) {
 	t.Parallel()
 	source := loadManifestOnlyPackage(t)
 	document := skill.Document{
-		Name:        "demo",
-		Description: "ok",
-		Targets:     allTargetsListed(),
-		Body:        []byte("Sources:\n{{esheep.sources}}\ntail\n"),
+		Name:    "demo",
+		Trigger: "ok",
+		Targets: allTargetsListed(),
+		Body:    []byte("Sources:\n{{esheep.sources}}\ntail\n"),
 	}
 	variables := skill.Variables{Sources: []string{"/alpha", "/beta"}}
 
@@ -150,10 +139,10 @@ func TestRenderRejectsSourcesVariableWithoutSources(t *testing.T) {
 	t.Parallel()
 	source := loadManifestOnlyPackage(t)
 	document := skill.Document{
-		Name:        "demo",
-		Description: "ok",
-		Targets:     allTargetsListed(),
-		Body:        []byte("{{esheep.sources}}\n"),
+		Name:    "demo",
+		Trigger: "ok",
+		Targets: allTargetsListed(),
+		Body:    []byte("{{esheep.sources}}\n"),
 	}
 
 	if _, err := Render(t.TempDir(), source, document, TargetClaude, nil, skill.Variables{}); err == nil {
@@ -222,7 +211,7 @@ func TestRenderRejectsInvalidConstructedTrees(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := Render(staging, source, skill.Document{Name: "demo", Description: "ok", Targets: allTargetsListed()}, TargetClaude, nil, skill.Variables{}); err == nil {
+			if _, err := Render(staging, source, skill.Document{Name: "demo", Trigger: "ok", Targets: allTargetsListed()}, TargetClaude, nil, skill.Variables{}); err == nil {
 				t.Fatal("invalid tree rendered")
 			}
 			after, err := os.Stat(staging)
@@ -246,7 +235,7 @@ func TestRenderRejectsNonemptyStaging(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(staging, "existing"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Render(staging, skill.Package{}, skill.Document{Name: "demo", Description: "ok", Targets: allTargetsListed()}, TargetClaude, nil, skill.Variables{}); err == nil {
+	if _, err := Render(staging, skill.Package{}, skill.Document{Name: "demo", Trigger: "ok", Targets: allTargetsListed()}, TargetClaude, nil, skill.Variables{}); err == nil {
 		t.Fatal("nonempty staging rendered")
 	}
 }
@@ -414,7 +403,7 @@ func loadRenderSkill(t *testing.T) (string, skill.Package) {
 
 func writeSkillManifest(t *testing.T, root string) {
 	t.Helper()
-	if err := os.WriteFile(filepath.Join(root, "SKILL.md"), []byte("---\nname: demo\ndescription: ok\nesheep-targets: [claude, pi, codex]\n---\nbody\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "SKILL.md"), []byte("---\nname: demo\nesheep-trigger: ok\nesheep-targets: [claude, pi, codex]\n---\nbody\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }
