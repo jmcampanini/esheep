@@ -175,14 +175,18 @@ func TestParseRejectsInvalidDeclarativeFormat(t *testing.T) {
 func TestParseRejectsRenderedDescription(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name   string
 		fields string
+		key    string
+		name   string
 	}{
-		{name: "description alone", fields: "description: invoke when asked\n"},
-		{name: "both fields", fields: "esheep-trigger: invoke when asked\ndescription: conflicting text\n"},
-		{name: "empty description", fields: "esheep-trigger: invoke when asked\ndescription: ''\n"},
-		{name: "null description", fields: "esheep-trigger: invoke when asked\ndescription: null\n"},
-		{name: "structured description", fields: "esheep-trigger: invoke when asked\ndescription: {text: invoke}\n"},
+		{name: "description alone", key: "description", fields: "description: invoke when asked\n"},
+		{name: "both fields", key: "description", fields: "esheep-trigger: invoke when asked\ndescription: conflicting text\n"},
+		{name: "empty description", key: "description", fields: "esheep-trigger: invoke when asked\ndescription: ''\n"},
+		{name: "null description", key: "description", fields: "esheep-trigger: invoke when asked\ndescription: null\n"},
+		{name: "structured description", key: "description", fields: "esheep-trigger: invoke when asked\ndescription: {text: invoke}\n"},
+		{name: "title case description", key: "Description", fields: "esheep-trigger: invoke when asked\nDescription: conflicting text\n"},
+		{name: "uppercase description", key: "DESCRIPTION", fields: "esheep-trigger: invoke when asked\nDESCRIPTION: conflicting text\n"},
+		{name: "mixed case description", key: "dEsCrIpTiOn", fields: "esheep-trigger: invoke when asked\ndEsCrIpTiOn: conflicting text\n"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -193,7 +197,7 @@ func TestParseRejectsRenderedDescription(t *testing.T) {
 
 			diagnostics := ErrorDiagnostics(err)
 			if !slices.ContainsFunc(diagnostics, func(diagnostic Diagnostic) bool {
-				return diagnostic.Code == CodeUnknownField && diagnostic.Field == "description" && diagnostic.Path == "SKILL.md"
+				return diagnostic.Code == CodeUnknownField && diagnostic.Field == test.key && diagnostic.Path == "SKILL.md"
 			}) {
 				t.Fatalf("Parse diagnostics = %#v, want rejected rendered field", diagnostics)
 			}

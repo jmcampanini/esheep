@@ -78,8 +78,8 @@ Interpreted fields:
                             profile list matches no active profile are not
                             installed.
 
-The top-level description field is reserved for rendered output and is
-an error in every source manifest, including profile variants.
+The top-level description field is reserved case-insensitively for rendered
+output and is an error in every source manifest, including profile variants.
 The esheep- key prefix is reserved. Interpreted esheep- keys are never
 emitted under their source names; any other esheep- key is an error.
 Every other top-level field passes through unchanged, preserved in source

@@ -298,8 +298,8 @@ type rawDocument struct {
 // Parse parses frontmatter, preserves the Markdown body, and validates the
 // fields esheep interprets and the esheep variables the body uses. Fields it
 // does not interpret are preserved in order for pass-through rendering,
-// except description is reserved for rendered output and the esheep- key
-// prefix is a reserved namespace. It returns a partially decoded document
+// except description is reserved case-insensitively for rendered output and
+// the esheep- key prefix is a reserved namespace. It returns a partially decoded document
 // with a ValidationError when possible so discovery can still classify
 // identities. Diagnostics report fileName as their path.
 func Parse(data []byte, directoryName, fileName string) (Document, error) {
@@ -438,13 +438,15 @@ func validateShape(mapping *yaml.Node) ([]ExtraField, Targets, bool, []Diagnosti
 			diagnostics = append(diagnostics, Diagnostic{Code: CodeInvalidValue, Field: key, Detail: "duplicate field"})
 		}
 		seen[key] = struct{}{}
+		if strings.EqualFold(key, "description") {
+			diagnostics = append(diagnostics, Diagnostic{Code: CodeUnknownField, Field: key, Detail: "field is reserved for rendered output; invocation text belongs in esheep-trigger"})
+			continue
+		}
 		switch key {
 		case "name", "esheep-trigger", "license", "compatibility":
 			if value.Kind != yaml.ScalarNode || value.Tag != "!!str" {
 				diagnostics = append(diagnostics, invalidType(key, "string"))
 			}
-		case "description":
-			diagnostics = append(diagnostics, Diagnostic{Code: CodeUnknownField, Field: key, Detail: "field is reserved for rendered output; invocation text belongs in esheep-trigger"})
 		case "disable-model-invocation":
 			if value.Kind != yaml.ScalarNode || value.Tag != "!!bool" {
 				diagnostics = append(diagnostics, invalidType(key, "boolean"))
