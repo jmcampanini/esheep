@@ -165,7 +165,8 @@ func TestSessionsListPassesFilterAndRoots(t *testing.T) {
 	}
 
 	code, _, stderr := runCommandWithOperations(t, sessionLoader(t), operations,
-		"sessions", "list", "--harness", "claude,pi", "--project", "esheep", "--since", "7d", "--subagents", "--archive-state", "active")
+		"sessions", "list", "--harness", "claude,pi", "--project", "esheep", "--since", "7d", "--subagents", "--archive-state", "active",
+		"--id", "first,second", "--id", "third")
 
 	if code != 0 {
 		t.Fatalf("exit code = %d, stderr = %q", code, stderr)
@@ -179,6 +180,9 @@ func TestSessionsListPassesFilterAndRoots(t *testing.T) {
 	if !gotFilter.IncludeSubagents || gotFilter.Project != "esheep" || gotFilter.ArchiveState != session.ArchiveActive {
 		t.Errorf("filter = %+v", gotFilter)
 	}
+	if !slices.Equal(gotFilter.IDs, []string{"first", "second", "third"}) {
+		t.Errorf("IDs = %v, want first, second, third", gotFilter.IDs)
+	}
 	want := time.Now().AddDate(0, 0, -7)
 	if gotFilter.Since.IsZero() || gotFilter.Since.Sub(want).Abs() > time.Minute {
 		t.Errorf("since = %v, want about %v", gotFilter.Since, want)
@@ -186,16 +190,19 @@ func TestSessionsListPassesFilterAndRoots(t *testing.T) {
 }
 
 func TestSessionsSearchPassesQuery(t *testing.T) {
+	var gotFilter session.Filter
 	var gotQuery session.SearchQuery
 	operations := commandOperations{
-		sessionSearch: func(_ context.Context, _ session.Roots, _ session.Filter, query session.SearchQuery) session.SearchReport {
+		sessionSearch: func(_ context.Context, _ session.Roots, filter session.Filter, query session.SearchQuery) session.SearchReport {
+			gotFilter = filter
 			gotQuery = query
 			return session.SearchReport{Complete: true}
 		},
 	}
 
 	code, _, stderr := runCommandWithOperations(t, sessionLoader(t), operations,
-		"sessions", "search", "GOMODCACHE", "--role", "tool", "--tool", "Bash", "--errors")
+		"sessions", "search", "GOMODCACHE", "--role", "tool", "--tool", "Bash", "--errors",
+		"--id", "first", "--id", "second,third")
 
 	if code != 0 {
 		t.Fatalf("exit code = %d, stderr = %q", code, stderr)
@@ -206,6 +213,9 @@ func TestSessionsSearchPassesQuery(t *testing.T) {
 	if gotQuery.Role != session.RoleTool || gotQuery.Tool != "Bash" || !gotQuery.ErrorsOnly || gotQuery.Raw {
 		t.Errorf("query = %+v", gotQuery)
 	}
+	if !slices.Equal(gotFilter.IDs, []string{"first", "second", "third"}) {
+		t.Errorf("IDs = %v, want first, second, third", gotFilter.IDs)
+	}
 }
 
 func TestSessionsUsageErrorsDoNotLoadConfiguration(t *testing.T) {
@@ -214,6 +224,13 @@ func TestSessionsUsageErrorsDoNotLoadConfiguration(t *testing.T) {
 		name string
 	}{
 		{name: "search without criteria", args: []string{"sessions", "search"}},
+		{name: "ID without event criteria", args: []string{"sessions", "search", "--id", "session"}},
+		{name: "empty ID", args: []string{"sessions", "list", "--id", ""}},
+		{name: "empty repeated ID", args: []string{"sessions", "list", "--id", "session", "--id", ""}},
+		{name: "empty comma-separated ID", args: []string{"sessions", "search", "needle", "--id", "session,,other"}},
+		{name: "empty trailing ID", args: []string{"sessions", "list", "--id", "session,"}},
+		{name: "multiline ID", args: []string{"sessions", "list", "--id", "first\nsecond"}},
+		{name: "carriage return in ID", args: []string{"sessions", "search", "needle", "--id", "first\rsecond"}},
 		{name: "raw with structural filter", args: []string{"sessions", "search", "x", "--raw", "--tool", "Bash"}},
 		{name: "non-tool role with tool filter", args: []string{"sessions", "search", "x", "--role", "user", "--tool", "Bash"}},
 		{name: "unknown role", args: []string{"sessions", "search", "x", "--role", "system"}},

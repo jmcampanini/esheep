@@ -22,7 +22,7 @@ func (codexAdapter) discover(root string, _ bool) ([]transcript, []Diagnostic) {
 	return walkJSONLTranscripts(root, walkRules{})
 }
 
-func (codexAdapter) meta(t transcript) describedSession {
+func (codexAdapter) meta(t transcript, ids idFilter) describedSession {
 	entry := Session{
 		Harness:    HarnessCodex,
 		ID:         codexFallbackID(t.path),
@@ -36,7 +36,7 @@ func (codexAdapter) meta(t transcript) describedSession {
 	err := forEachLine(t.path, func(line int, data []byte) bool {
 		var envelope codexEnvelope
 		if json.Unmarshal(data, &envelope) != nil {
-			return true
+			return line != 1 || ids.matches(entry.ID)
 		}
 		if line > 1 {
 			if envelope.Type == "turn_context" {
@@ -53,7 +53,7 @@ func (codexAdapter) meta(t transcript) describedSession {
 			return true
 		}
 		if envelope.Type != "session_meta" {
-			return true
+			return ids.matches(entry.ID)
 		}
 		entry.StartedAt = parseTimestamp(envelope.Timestamp)
 		var payload struct {
@@ -64,7 +64,7 @@ func (codexAdapter) meta(t transcript) describedSession {
 			Timestamp  string          `json:"timestamp"`
 		}
 		if json.Unmarshal(envelope.Payload, &payload) != nil {
-			return true
+			return ids.matches(entry.ID)
 		}
 		if payload.ID != "" {
 			entry.ID = payload.ID
@@ -78,12 +78,12 @@ func (codexAdapter) meta(t transcript) describedSession {
 		if entry.StartedAt.IsZero() {
 			entry.StartedAt = parseTimestamp(payload.Timestamp)
 		}
-		return true
+		return ids.matches(entry.ID)
 	})
 	if len(entry.Projects) == 0 {
 		entry.Projects = projectPaths(cwd)
 	}
-	return describedSession{eligible: eligible, err: err, session: entry}
+	return describedSession{eligible: eligible && ids.matches(entry.ID), err: err, session: entry}
 }
 
 func codexSubagentSource(raw json.RawMessage) bool {
