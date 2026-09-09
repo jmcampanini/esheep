@@ -229,6 +229,8 @@ func TestSessionsUsageErrorsDoNotLoadConfiguration(t *testing.T) {
 		{name: "empty repeated ID", args: []string{"sessions", "list", "--id", "session", "--id", ""}},
 		{name: "empty comma-separated ID", args: []string{"sessions", "search", "needle", "--id", "session,,other"}},
 		{name: "empty trailing ID", args: []string{"sessions", "list", "--id", "session,"}},
+		{name: "multiline ID", args: []string{"sessions", "list", "--id", "first\nsecond"}},
+		{name: "carriage return in ID", args: []string{"sessions", "search", "needle", "--id", "first\rsecond"}},
 		{name: "raw with structural filter", args: []string{"sessions", "search", "x", "--raw", "--tool", "Bash"}},
 		{name: "non-tool role with tool filter", args: []string{"sessions", "search", "x", "--role", "user", "--tool", "Bash"}},
 		{name: "unknown role", args: []string{"sessions", "search", "x", "--role", "system"}},

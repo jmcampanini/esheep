@@ -185,8 +185,10 @@ func ParseArchiveState(value string) (ArchiveState, error) {
 // Filter selects sessions by metadata. A zero Filter selects every main
 // session; subagent transcripts require IncludeSubagents.
 type Filter struct {
-	ArchiveState     ArchiveState
-	Harnesses        []Harness
+	ArchiveState ArchiveState
+	Harnesses    []Harness
+	// IDs selects any exact, case-sensitive ID; Cowork also accepts its local_ component.
+	// An empty slice leaves IDs unrestricted.
 	IDs              []string
 	IncludeSubagents bool
 	Project          string
@@ -238,7 +240,8 @@ func ParseTimeFlag(value string, now time.Time) (time.Time, error) {
 type adapter interface {
 	// discover returns transcript references under root in walk order.
 	discover(root string, includeSubagents bool) ([]transcript, []Diagnostic)
-	// meta rejects nonmatching IDs before reading further metadata where possible.
+	// meta must return an ineligible result for nonmatching IDs, rejecting them
+	// before reading further metadata where possible.
 	// Eligible transcripts retain their full best-effort metadata. Work and Cowork
 	// transcripts require saved conversation events.
 	meta(t transcript, ids idFilter) describedSession

@@ -88,6 +88,9 @@ matching scope. Output retains full scoped IDs. Multiple files sharing an ID
 remain separate results; no matches is a successful empty result when the scan
 completes.
 
+ID values cannot contain line breaks. Values use CSV quoting: to select the
+ID a"b,c, pass --id '"a""b,c"'.
+
 ID filtering rejects nonmatches before further metadata reads where possible.
 Claude and Cowork use path-derived IDs. Codex and Work read the first-line
 header, whose ID takes precedence over the filename fallback. Pi retains its
@@ -161,6 +164,9 @@ func (f sessionFilterFlags) filter(now time.Time) (session.Filter, error) {
 		if value == "" {
 			return session.Filter{}, errors.New("--id must not be empty")
 		}
+		if strings.ContainsAny(value, "\r\n") {
+			return session.Filter{}, errors.New("--id must not contain line breaks")
+		}
 		ids, err := csv.NewReader(strings.NewReader(value)).Read()
 		if err != nil {
 			return session.Filter{}, fmt.Errorf("--id: parse comma-separated IDs: %w", err)
@@ -218,8 +224,8 @@ metadata read. Codex and Work transcripts are read in full to collect workspace
 roots across saved turns. Cowork audits are read until a supported conversation
 event and a start time are found, or the end of the file.
 
-Each row carries the harness, recorded start time (or file modification time
-when unavailable), archive state, project directories, title where the grammar
+Each row carries the harness, session ID, recorded start time (or file
+modification time when unavailable), archive state, project directories, title where the grammar
 records one, and the canonical transcript path. Subagent and
 sidechain transcripts are excluded unless --subagents is set. --since keeps
 sessions still active at the given time; --until drops sessions started
