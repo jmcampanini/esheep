@@ -39,11 +39,13 @@ func newSkillsListCommand(load configLoader, list func(context.Context, config.L
 		Long: `Inventory every skill discovered in configured sources without changing
 sources or targets.
 
-Readiness is ready, invalid, collision, or conflict; validation and
-collision diagnostics do not hide known entries. The profile gate column
-shows when a manifest applies: all means every profile, and - means no manifest
-was loadable. The command exits nonzero only when configuration or
-filesystem failures prevent complete discovery.
+Readiness is ready, disabled, invalid, collision, or conflict. Disabled
+means the selected manifest declares esheep-disabled: true; validation
+errors, collisions, and profile conflicts take precedence. Diagnostics
+do not hide known entries. The profile gate column shows when a manifest
+applies: all means every profile, and - means no manifest was loadable.
+The command exits nonzero only when configuration or filesystem failures
+prevent complete discovery.
 
 ` + streamContractHelp + `
 
@@ -91,12 +93,13 @@ func newSkillsStatusCommand(load configLoader, status func(context.Context, conf
 		Long: `Report source readiness and per-target deployment health under the
 effective profiles.
 
-Each ready skill is synced, drifted, missing, inactive, disabled, or
+Each ready or disabled skill is synced, drifted, missing, inactive, disabled, or
 blocked for every target; blocked means source rendering failed or a
 destination or target cannot be inspected or managed safely.
 Inactive means no manifest applies under the active profiles, and disabled
-means target configuration or esheep-targets
-excludes installation. Every enabled target is inspected even when no skills
+means esheep-disabled, target configuration, or esheep-targets excludes
+installation. Disabled readiness identifies a selected manifest with
+esheep-disabled: true. Every enabled target is inspected even when no skills
 are discovered; missing and valid empty targets remain healthy.
 
 Status compares skills against their per-target rendered output. When a
@@ -112,8 +115,10 @@ for the shared variable and include contract. A withdrawn agents file is
 not reported; its stray deployed files are invisible to esheep.
 
 Status is a health check: it exits 0 only when every source skill is
-ready, every target is synced, inactive, or disabled, and every enabled
-target's agents file is synced.
+ready or disabled, every target is synced, inactive, or disabled, and every
+enabled target's agents file is synced. Disabled skill installations are
+not inspected individually; status can be healthy before sync removes
+their previously managed copies.
 
 ` + streamContractHelp + `
 

@@ -59,6 +59,8 @@ make build
 
 The typical loop after changing a source skill is `esheep sync` followed by `esheep skills status`.
 
+Set `esheep-disabled: true` in a source manifest to retain and validate it without installing it. The next `esheep sync` removes its managed copies from enabled targets. The flag applies only to the selected manifest; profile variants do not inherit it from `SKILL.md`. Remove the flag or set it to `false` to re-enable that manifest. List and status report valid selected disabled manifests as `disabled`.
+
 Source skill manifests declare when to invoke the skill in `esheep-trigger`. esheep renders that text as `description` for each harness and reports it as `trigger` in list/status JSON. `esheep help skill-format` documents the source requirements.
 
 ## Configuration

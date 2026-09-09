@@ -127,6 +127,7 @@ type Document struct {
 	Compatibility          *string
 	Metadata               map[string]string
 	DisableModelInvocation bool
+	Disabled               bool
 	OnlyProfiles           []string
 	Extra                  []ExtraField
 	Targets                Targets
@@ -289,6 +290,7 @@ type rawDocument struct {
 	Compatibility          *string           `yaml:"compatibility"`
 	Metadata               map[string]string `yaml:"metadata"`
 	DisableModelInvocation bool              `yaml:"disable-model-invocation"`
+	Disabled               bool              `yaml:"esheep-disabled"`
 	OnlyProfiles           []string          `yaml:"esheep-only-profiles"`
 }
 
@@ -350,6 +352,7 @@ func parse(data []byte, directoryName string) (Document, []Diagnostic) {
 		Compatibility:          raw.Compatibility,
 		Metadata:               raw.Metadata,
 		DisableModelInvocation: raw.DisableModelInvocation,
+		Disabled:               raw.Disabled,
 		OnlyProfiles:           raw.OnlyProfiles,
 		Extra:                  extra,
 		Targets:                targets,
@@ -446,7 +449,7 @@ func validateShape(mapping *yaml.Node) ([]ExtraField, Targets, bool, []Diagnosti
 			if value.Kind != yaml.ScalarNode || value.Tag != "!!str" {
 				diagnostics = append(diagnostics, invalidType(key, "string"))
 			}
-		case "disable-model-invocation":
+		case "disable-model-invocation", "esheep-disabled":
 			if value.Kind != yaml.ScalarNode || value.Tag != "!!bool" {
 				diagnostics = append(diagnostics, invalidType(key, "boolean"))
 			}

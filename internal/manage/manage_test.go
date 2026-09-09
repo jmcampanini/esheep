@@ -60,6 +60,7 @@ func TestStatusReportsInspectionFailureAsBlocked(t *testing.T) {
 	root := t.TempDir()
 	source := filepath.Join(root, "source")
 	writeSourceSkill(t, source, "demo", "Ready", "")
+	writeSourceSkill(t, source, "disabled", "Disabled", "esheep-disabled: true\n")
 	claude := filepath.Join(root, "claude")
 	if err := os.WriteFile(claude, []byte("not a target directory"), 0o600); err != nil {
 		t.Fatal(err)
@@ -72,6 +73,9 @@ func TestStatusReportsInspectionFailureAsBlocked(t *testing.T) {
 	status := findStatus(t, report, "source", "demo")
 	if report.Healthy || status.Targets["claude"] != install.StateBlocked || len(report.Diagnostics) != 1 {
 		t.Fatalf("report = %#v", report)
+	}
+	if disabled := findStatus(t, report, "source", "disabled"); disabled.Readiness != ReadinessDisabled || disabled.Targets["claude"] != install.StateBlocked {
+		t.Fatalf("disabled skill status = %#v, want disabled readiness and blocked target", disabled)
 	}
 	wantPath := loaded.ResolvedTargets.Claude.Skills
 	if diagnostic := report.Diagnostics[0]; diagnostic.Path != wantPath || diagnostic.Target != "claude" {

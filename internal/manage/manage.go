@@ -19,13 +19,14 @@ import (
 	"github.com/jmcampanini/esheep/internal/skill"
 )
 
-// Readiness describes whether a known source skill can be synchronized.
+// Readiness classifies source validity and explicit disabling of the selected manifest.
 type Readiness string
 
 // Source readiness states.
 const (
 	ReadinessCollision Readiness = "collision"
 	ReadinessConflict  Readiness = "conflict"
+	ReadinessDisabled  Readiness = "disabled"
 	ReadinessInvalid   Readiness = "invalid"
 	ReadinessReady     Readiness = "ready"
 )
@@ -205,7 +206,7 @@ func Status(ctx context.Context, loaded config.LoadResult) StatusReport {
 			Targets:     make(map[string]install.State),
 			Trigger:     known.Trigger,
 		}
-		if known.Readiness != ReadinessReady {
+		if known.Readiness != ReadinessReady && known.Readiness != ReadinessDisabled {
 			report.Healthy = false
 			report.Skills = append(report.Skills, row)
 			continue
@@ -283,7 +284,7 @@ func Sync(ctx context.Context, loaded config.LoadResult) SyncReport {
 	for index, candidate := range catalog.catalog.Candidates {
 		known := catalog.skills[index]
 		selection := catalog.selections[index]
-		if known.Readiness != ReadinessReady {
+		if known.Readiness != ReadinessReady && known.Readiness != ReadinessDisabled {
 			detail := "source skill is " + string(known.Readiness)
 			if known.Readiness == ReadinessConflict {
 				detail = "active profiles select multiple manifests"
@@ -380,6 +381,8 @@ func buildCatalog(ctx context.Context, loaded config.LoadResult) catalogResult {
 			readiness = ReadinessCollision
 		case len(selection.Conflicts) != 0:
 			readiness = ReadinessConflict
+		case selection.Active && selection.Manifest.Document.Disabled:
+			readiness = ReadinessDisabled
 		}
 		if readiness == ReadinessConflict {
 			result.diagnostics = append(result.diagnostics, Diagnostic{

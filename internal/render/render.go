@@ -27,19 +27,21 @@ const (
 	TargetCodex  Target = "codex"
 )
 
-// Disabled reports whether the manifest's esheep-targets list excludes a
-// target under the active profiles.
+// Disabled reports whether the manifest disables installation or its
+// esheep-targets list excludes a target under the active profiles.
 func Disabled(document skill.Document, target Target, profiles []string) (bool, error) {
+	var options skill.TargetOptions
 	switch target {
 	case TargetClaude:
-		return !document.Targets.Claude.Applies(profiles), nil
+		options = document.Targets.Claude
 	case TargetPi:
-		return !document.Targets.Pi.Applies(profiles), nil
+		options = document.Targets.Pi
 	case TargetCodex:
-		return !document.Targets.Codex.Applies(profiles), nil
+		options = document.Targets.Codex
 	default:
 		return false, fmt.Errorf("render: unsupported target %q", target)
 	}
+	return document.Disabled || !options.Applies(profiles), nil
 }
 
 // Render writes a skill into an existing empty staging directory using the

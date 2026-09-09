@@ -27,6 +27,7 @@ func TestRenderExactTargetTrees(t *testing.T) {
 		"compatibility: macOS and Linux\n" +
 		"metadata: {z: last, a: first}\n" +
 		"disable-model-invocation: true\n" +
+		"esheep-disabled: false\n" +
 		"allowed-tools: Bash\n" +
 		"hooks:\n  PreToolUse:\n    - matcher: Bash\n" +
 		"esheep-targets: [claude, pi, codex]\n" +
@@ -159,6 +160,7 @@ func TestRenderExcludedTargetLeavesStagingUntouched(t *testing.T) {
 		profiles []string
 	}{
 		{name: "unlisted target", document: skill.Document{Targets: skill.Targets{Pi: skill.TargetOptions{Listed: true}}}},
+		{name: "disabled manifest", document: skill.Document{Disabled: true, Targets: allTargetsListed()}},
 		{name: "gate without active profile", document: skill.Document{Targets: skill.Targets{Codex: skill.TargetOptions{Listed: true, OnlyProfiles: []string{"work"}}}}},
 		{name: "gate misses active profiles", document: skill.Document{Targets: skill.Targets{Codex: skill.TargetOptions{Listed: true, OnlyProfiles: []string{"work"}}}}, profiles: []string{"personal"}},
 	}
