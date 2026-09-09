@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/jmcampanini/esheep/internal/config"
@@ -108,6 +109,31 @@ func TestSyncMissingHarnessIncludePreservesOutputAndContinuesOtherTargets(t *tes
 	after, err = os.ReadFile(piManifest)
 	if err != nil || string(after) != string(before) {
 		t.Fatalf("disabled Pi installation changed: %q, %v", after, err)
+	}
+}
+
+func TestDisabledManifestDoesNotRequireHarnessIncludes(t *testing.T) {
+	t.Parallel()
+	loaded, skillRoot := personalIncludeConfig(t)
+	manifestPath := filepath.Join(skillRoot, "SKILL.personal.md")
+	manifest, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest = []byte(strings.Replace(string(manifest), "name: fable-review", "name: fable-review\nesheep-disabled: true", 1))
+	if err := os.WriteFile(manifestPath, manifest, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	report := Sync(t.Context(), loaded)
+	status := Status(t.Context(), loaded)
+	if report.Summary.Disabled != 3 || report.Summary.Failed != 0 || !status.Healthy {
+		t.Fatalf("disabled manifest without includes: sync = %#v, status = %#v", report, status)
+	}
+	for _, root := range []string{loaded.ResolvedTargets.Claude.Skills, loaded.ResolvedTargets.Pi.Skills, loaded.ResolvedTargets.Codex.Skills} {
+		if _, err := os.Stat(root); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("disabled manifest created target %q: %v", root, err)
+		}
 	}
 }
 

@@ -216,6 +216,9 @@ func reconcile(ctx context.Context, request Request, fsys filesystem) (result Re
 	if disabled {
 		result.Action = ActionDisabled
 		result.Detail = "target disabled"
+		if request.Document.Disabled {
+			result.Detail = "skill disabled"
+		}
 		return result, nil
 	}
 

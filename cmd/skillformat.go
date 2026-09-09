@@ -75,6 +75,9 @@ Interpreted fields:
   disable-model-invocation  Optional boolean. When true, rendered output
                             tells each target not to invoke the skill
                             automatically.
+  esheep-disabled           Optional boolean, default false. When true on
+                            the selected manifest, prevents installation
+                            on every target.
   esheep-only-profiles      Optional nonempty list of profile names. Limits
                             the manifest to the named profiles.
   esheep-targets            Required nonempty list naming where the skill
@@ -85,6 +88,22 @@ Interpreted fields:
                             profiles. Unlisted targets and targets whose
                             profile list matches no active profile are not
                             installed.
+
+esheep-disabled applies only after profile selection. A profile variant
+does not inherit the base SKILL.md flag, and a selected disabled variant
+does not fall back to SKILL.md. Remove the flag or set it to false to
+re-enable that manifest subject to its target and profile gates.
+Disabling preserves discovery and validation, including required fields,
+supporting files, name collisions, and profile conflicts. Target-specific
+includes are not expanded for a disabled manifest.
+
+List and status report disabled readiness for a valid selected disabled
+manifest; invalid, collision, and conflict take precedence. On the next
+sync, previously managed copies are pruned from enabled targets using the
+normal ownership protections. Disabled targets remain untouched. Status
+treats disabled as healthy without checking whether an individual copy
+still exists; sync performs removal. Unlike esheep-disabled,
+disable-model-invocation still installs the skill.
 
 The top-level description field is reserved case-insensitively for rendered
 output and is an error in every source manifest, including profile variants.

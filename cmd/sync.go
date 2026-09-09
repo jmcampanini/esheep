@@ -28,6 +28,10 @@ are staged on the target filesystem and committed atomically; invalid,
 colliding, conflicting, or unavailable configured source skills protect
 existing output. Skills whose profiles are not active are reported
 inactive and their previously installed output is pruned.
+When the selected manifest declares esheep-disabled: true, the skill is
+reported disabled and its previously managed copies are pruned from
+enabled targets. Disabling does not bypass source validation or ownership
+protections, and disabled targets remain untouched.
 
 The global agents file has positional ownership instead of a marker.
 Candidates are the AGENTS.md and AGENTS.<profile>.md files inside each
