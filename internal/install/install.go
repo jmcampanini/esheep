@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/jmcampanini/esheep/internal/expansion"
 	"github.com/jmcampanini/esheep/internal/render"
 	"github.com/jmcampanini/esheep/internal/skill"
 )
@@ -56,7 +57,7 @@ type Request struct {
 	Package   skill.Package
 	Profiles  []string
 	Root      string
-	Variables skill.Variables
+	Variables expansion.Variables
 }
 
 // Result describes one completed or refused target operation.

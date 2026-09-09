@@ -36,10 +36,20 @@ Selection walks the active profiles in order and then the unprofiled name:
 each tier may match at most one candidate across all sources, the first
 tier with exactly one file wins, an empty tier falls through, and a tier
 with several files is an error that blocks agents file synchronization.
-The selected file is copied byte-identical to every enabled target's
-non-symlink agents_md_path, atomically, overwriting
-any existing regular file at that path. esheep never deletes a deployed
-agents file: when no source provides one, destinations are left untouched, and
+The selected file is rendered for every enabled target and installed
+atomically at its non-symlink agents_md_path, overwriting any existing
+regular file there. The entire agents file uses the same variables as skill
+bodies, without interpreted frontmatter. Includes resolve from the selected
+source's agents-md/ directory and their fragments are never deployed.
+An absent optional include inserts zero bytes without fallback; empty
+rendered agents files are installed. Other bytes, including surrounding
+line endings, remain unchanged. See 'esheep help skill-format' for the
+complete variable and include contract.
+
+A target-specific rendering failure preserves that destination; unrelated
+synchronization continues and the command exits nonzero. Includes are
+expanded only for enabled targets. esheep never deletes a deployed agents
+file: when no source provides one, destinations are left untouched, and
 selection is skipped entirely while any configured source is unavailable.
 
 Serialize invocations: concurrent mutating esheep commands against the

@@ -7,7 +7,6 @@ import (
 	"github.com/BurntSushi/toml"
 	"github.com/jmcampanini/esheep/internal/naming"
 	"github.com/jmcampanini/esheep/internal/render"
-	"github.com/jmcampanini/esheep/internal/skill"
 )
 
 // MarkerName is the reserved ownership marker filename.
@@ -37,7 +36,7 @@ func ParseMarker(data []byte) (Marker, error) {
 	if err := naming.ValidateSourceName(decoded.Source); err != nil {
 		return Marker{}, fmt.Errorf("parse ownership marker: %w", err)
 	}
-	if !skill.ValidName(decoded.Skill) {
+	if !naming.ValidSkillName(decoded.Skill) {
 		return Marker{}, fmt.Errorf("parse ownership marker: invalid skill %q", decoded.Skill)
 	}
 	target := render.Target(decoded.Target)
@@ -53,7 +52,7 @@ func MarshalMarker(marker Marker) ([]byte, error) {
 	if err := naming.ValidateSourceName(marker.Source); err != nil {
 		return nil, fmt.Errorf("marshal ownership marker: %w", err)
 	}
-	if !skill.ValidName(marker.Skill) {
+	if !naming.ValidSkillName(marker.Skill) {
 		return nil, fmt.Errorf("marshal ownership marker: invalid skill %q", marker.Skill)
 	}
 	if !validTarget(marker.Target) {
