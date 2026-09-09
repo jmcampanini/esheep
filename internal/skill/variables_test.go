@@ -2,119 +2,46 @@ package skill
 
 import (
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 )
 
-func TestParseAcceptsSourcesVariableOnOwnLine(t *testing.T) {
+func TestParseAcceptsVariablesWithoutOpeningIncludes(t *testing.T) {
 	t.Parallel()
-	tests := []struct {
-		name string
-		body string
-	}{
-		{name: "between lines", body: "intro\n{{esheep.sources}}\ntail"},
-		{name: "entire body", body: "{{esheep.sources}}"},
-		{name: "at end without newline", body: "intro\n{{esheep.sources}}"},
-		{name: "crlf lines", body: "intro\r\n{{esheep.sources}}\r\ntail"},
-		{name: "repeated", body: "{{esheep.sources}}\n\n{{esheep.sources}}\n"},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-			input := "---\nname: demo\nesheep-trigger: ok\nesheep-targets: [claude]\n---\n" + test.body
-			if _, err := Parse([]byte(input), "demo", "SKILL.md"); err != nil {
-				t.Fatalf("Parse(%q): %v", test.body, err)
-			}
-		})
+	body := "{{esheep.sources}}\n{{esheep.include-by-harness \"body\"}}\n{{esheep.include-by-harness-optional \"extras\"}}"
+	input := "---\nname: demo\nesheep-trigger: ok\nesheep-targets: [claude]\n---\n" + body
+	path := filepath.Join(t.TempDir(), "SKILL.md")
+
+	document, err := Parse([]byte(input), "demo", path)
+	if err != nil || string(document.Body) != body {
+		t.Fatalf("Parse() body = %q, %v, want unexpanded %q", document.Body, err, body)
 	}
 }
 
 func TestParseIgnoresVariableTextInFrontmatter(t *testing.T) {
 	t.Parallel()
-	input := "---\nname: demo\nesheep-trigger: '{{esheep.sources}}'\nesheep-targets: [claude]\n---\nbody"
+	input := "---\nname: demo\nesheep-trigger: '{{esheep.unknown}}'\nesheep-targets: [claude]\nnotes: '{{esheep.include-by-harness-optional unquoted}}'\n---\nbody"
 	if _, err := Parse([]byte(input), "demo", "SKILL.md"); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func TestParseRejectsInvalidBodyVariables(t *testing.T) {
+func TestParseMapsVariableSyntaxErrorsToDiagnostics(t *testing.T) {
 	t.Parallel()
-	tests := []struct {
-		name   string
-		body   string
-		detail string
-	}{
-		{name: "unknown variable", body: "{{esheep.targets}}\n", detail: "unknown esheep variable \"{{esheep.targets}}\""},
-		{name: "unterminated variable", body: "see {{esheep.sources here\n", detail: "unknown esheep variable"},
-		{name: "bare prefix", body: "the {{esheep. prefix\n", detail: "unknown esheep variable"},
-		{name: "leading text", body: "see {{esheep.sources}}\n", detail: "must occupy its own line"},
-		{name: "trailing text", body: "{{esheep.sources}} here\n", detail: "must occupy its own line"},
-		{name: "indented", body: "  {{esheep.sources}}\n", detail: "must occupy its own line"},
-		{name: "adjacent variables", body: "{{esheep.sources}}{{esheep.sources}}\n", detail: "must occupy its own line"},
-		{name: "include relative path", body: "{{esheep.include-by-harness \"../body\"}}", detail: "unknown esheep variable"},
-		{name: "include empty prefix", body: "{{esheep.include-by-harness \"\"}}", detail: "unknown esheep variable"},
-		{name: "include unquoted prefix", body: "{{esheep.include-by-harness body}}", detail: "unknown esheep variable"},
-		{name: "include uppercase prefix", body: "{{esheep.include-by-harness \"Body\"}}", detail: "unknown esheep variable"},
-		{name: "include long prefix", body: "{{esheep.include-by-harness \"" + strings.Repeat("a", 65) + "\"}}", detail: "unknown esheep variable"},
-		{name: "include indented", body: "  {{esheep.include-by-harness \"body\"}}", detail: "must occupy its own line"},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-			input := "---\nname: demo\nesheep-trigger: ok\nesheep-targets: [claude]\n---\n" + test.body
-			_, err := Parse([]byte(input), "demo", "SKILL.md")
-			if err == nil {
-				t.Fatalf("Parse(%q) succeeded", test.body)
-			}
-			var validationErr *ValidationError
-			if !errors.As(err, &validationErr) {
-				t.Fatalf("error = %T, want ValidationError", err)
-			}
-			for _, diagnostic := range validationErr.Diagnostics {
-				if diagnostic.Code == CodeInvalidVariable && strings.Contains(diagnostic.Detail, test.detail) {
-					return
-				}
-			}
-			t.Fatalf("diagnostics = %#v, want code %q with detail %q", validationErr.Diagnostics, CodeInvalidVariable, test.detail)
-		})
-	}
-}
+	input := "---\nname: demo\nesheep-trigger: ok\nesheep-targets: [claude]\n---\n{{esheep.include-by-harness-optional unquoted}}"
+	path := filepath.Join("demo", "SKILL.md")
 
-func TestExpandVariablesReplacesSourcesList(t *testing.T) {
-	t.Parallel()
-	variables := Variables{Sources: []string{"/alpha", "/beta"}}
-	tests := []struct {
-		name string
-		body string
-		want string
-	}{
-		{name: "no variable", body: "plain body", want: "plain body"},
-		{name: "between lines", body: "before\n{{esheep.sources}}\nafter", want: "before\n- /alpha\n- /beta\nafter"},
-		{name: "at end without newline", body: "before\n{{esheep.sources}}", want: "before\n- /alpha\n- /beta"},
-		{name: "crlf line", body: "{{esheep.sources}}\r\nafter", want: "- /alpha\n- /beta\r\nafter"},
-		{name: "repeated", body: "{{esheep.sources}}\n\n{{esheep.sources}}\n", want: "- /alpha\n- /beta\n\n- /alpha\n- /beta\n"},
+	_, err := Parse([]byte(input), "demo", path)
+	var invalid *ValidationError
+	if !errors.As(err, &invalid) {
+		t.Fatalf("Parse() error = %v, want ValidationError", err)
 	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-			got, err := ExpandVariables([]byte(test.body), variables)
-			if err != nil {
-				t.Fatalf("ExpandVariables(%q): %v", test.body, err)
-			}
-			if string(got) != test.want {
-				t.Fatalf("ExpandVariables(%q) = %q, want %q", test.body, got, test.want)
-			}
-		})
+	if len(invalid.Diagnostics) != 1 {
+		t.Fatalf("Parse() diagnostics = %#v, want one invalid-variable diagnostic", invalid.Diagnostics)
 	}
-}
-
-func TestExpandVariablesRequiresSourcesForUse(t *testing.T) {
-	t.Parallel()
-	if _, err := ExpandVariables([]byte("{{esheep.sources}}\n"), Variables{}); err == nil {
-		t.Fatal("ExpandVariables succeeded without source directories")
-	}
-	got, err := ExpandVariables([]byte("plain body"), Variables{})
-	if err != nil || string(got) != "plain body" {
-		t.Fatalf("ExpandVariables(plain body) = %q, %v", got, err)
+	diagnostic := invalid.Diagnostics[0]
+	if diagnostic.Code != CodeInvalidVariable || diagnostic.Path != path || !strings.Contains(diagnostic.Detail, "unknown esheep variable") {
+		t.Errorf("Parse() diagnostic = %#v, want code %q at %q with variable error detail", diagnostic, CodeInvalidVariable, path)
 	}
 }

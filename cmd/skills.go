@@ -99,10 +99,17 @@ means target configuration or esheep-targets
 excludes installation. Every enabled target is inspected even when no skills
 are discovered; missing and valid empty targets remain healthy.
 
-When a source provides an agents file, status adds a section reporting the
-selected file and each target's deployed copy compared byte-for-byte:
-synced, stale, missing, disabled, or blocked. A withdrawn agents file is
-not reported; its stray deployed copies are invisible to esheep.
+Status compares skills against their per-target rendered output. When a
+source provides an agents file, status adds a section reporting the selected
+file and each target's deployed file compared byte-for-byte with that
+target's rendered output: synced, stale, missing, disabled, or blocked.
+Agents-file rendering errors report blocked even when the destination is
+absent; absent skill installations report missing.
+An absent optional include contributes zero bytes without fallback; changes
+to included content affect status only when they change rendered output.
+Includes are expanded only for enabled targets. See 'esheep help skill-format'
+for the shared variable and include contract. A withdrawn agents file is
+not reported; its stray deployed files are invisible to esheep.
 
 Status is a health check: it exits 0 only when every source skill is
 ready, every target is synced, inactive, or disabled, and every enabled
