@@ -176,6 +176,7 @@ func WriteSessionList(writer io.Writer, report session.ListReport, color bool) e
 	for _, entry := range report.Sessions {
 		rows = append(rows, []string{
 			string(entry.Harness),
+			dashIfEmpty(clean(entry.ID)),
 			sessionTime(entry),
 			sessionArchiveState(entry),
 			dashIfEmpty(clean(strings.Join(entry.Projects, ", "))),
@@ -183,7 +184,7 @@ func WriteSessionList(writer io.Writer, report session.ListReport, color bool) e
 			clean(entry.Path),
 		})
 	}
-	return writeTable(writer, []string{"HARNESS", "STARTED", "ARCHIVE STATE", "PROJECTS", "TITLE", "PATH"}, rows, color)
+	return writeTable(writer, []string{"HARNESS", "ID", "STARTED", "ARCHIVE STATE", "PROJECTS", "TITLE", "PATH"}, rows, color)
 }
 
 // WriteSessionListJSON writes one complete session inventory JSON document.

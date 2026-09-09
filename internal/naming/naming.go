@@ -13,15 +13,21 @@ import (
 
 var sourceNamePart = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
-var profileNamePattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
+var skillNamePattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 
-const maxProfileNameLength = 64
+const maxSkillNameLength = 64
+
+// ValidSkillName reports whether name follows the grammar shared by skill
+// identities, include names, and profile names before their reserved-name check.
+func ValidSkillName(name string) bool {
+	return len(name) <= maxSkillNameLength && skillNamePattern.MatchString(name)
+}
 
 // ValidateProfileName validates a profile identity. Profile names share the
 // skill-name grammar so they can appear as manifest filename segments, and the
 // base and local names are reserved for cross-tool layer semantics.
 func ValidateProfileName(name string) error {
-	if name == "" || len(name) > maxProfileNameLength || !profileNamePattern.MatchString(name) {
+	if !ValidSkillName(name) {
 		return fmt.Errorf("invalid profile name %q", name)
 	}
 	if name == "base" || name == "local" {

@@ -1,4 +1,4 @@
-package skill
+package expansion
 
 import (
 	"errors"
@@ -16,20 +16,16 @@ func TestExpandIncludesSelectsHarnessAndExpandsNestedVariables(t *testing.T) {
 		writeInclude(t, root, "esheep-body-"+harness+".md", harness+"\n{{esheep.include-by-harness \"common\"}}")
 		writeInclude(t, root, "esheep-common-"+harness+".md", "{{esheep.sources}}")
 	}
-	manifest := "---\nname: demo\nesheep-trigger: demo\nesheep-targets: [claude, pi, codex]\n---\nintro\r\n{{esheep.include-by-harness \"body\"}}\r\ntail"
-	document, err := Parse([]byte(manifest), "demo", "SKILL.md")
-	if err != nil {
-		t.Fatal(err)
-	}
+	body := []byte("intro\r\n{{esheep.include-by-harness \"body\"}}\r\ntail")
 
 	for _, harness := range []string{"claude", "pi", "codex"} {
 		t.Run(harness, func(t *testing.T) {
 			t.Parallel()
-			variables := Variables{Harness: harness, SkillRoot: root, Sources: []string{"/alpha", "/literal/{{esheep.sources}}"}}
-			got, err := ExpandVariables(document.Body, variables)
+			variables := Variables{Harness: harness, Root: root, Sources: []string{"/alpha", "/literal/{{esheep.sources}}"}}
+			got, err := Expand(body, variables)
 			want := "intro\r\n" + harness + "\n- /alpha\n- /literal/{{esheep.sources}}\r\ntail"
 			if err != nil || string(got) != want {
-				t.Fatalf("ExpandVariables() = %q, %v, want %q", got, err, want)
+				t.Fatalf("Expand() = %q, %v, want %q", got, err, want)
 			}
 		})
 	}
@@ -43,9 +39,9 @@ func TestExpandIncludesAllowsRepeatedAndEmptyFiles(t *testing.T) {
 	writeInclude(t, root, "esheep-empty-pi.md", "")
 	body := "{{esheep.include-by-harness \"body\"}}\n{{esheep.include-by-harness \"empty\"}}\n{{esheep.include-by-harness \"body\"}}"
 
-	got, err := ExpandVariables([]byte(body), Variables{Harness: "pi", SkillRoot: root})
+	got, err := Expand([]byte(body), Variables{Harness: "pi", Root: root})
 	if want := "part\npart\n\npart\npart"; err != nil || string(got) != want {
-		t.Fatalf("ExpandVariables() = %q, %v, want %q", got, err, want)
+		t.Fatalf("Expand() = %q, %v, want %q", got, err, want)
 	}
 }
 
@@ -90,9 +86,9 @@ func TestExpandIncludesRejectsCyclesBeforeDepthLimit(t *testing.T) {
 				}
 			}
 
-			got, err := ExpandVariables([]byte("{{esheep.include-by-harness \"body\"}}"), Variables{Harness: "pi", SkillRoot: root})
+			got, err := Expand([]byte("{{esheep.include-by-harness \"body\"}}"), Variables{Harness: "pi", Root: root})
 			if err == nil || !strings.Contains(err.Error(), "include cycle: "+test.chain) || strings.Contains(err.Error(), "depth exceeds") {
-				t.Fatalf("ExpandVariables() = %q, %v, want cycle with chain %q", got, err, test.chain)
+				t.Fatalf("Expand() = %q, %v, want cycle with chain %q", got, err, test.chain)
 			}
 			if got != nil {
 				t.Fatalf("failed expansion returned partial content: %q", got)
@@ -111,55 +107,56 @@ func TestExpandIncludesEnforcesDepthLimit(t *testing.T) {
 		}
 		writeInclude(t, root, fmt.Sprintf("esheep-level-%d-pi.md", depth), body)
 	}
-	variables := Variables{Harness: "pi", SkillRoot: root}
+	variables := Variables{Harness: "pi", Root: root}
 	body := []byte("{{esheep.include-by-harness \"level-1\"}}")
 
-	got, err := ExpandVariables(body, variables)
+	got, err := Expand(body, variables)
 	if err != nil || string(got) != "end" {
-		t.Fatalf("ExpandVariables() at limit = %q, %v, want end", got, err)
+		t.Fatalf("Expand() at limit = %q, %v, want end", got, err)
 	}
 
 	writeInclude(t, root, fmt.Sprintf("esheep-level-%d-pi.md", MaxIncludeDepth), "{{esheep.include-by-harness \"extra\"}}")
 	writeInclude(t, root, "esheep-extra-pi.md", "too far")
-	got, err = ExpandVariables(body, variables)
+	got, err = Expand(body, variables)
 	if err == nil || !strings.Contains(err.Error(), fmt.Sprintf("include depth exceeds %d", MaxIncludeDepth)) ||
 		!strings.Contains(err.Error(), "esheep-extra-pi.md") || got != nil {
-		t.Fatalf("ExpandVariables() beyond limit = %q, %v, want depth failure", got, err)
+		t.Fatalf("Expand() beyond limit = %q, %v, want depth failure", got, err)
 	}
 }
 
 func TestExpandIncludesReportsMissingAndMalformedFiles(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
-	variables := Variables{Harness: "pi", SkillRoot: root}
+	variables := Variables{Harness: "pi", Root: root}
 	body := []byte("{{esheep.include-by-harness \"body\"}}")
 
-	_, err := ExpandVariables(body, variables)
+	_, err := Expand(body, variables)
 	if !errors.Is(err, os.ErrNotExist) || !strings.Contains(err.Error(), "esheep-body-pi.md") {
-		t.Fatalf("ExpandVariables() missing file error = %v", err)
+		t.Fatalf("Expand() missing file error = %v", err)
 	}
 
 	writeInclude(t, root, "esheep-body-pi.md", "{{esheep.unknown}}")
-	_, err = ExpandVariables(body, variables)
+	_, err = Expand(body, variables)
 	var invalid *ValidationError
 	if !errors.As(err, &invalid) || !strings.Contains(err.Error(), "esheep-body-pi.md") || !strings.Contains(err.Error(), "unknown esheep variable") {
-		t.Fatalf("ExpandVariables() malformed file error = %v", err)
+		t.Fatalf("Expand() malformed file error = %v", err)
 	}
 }
 
-func TestExpandIncludesFollowsExternalSymlinkWithSkillRootResolution(t *testing.T) {
+func TestExpandIncludesFollowsExternalSymlinkWithFixedRoot(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	outside := t.TempDir()
 	writeInclude(t, outside, ".body.md", "{{esheep.include-by-harness \"common\"}}")
+	writeInclude(t, outside, "esheep-common-pi.md", "wrong root")
 	if err := os.Symlink(filepath.Join(outside, ".body.md"), filepath.Join(root, "esheep-body-pi.md")); err != nil {
 		t.Fatal(err)
 	}
 	writeInclude(t, root, "esheep-common-pi.md", "root content")
 
-	got, err := ExpandVariables([]byte("{{esheep.include-by-harness \"body\"}}"), Variables{Harness: "pi", SkillRoot: root})
+	got, err := Expand([]byte("{{esheep.include-by-harness \"body\"}}"), Variables{Harness: "pi", Root: root})
 	if err != nil || string(got) != "root content" {
-		t.Fatalf("ExpandVariables() = %q, %v, want root content", got, err)
+		t.Fatalf("Expand() = %q, %v, want root content", got, err)
 	}
 }
 

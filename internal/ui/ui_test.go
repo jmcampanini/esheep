@@ -214,7 +214,7 @@ func TestWriteSessionListRendersPlaceholdersAndTimes(t *testing.T) {
 			},
 			{
 				Harness:    session.HarnessCodex,
-				ID:         "def",
+				ID:         "header-def",
 				ModifiedAt: time.Date(2026, 8, 25, 9, 30, 0, 0, time.Local),
 				Path:       "/roots/codex/rollout-def.jsonl",
 			},
@@ -238,6 +238,9 @@ func TestWriteSessionListRendersPlaceholdersAndTimes(t *testing.T) {
 	}
 	if !strings.Contains(codexRow, "-") {
 		t.Errorf("codex row = %q, want dash placeholders for absent metadata", codexRow)
+	}
+	if fields := strings.Fields(codexRow); len(fields) < 2 || fields[1] != "header-def" {
+		t.Errorf("codex row = %q, want the session ID from its header", codexRow)
 	}
 }
 

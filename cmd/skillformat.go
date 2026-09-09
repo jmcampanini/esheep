@@ -3,7 +3,7 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/jmcampanini/esheep/internal/skill"
+	"github.com/jmcampanini/esheep/internal/expansion"
 	"github.com/spf13/cobra"
 )
 
@@ -32,7 +32,9 @@ Visible directories remain even when all their contents are skipped.
 Within each skill, files and directories with the case-sensitive esheep-
 prefix are source-only at every depth. They and all descendants remain
 subject to source validation but are never copied into an installation.
-Harness include files use this prefix and stay in the source skill root.
+Harness include files use this prefix and stay in the owning root: the
+skill directory for skills or the source's agents-md/ directory for agents
+files. Agents include fragments are source-only and never deployed.
 
 Sources are trusted: included symlinks are followed wherever they resolve,
 even when the resolved path contains hidden names. An included link that
@@ -41,10 +43,12 @@ Supporting files are validated and rendered as non-executable data, and
 supporting paths must be unique under case-insensitive Unicode-normalized
 comparison.
 
-The agents file is opaque: esheep validates nothing inside it, copies it
-byte-identical, and an empty file is legal. Variants share the profile
-grammar of SKILL.<profile>.md below, and any other agents-md/ file of the
-form AGENTS.<segment>.md is an error.
+The entire selected agents file uses the same variable language as skill
+bodies, including text that resembles frontmatter. Agents files have no
+interpreted frontmatter. Content outside substitutions stays byte-identical.
+An empty rendered agents file is legal and is installed. Variants share the
+profile grammar of SKILL.<profile>.md below, and any other agents-md/ file
+of the form AGENTS.<segment>.md is an error.
 
 Manifests are SKILL.md and profile variants named SKILL.<profile>.md, where
 <profile> is 1-64 characters of lowercase alphanumeric words separated by
@@ -114,18 +118,18 @@ order and rendered for every target. esheep grants nothing itself; a
 passed-through field carries only the meaning the receiving harness gives
 it.
 
-The {{esheep. text is reserved everywhere in the manifest body and in
-included body files: every occurrence must be exactly a known variable,
-a known variable must occupy its own line without indentation, and there
-is no escape syntax. Anything else fails validation. Rendering substitutes
-each variable with its value, preserving all other bytes, including line
-endings. Included files are body text, without interpreted frontmatter.
-Frontmatter and copied supporting files are never substituted. When a
-variable or an included file changes the rendered output, that target's
-installation drifts and the next sync repairs it. Unused include files
-do not affect the installed output.
+The {{esheep. text is reserved everywhere in manifest bodies, entire managed
+AGENTS.md and AGENTS.<profile>.md files, and included files: every occurrence
+must be exactly a known variable, a known variable must occupy its own line
+without indentation, and there is no escape syntax. Anything else fails
+validation. Rendering substitutes each variable with its value, preserving
+all other bytes, including surrounding line endings. Included files are
+text without interpreted frontmatter. Skill frontmatter and copied
+supporting files are never substituted. When a variable or an included file
+changes rendered output, that target's installation drifts and the next sync
+repairs it. Unused include files do not affect installed output.
 
-Body variables:
+Variables for skill bodies and agents files:
 
   {{esheep.sources}}        Replaced with a Markdown bullet list of the
                             configured source container roots as resolved
@@ -133,27 +137,40 @@ Body variables:
                             configuration order.
 
   {{esheep.include-by-harness "body"}}
-                            Insert esheep-body-<harness>.md from the skill
-                            root, using claude, pi, or codex for the current
-                            installation harness. Replace "body" with a
-                            1-64 character lowercase name using the skill
-                            name grammar. esheep adds the esheep- prefix,
-                            harness suffix, and .md extension. Paths are
-                            not accepted; every nested include also resolves
-                            from the skill root for the same harness.
+                            Insert the required esheep-body-<harness>.md
+                            from the owning root, using claude, pi, or codex
+                            for the current installation harness.
+
+  {{esheep.include-by-harness-optional "extras"}}
+                            Insert esheep-extras-<harness>.md from the owning
+                            root. A genuinely absent file quietly inserts
+                            zero bytes, with no fallback to another file.
+                            Surrounding line endings remain unchanged.
+
+Both include directives accept a 1-64 character lowercase name using the
+skill name grammar. esheep adds the esheep- prefix, harness suffix, and .md
+extension. Paths are not accepted. The owning root is the skill directory
+or the selected source's agents-md/ directory. Every nested include uses
+that same root and harness, even inside a symlinked fragment.
 
 Variables in included files expand recursively. Include cycles, including
 symlink aliases, fail immediately. At most %d included-file levels are
-allowed; the manifest is level zero. Repeated includes outside the active
-include chain are allowed. Source-list values are literal paths and are
-not expanded again. There are no template expressions or executable hooks.
+allowed; the selected manifest or agents file is level zero. Repeated
+includes outside the active include chain are allowed. Source-list values
+are literal paths and are not expanded again. There are no template
+expressions or executable hooks.
 
-Only enabled targets to which the selected manifest applies require their
-include files. Missing, unreadable, malformed, cyclic, or too deeply nested
-includes fail that target's rendering without replacing its existing
-managed installation. Synchronization continues unrelated work and exits
-nonzero on failure. Status compares managed installations against the same
-expanded output; absent installations are reported missing.
+Includes expand only for enabled targets and, for skills, only where the
+selected manifest applies. A missing required include fails rendering.
+Optional includes permit only genuinely absent files: broken symlinks,
+unreadable or nonregular files, malformed variables, cycles, and depth
+violations fail for both directives. A target-specific rendering failure
+preserves that destination. Synchronization continues unrelated work and
+exits nonzero on failure. Status compares each destination against its
+per-target rendered bytes. Agents-file rendering errors report blocked even
+when the destination is absent; absent skill installations report missing.
+An empty rendered agents file is installed; an empty rendered skill body
+retains its frontmatter.
 
 For one personal skill with different Pi and Codex instructions, use:
 
@@ -171,7 +188,7 @@ Rendering is deterministic. Every target receives the interpreted content
 fields and the passed-through fields. When disable-model-invocation is
 true, the Codex render also writes agents/openai.yaml containing
 'policy.allow_implicit_invocation: false' unless the skill provides that
-file itself.`, skill.MaxIncludeDepth),
+file itself.`, expansion.MaxIncludeDepth),
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			return command.Help()

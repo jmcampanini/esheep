@@ -185,12 +185,21 @@ func ParseArchiveState(value string) (ArchiveState, error) {
 // Filter selects sessions by metadata. A zero Filter selects every main
 // session; subagent transcripts require IncludeSubagents.
 type Filter struct {
-	ArchiveState     ArchiveState
-	Harnesses        []Harness
+	ArchiveState ArchiveState
+	Harnesses    []Harness
+	// IDs selects any exact, case-sensitive ID; Cowork also accepts its local_ component.
+	// An empty slice leaves IDs unrestricted.
+	IDs              []string
 	IncludeSubagents bool
 	Project          string
 	Since            time.Time
 	Until            time.Time
+}
+
+type idFilter []string
+
+func (ids idFilter) matches(id string) bool {
+	return len(ids) == 0 || slices.Contains(ids, id)
 }
 
 // SearchQuery selects events within a session transcript. A nil Pattern
@@ -231,9 +240,11 @@ func ParseTimeFlag(value string, now time.Time) (time.Time, error) {
 type adapter interface {
 	// discover returns transcript references under root in walk order.
 	discover(root string, includeSubagents bool) ([]transcript, []Diagnostic)
-	// meta extracts best-effort metadata and reports whether the transcript
-	// qualifies for inventory. Work transcripts require saved conversation events.
-	meta(t transcript) describedSession
+	// meta must return an ineligible result for nonmatching IDs, rejecting them
+	// before reading further metadata where possible.
+	// Eligible transcripts retain their full best-effort metadata. Work and Cowork
+	// transcripts require saved conversation events.
+	meta(t transcript, ids idFilter) describedSession
 	// scan interprets the transcript and calls visit once per event,
 	// returning the count of unparseable lines.
 	scan(path string, visit func(event)) (int, error)
@@ -401,7 +412,7 @@ func collect(ctx context.Context, roots Roots, filter Filter) ([]located, []Diag
 		}
 
 		metas := parallelMap(ctx, kept, func(t transcript) describedSession {
-			meta := root.adapter.meta(t)
+			meta := root.adapter.meta(t, filter.IDs)
 			if root.archiveState != ArchiveAll {
 				meta.session.Archived = root.archiveState == ArchiveArchived
 			}

@@ -5,22 +5,19 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"regexp"
 	"sort"
 	"strings"
 	"unicode/utf8"
 
+	"github.com/jmcampanini/esheep/internal/expansion"
 	"github.com/jmcampanini/esheep/internal/naming"
 	"go.yaml.in/yaml/v3"
 )
 
 const (
-	maxNameLength          = 64
 	maxTriggerLength       = 1024
 	maxCompatibilityLength = 500
 )
-
-var namePattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 
 // Code identifies a stable validation category.
 type Code string
@@ -362,19 +359,15 @@ func parse(data []byte, directoryName string) (Document, []Diagnostic) {
 		Body:                   body,
 	}
 	diagnostics = append(diagnostics, validateValues(document, directoryName)...)
-	_, bodyDiagnostics := parseBodyVariables(body)
-	diagnostics = append(diagnostics, bodyDiagnostics...)
+	for _, detail := range expansion.Validate(body) {
+		diagnostics = append(diagnostics, Diagnostic{Code: CodeInvalidVariable, Detail: detail})
+	}
 	return document, diagnostics
 }
 
 // ValidIdentity reports whether name has the approved grammar and matches its directory.
 func ValidIdentity(name, directoryName string) bool {
-	return ValidName(name) && name == directoryName
-}
-
-// ValidName reports whether name has the approved skill-name grammar.
-func ValidName(name string) bool {
-	return len(name) <= maxNameLength && namePattern.MatchString(name)
+	return naming.ValidSkillName(name) && name == directoryName
 }
 
 // ErrorDiagnostics returns validation diagnostics carried by err.
@@ -591,7 +584,7 @@ func validateValues(document Document, directoryName string) []Diagnostic {
 	if document.Name == "" {
 		diagnostics = append(diagnostics, Diagnostic{Code: CodeRequiredField, Field: "name", Detail: "value is required"})
 	} else {
-		if !ValidName(document.Name) {
+		if !naming.ValidSkillName(document.Name) {
 			diagnostics = append(diagnostics, Diagnostic{Code: CodeInvalidName, Field: "name"})
 		}
 		if document.Name != directoryName {

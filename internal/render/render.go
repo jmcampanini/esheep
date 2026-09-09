@@ -12,6 +12,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/jmcampanini/esheep/internal/expansion"
 	"github.com/jmcampanini/esheep/internal/skill"
 	"go.yaml.in/yaml/v3"
 )
@@ -47,7 +48,7 @@ func Disabled(document skill.Document, target Target, profiles []string) (bool, 
 // selected manifest document, replacing esheep variables in the manifest body
 // with the supplied values. A false result means the document disabled this
 // target under the active profiles and the directory was untouched.
-func Render(staging string, source skill.Package, document skill.Document, target Target, profiles []string, variables skill.Variables) (bool, error) {
+func Render(staging string, source skill.Package, document skill.Document, target Target, profiles []string, variables expansion.Variables) (bool, error) {
 	disabled, err := Disabled(document, target, profiles)
 	if err != nil {
 		return false, err
@@ -64,7 +65,7 @@ func Render(staging string, source skill.Package, document skill.Document, targe
 	}
 
 	variables.Harness = string(target)
-	variables.SkillRoot = source.Root
+	variables.Root = source.Root
 	manifest, err := renderManifest(document, variables)
 	if err != nil {
 		return false, err
@@ -124,8 +125,8 @@ func hasFile(source skill.Package, path string) bool {
 	return false
 }
 
-func renderManifest(document skill.Document, variables skill.Variables) ([]byte, error) {
-	body, err := skill.ExpandVariables(document.Body, variables)
+func renderManifest(document skill.Document, variables expansion.Variables) ([]byte, error) {
+	body, err := expansion.Expand(document.Body, variables)
 	if err != nil {
 		return nil, err
 	}

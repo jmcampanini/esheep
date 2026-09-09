@@ -13,6 +13,7 @@ import (
 	"github.com/jmcampanini/esheep/internal/agentsfile"
 	"github.com/jmcampanini/esheep/internal/config"
 	"github.com/jmcampanini/esheep/internal/discovery"
+	"github.com/jmcampanini/esheep/internal/expansion"
 	"github.com/jmcampanini/esheep/internal/install"
 	"github.com/jmcampanini/esheep/internal/render"
 	"github.com/jmcampanini/esheep/internal/skill"
@@ -419,12 +420,12 @@ func skillTrigger(candidate discovery.Candidate, selection skill.Selection) stri
 
 // sourceVariables carries the resolved source directories, in configuration
 // order, as the values substituted for esheep variables.
-func sourceVariables(loaded config.LoadResult) skill.Variables {
+func sourceVariables(loaded config.LoadResult) expansion.Variables {
 	paths := make([]string, 0, len(loaded.ResolvedSources))
 	for _, source := range loaded.ResolvedSources {
 		paths = append(paths, source.Path)
 	}
-	return skill.Variables{Sources: paths}
+	return expansion.Variables{Sources: paths}
 }
 
 func configuredTargets(loaded config.LoadResult) []targetSpec {
@@ -473,6 +474,16 @@ func planAgentsFile(loaded config.LoadResult, catalog catalogResult) agentsFileP
 	return plan
 }
 
+func (plan agentsFilePlan) expand(target render.Target, variables expansion.Variables) ([]byte, error) {
+	variables.Harness = string(target)
+	variables.Root = filepath.Dir(plan.selection.Candidate.Path)
+	content, err := expansion.Expand(plan.content, variables)
+	if err != nil {
+		return nil, fmt.Errorf("render agents file %q for harness %q: %w", plan.selection.Candidate.Path, target, err)
+	}
+	return content, nil
+}
+
 func syncAgentsFile(ctx context.Context, loaded config.LoadResult, catalog catalogResult, targets []targetSpec, report *SyncReport) {
 	plan := planAgentsFile(loaded, catalog)
 	report.Diagnostics = append(report.Diagnostics, plan.diagnostics...)
@@ -490,13 +501,23 @@ func syncAgentsFile(ctx context.Context, loaded config.LoadResult, catalog catal
 	}
 
 	candidate := plan.selection.Candidate
+	variables := sourceVariables(loaded)
 	for _, target := range targets {
 		identity := install.Identity{Skill: candidate.FileName(), Source: candidate.Source, Target: target.name}
 		if !target.enabled {
 			record(report, install.Result{Action: install.ActionDisabled, Detail: "target disabled", Identity: identity}, nil)
 			continue
 		}
-		outcome, err := agentsfile.Deploy(ctx, plan.content, target.agentsMDPath)
+		content, err := plan.expand(target.name, variables)
+		if err != nil {
+			record(report, install.Result{Action: install.ActionFailed, Detail: err.Error(), Identity: identity}, nil)
+			report.Diagnostics = append(report.Diagnostics, Diagnostic{
+				Code: "agents-file-rendering", Message: err.Error(), Path: candidate.Path,
+				Skill: identity.Skill, Source: identity.Source, Target: string(target.name),
+			})
+			continue
+		}
+		outcome, err := agentsfile.Deploy(ctx, content, target.agentsMDPath)
 		if err != nil {
 			record(report, install.Result{Action: install.ActionFailed, Detail: err.Error(), Identity: identity}, nil)
 			report.Diagnostics = append(report.Diagnostics, Diagnostic{
@@ -533,6 +554,7 @@ func statusAgentsFile(ctx context.Context, loaded config.LoadResult, catalog cat
 	}
 
 	candidate := plan.selection.Candidate
+	variables := sourceVariables(loaded)
 	row := &AgentsFileStatus{
 		Path:    candidate.Path,
 		Profile: candidate.Profile,
@@ -544,7 +566,17 @@ func statusAgentsFile(ctx context.Context, loaded config.LoadResult, catalog cat
 			row.Targets[string(target.name)] = agentsfile.StateDisabled
 			continue
 		}
-		state, err := agentsfile.Inspect(ctx, plan.content, target.agentsMDPath)
+		content, err := plan.expand(target.name, variables)
+		if err != nil {
+			row.Targets[string(target.name)] = agentsfile.StateBlocked
+			report.Diagnostics = append(report.Diagnostics, Diagnostic{
+				Code: "agents-file-rendering", Message: err.Error(), Path: candidate.Path,
+				Skill: candidate.FileName(), Source: candidate.Source, Target: string(target.name),
+			})
+			report.Healthy = false
+			continue
+		}
+		state, err := agentsfile.Inspect(ctx, content, target.agentsMDPath)
 		if err != nil {
 			row.Targets[string(target.name)] = agentsfile.StateBlocked
 			report.Diagnostics = append(report.Diagnostics, Diagnostic{

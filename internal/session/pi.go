@@ -27,7 +27,7 @@ func (piAdapter) discover(root string, _ bool) ([]transcript, []Diagnostic) {
 // piMetaLimit bounds the title prescan; session_info records land early.
 const piMetaLimit = 512
 
-func (piAdapter) meta(t transcript) describedSession {
+func (piAdapter) meta(t transcript, ids idFilter) describedSession {
 	entry := Session{Harness: HarnessPi, ModifiedAt: t.modTime, Path: t.path, Subagent: t.subagent}
 	err := forEachLine(t.path, func(line int, data []byte) bool {
 		var record struct {
@@ -58,7 +58,7 @@ func (piAdapter) meta(t transcript) describedSession {
 	if entry.ID == "" {
 		entry.ID = filepath.Base(t.path)
 	}
-	return describedSession{eligible: true, session: entry}
+	return describedSession{eligible: ids.matches(entry.ID), session: entry}
 }
 
 func (piAdapter) scan(path string, visit func(event)) (int, error) {

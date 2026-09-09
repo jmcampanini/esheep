@@ -2,9 +2,11 @@ package cmd
 
 import (
 	"context"
+	"encoding/csv"
 	"errors"
 	"fmt"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/jmcampanini/esheep/internal/config"
@@ -78,6 +80,25 @@ Scans are not
 atomic snapshots and do not retry. "complete" describes the filesystem scan,
 not conversation or remote-history completeness.`
 
+const sessionIDHelp = `--id selects exact, case-sensitive session IDs. Repeat the flag or use
+comma-separated IDs to select any of them; all other filters still apply,
+including --subagents. Empty IDs are usage errors. Cowork accepts either its
+full scoped ID or its complete local_<id> component; the latter selects every
+matching scope. Output retains full scoped IDs. Multiple files sharing an ID
+remain separate results; no matches is a successful empty result when the scan
+completes.
+
+ID values cannot contain line breaks. Values use CSV quoting: to select the
+ID a"b,c, pass --id '"a""b,c"'.
+
+ID filtering rejects nonmatches before further metadata reads where possible.
+Claude and Cowork use path-derived IDs. Codex and Work read the first-line
+header, whose ID takes precedence over the filename fallback. Pi retains its
+bounded metadata read. Matching sessions keep the same metadata and eligibility
+rules as an unfiltered scan. Errors in skipped content or companion metadata
+are not reported; discovery failures and failures reading required IDs or
+matching transcripts still affect completeness.`
+
 func newSessionsCommand(load configLoader, operations commandOperations) *cobra.Command {
 	command := &cobra.Command{
 		Use:   "sessions",
@@ -116,6 +137,7 @@ transcripts match a pattern or structural criteria.
 type sessionFilterFlags struct {
 	archiveState string
 	harnesses    []string
+	ids          []string
 	project      string
 	since        string
 	subagents    bool
@@ -125,6 +147,7 @@ type sessionFilterFlags struct {
 func registerSessionFilterFlags(command *cobra.Command, flags *sessionFilterFlags) {
 	command.Flags().StringVar(&flags.archiveState, "archive-state", "all", "limit to archive state (all, active, archived)")
 	command.Flags().StringSliceVar(&flags.harnesses, "harness", nil, "limit to harnesses (chatgpt-work, claude, claude-cowork, codex, pi); repeatable or comma-separated")
+	command.Flags().StringArrayVar(&flags.ids, "id", nil, "limit to exact session IDs; repeatable or comma-separated")
 	command.Flags().StringVar(&flags.project, "project", "", "limit to sessions with any project path containing this text")
 	command.Flags().StringVar(&flags.since, "since", "", "limit to sessions active since a day count (7d), duration (36h), or date (2026-01-02)")
 	command.Flags().BoolVar(&flags.subagents, "subagents", false, "include subagent transcripts and embedded child activity")
@@ -137,6 +160,24 @@ func (f sessionFilterFlags) filter(now time.Time) (session.Filter, error) {
 		return session.Filter{}, err
 	}
 	filter := session.Filter{ArchiveState: archiveState, IncludeSubagents: f.subagents, Project: f.project}
+	for _, value := range f.ids {
+		if value == "" {
+			return session.Filter{}, errors.New("--id must not be empty")
+		}
+		if strings.ContainsAny(value, "\r\n") {
+			return session.Filter{}, errors.New("--id must not contain line breaks")
+		}
+		ids, err := csv.NewReader(strings.NewReader(value)).Read()
+		if err != nil {
+			return session.Filter{}, fmt.Errorf("--id: parse comma-separated IDs: %w", err)
+		}
+		for _, id := range ids {
+			if id == "" {
+				return session.Filter{}, errors.New("--id must not contain empty IDs")
+			}
+		}
+		filter.IDs = append(filter.IDs, ids...)
+	}
 	for _, name := range f.harnesses {
 		harness, err := session.ParseHarness(name)
 		if err != nil {
@@ -183,8 +224,8 @@ metadata read. Codex and Work transcripts are read in full to collect workspace
 roots across saved turns. Cowork audits are read until a supported conversation
 event and a start time are found, or the end of the file.
 
-Each row carries the harness, recorded start time (or file modification time
-when unavailable), archive state, project directories, title where the grammar
+Each row carries the harness, session ID, recorded start time (or file
+modification time when unavailable), archive state, project directories, title where the grammar
 records one, and the canonical transcript path. Subagent and
 sidechain transcripts are excluded unless --subagents is set. --since keeps
 sessions still active at the given time; --until drops sessions started
@@ -195,6 +236,8 @@ inventory; a missing session root merely skips that location with a
 diagnostic.
 
 ` + sessionHarnessHelp + `
+
+` + sessionIDHelp + `
 
 ` + streamContractHelp + `
 
@@ -258,6 +301,10 @@ assistant text, and tool calls and results (tool arguments and output). The
 pattern is a case-insensitive Go regular expression and is optional when
 --tool or --errors already select events.
 
+--id limits which sessions are searched; it does not select events. A pattern,
+--tool, or --errors is still required. Use 'sessions list --id <id>' to locate
+a session without searching its content.
+
 --role limits matching to user, assistant, or tool events. --tool limits to
 calls of and results from one tool. --errors keeps only tool results whose
 grammar flags a failure; Codex and ChatGPT Work transcripts flag errors only
@@ -278,6 +325,8 @@ failure. Unknown tool names remain unset when the call is absent from the
 saved history. Use --raw to inspect other records in qualifying audits.
 
 ` + sessionHarnessHelp + `
+
+` + sessionIDHelp + `
 
 Unparseable transcript lines are skipped and reported as diagnostics without
 failing the search. The command exits nonzero only when filesystem failures

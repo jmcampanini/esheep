@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jmcampanini/esheep/internal/expansion"
 	"github.com/jmcampanini/esheep/internal/skill"
 )
 
@@ -40,7 +41,7 @@ func TestRenderIncludesBodyWithoutInstallingSourceOnlyEntries(t *testing.T) {
 	}
 	staging := t.TempDir()
 
-	rendered, err := Render(staging, source, source.Manifests[0].Document, TargetCodex, nil, skill.Variables{})
+	rendered, err := Render(staging, source, source.Manifests[0].Document, TargetCodex, nil, expansion.Variables{})
 	if err != nil || !rendered {
 		t.Fatalf("Render() = %v, %v", rendered, err)
 	}
@@ -74,7 +75,7 @@ func TestRenderMissingIncludeLeavesStagingEmpty(t *testing.T) {
 	document.Body = []byte("{{esheep.include-by-harness \"missing\"}}")
 	staging := t.TempDir()
 
-	_, err := Render(staging, source, document, TargetPi, nil, skill.Variables{})
+	_, err := Render(staging, source, document, TargetPi, nil, expansion.Variables{})
 	if !errors.Is(err, os.ErrNotExist) || !strings.Contains(err.Error(), "esheep-missing-pi.md") {
 		t.Fatalf("Render() error = %v, want missing Pi include", err)
 	}
