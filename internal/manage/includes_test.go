@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/jmcampanini/esheep/internal/config"
@@ -108,6 +109,69 @@ func TestSyncMissingHarnessIncludePreservesOutputAndContinuesOtherTargets(t *tes
 	after, err = os.ReadFile(piManifest)
 	if err != nil || string(after) != string(before) {
 		t.Fatalf("disabled Pi installation changed: %q, %v", after, err)
+	}
+}
+
+func TestSyncOptionalSkillIncludesRepairAppearanceAndDisappearanceWithoutChangingIdentity(t *testing.T) {
+	t.Parallel()
+	loaded, skillRoot := personalIncludeConfig(t)
+	manifest := "---\nname: fable-review\nesheep-trigger: Use for an independent review\nesheep-targets: [pi, codex]\nmetadata:\n  owner: reviewer\n---\nbefore\r\n{{esheep.include-by-harness-optional \"extras\"}}\r\nafter\n"
+	if err := os.WriteFile(filepath.Join(skillRoot, "SKILL.personal.md"), []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	report := Sync(t.Context(), loaded)
+	if report.Summary.Installed != 2 || report.Summary.Failed != 0 || len(report.Diagnostics) != 0 {
+		t.Fatalf("absent optional skill include sync = %#v", report)
+	}
+	piRoot := filepath.Join(loaded.ResolvedTargets.Pi.Skills, "fable-review")
+	piManifest := filepath.Join(piRoot, "SKILL.md")
+	baseline, err := os.ReadFile(piManifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(string(baseline), "before\r\n\r\nafter\n") || !strings.Contains(string(baseline), "owner: reviewer") {
+		t.Fatalf("absent include changed whitespace or frontmatter: %q", baseline)
+	}
+	markerBefore, err := os.ReadFile(filepath.Join(piRoot, install.MarkerName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	marker, err := install.ParseMarker(markerBefore)
+	if err != nil || marker != (install.Marker{Source: "source", Skill: "fable-review", Target: render.TargetPi}) {
+		t.Fatalf("optional skill marker = %#v, %v", marker, err)
+	}
+
+	includePath := filepath.Join(skillRoot, "esheep-extras-pi.md")
+	for _, body := range []string{"Pi extras", ""} {
+		if body == "" {
+			if err := os.Remove(includePath); err != nil {
+				t.Fatal(err)
+			}
+		} else if err := os.WriteFile(includePath, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		status := Status(t.Context(), loaded)
+		row := findStatus(t, status, "source", "fable-review")
+		if status.Healthy || row.Targets["pi"] != install.StateDrifted || row.Targets["codex"] != install.StateSynced || len(status.Diagnostics) != 0 {
+			t.Fatalf("optional skill include %q drift = %#v", body, status)
+		}
+		report := Sync(t.Context(), loaded)
+		if report.Summary.Repaired != 1 || report.Summary.Unchanged != 1 || report.Summary.Failed != 0 || len(report.Diagnostics) != 0 {
+			t.Fatalf("optional skill include %q repair = %#v", body, report)
+		}
+		after, err := os.ReadFile(piManifest)
+		want := strings.Replace(string(baseline), "before\r\n\r\nafter\n", "before\r\n"+body+"\r\nafter\n", 1)
+		if err != nil || string(after) != want {
+			t.Errorf("repaired skill manifest = %q, %v, want %q", after, err, want)
+		}
+		markerAfter, err := os.ReadFile(filepath.Join(piRoot, install.MarkerName))
+		if err != nil || string(markerAfter) != string(markerBefore) {
+			t.Errorf("repaired skill marker = %q, %v, want %q", markerAfter, err, markerBefore)
+		}
+		if status := Status(t.Context(), loaded); !status.Healthy {
+			t.Fatalf("optional skill include %q repaired status = %#v", body, status)
+		}
 	}
 }
 

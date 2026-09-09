@@ -1,6 +1,7 @@
-package skill
+package expansion
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -9,7 +10,7 @@ import (
 	"syscall"
 )
 
-// MaxIncludeDepth limits nested included files; the manifest itself is depth zero.
+// MaxIncludeDepth limits nested included files; the source document is depth zero.
 const MaxIncludeDepth = 2
 
 type includedFile struct {
@@ -17,17 +18,21 @@ type includedFile struct {
 	name string
 }
 
-func (variables Variables) include(prefix string, chain []includedFile) ([]byte, error) {
-	if variables.Harness == "" || variables.SkillRoot == "" {
-		return nil, fmt.Errorf("include by harness %q: skill root and harness are required", prefix)
+func (variables Variables) include(prefix string, kind variableKind, chain []includedFile) ([]byte, error) {
+	if variables.Harness == "" || variables.Root == "" {
+		return nil, fmt.Errorf("include by harness %q: document root and harness are required", prefix)
 	}
-	name := sourceOnlyPrefix + prefix + "-" + variables.Harness + ".md"
-	file, err := os.OpenFile(filepath.Join(variables.SkillRoot, name), os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	name := "esheep-" + prefix + "-" + variables.Harness + ".md"
+	path := filepath.Join(variables.Root, name)
+	file, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
 	if err != nil {
+		if kind == variableIncludeByHarnessOptional && errors.Is(err, os.ErrNotExist) && includeAbsent(path) {
+			return nil, nil
+		}
 		return nil, fmt.Errorf("include %q for harness %q: %w", name, variables.Harness, err)
 	}
 	content, err := readIncludedFile(file, name, chain)
-	if err := closeFile(file, err); err != nil {
+	if err := errors.Join(err, file.Close()); err != nil {
 		return nil, fmt.Errorf("include %q for harness %q: %w", name, variables.Harness, err)
 	}
 
@@ -36,6 +41,16 @@ func (variables Variables) include(prefix string, chain []includedFile) ([]byte,
 		return nil, fmt.Errorf("expand include %q: %w", name, err)
 	}
 	return expanded, nil
+}
+
+// Absence of the entry is allowed, but a broken link or unavailable document
+// root must not silently erase installed instructions.
+func includeAbsent(path string) bool {
+	if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
+		return false
+	}
+	parent, err := os.Stat(filepath.Dir(path))
+	return err == nil && parent.IsDir()
 }
 
 type includeContent struct {
