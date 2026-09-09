@@ -30,7 +30,7 @@ func (claudeAdapter) discover(root string, includeSubagents bool) ([]transcript,
 // timestamp, and ai-title usually lands early.
 const claudeMetaLimit = 512
 
-func (claudeAdapter) meta(t transcript) describedSession {
+func (claudeAdapter) meta(t transcript, ids idFilter) describedSession {
 	entry := Session{
 		Harness:    HarnessClaude,
 		ID:         strings.TrimSuffix(filepath.Base(t.path), ".jsonl"),
@@ -38,6 +38,10 @@ func (claudeAdapter) meta(t transcript) describedSession {
 		Path:       t.path,
 		Subagent:   t.subagent,
 	}
+	if !ids.matches(entry.ID) {
+		return describedSession{session: entry}
+	}
+
 	err := forEachLine(t.path, func(line int, data []byte) bool {
 		var record struct {
 			AiTitle   string `json:"aiTitle"`
