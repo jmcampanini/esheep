@@ -225,6 +225,9 @@ func TestExpandOptionalIncludeRejectsUnavailableEntries(t *testing.T) {
 			if err == nil || got != nil {
 				t.Fatalf("Expand() = %q, %v, want no content and error", got, err)
 			}
+			if errors.Is(err, os.ErrNotExist) && (!strings.Contains(err.Error(), "symlink") || !strings.Contains(err.Error(), "root")) {
+				t.Errorf("Expand() error = %v, want guidance about broken symlinks and unavailable roots", err)
+			}
 			if test.wantErr != nil && !errors.Is(err, test.wantErr) {
 				t.Errorf("Expand() error = %v, want %v", err, test.wantErr)
 			}

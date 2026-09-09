@@ -29,6 +29,9 @@ func (variables Variables) include(prefix string, kind variableKind, chain []inc
 		if kind == variableIncludeByHarnessOptional && errors.Is(err, os.ErrNotExist) && includeAbsent(path) {
 			return nil, nil
 		}
+		if kind == variableIncludeByHarnessOptional && errors.Is(err, os.ErrNotExist) {
+			err = fmt.Errorf("optional include cannot be omitted; check for a broken symlink or unavailable document root: %w", err)
+		}
 		return nil, fmt.Errorf("include %q for harness %q: %w", name, variables.Harness, err)
 	}
 	content, err := readIncludedFile(file, name, chain)
