@@ -18,7 +18,7 @@ import (
 	"github.com/jmcampanini/esheep/internal/skill"
 )
 
-// Readiness describes whether a known source skill can be synchronized.
+// Readiness classifies source validity and explicit disabling of the selected manifest.
 type Readiness string
 
 // Source readiness states.

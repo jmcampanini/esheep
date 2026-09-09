@@ -42,10 +42,10 @@ sources or targets.
 Readiness is ready, disabled, invalid, collision, or conflict. Disabled
 means the selected manifest declares esheep-disabled: true; validation
 errors, collisions, and profile conflicts take precedence. Diagnostics
-do not hide known entries. The profile gate column
-shows when a manifest applies: all means every profile, and - means no manifest
-was loadable. The command exits nonzero only when configuration or
-filesystem failures prevent complete discovery.
+do not hide known entries. The profile gate column shows when a manifest
+applies: all means every profile, and - means no manifest was loadable.
+The command exits nonzero only when configuration or filesystem failures
+prevent complete discovery.
 
 ` + streamContractHelp + `
 
