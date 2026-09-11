@@ -162,7 +162,7 @@ the by-harness forms add a harness suffix. Paths are not accepted. The
 owning root is the skill directory or the selected source's agents-md/
 directory. Every nested include uses that same root, even inside a symlinked
 fragment. All include forms can nest together; harness includes use the
-current installation harness. Plain includes never select a harness file,
+current installation harness. Plain includes never add a harness suffix,
 and harness includes never fall back to a shared file.
 
 Variables in included files expand recursively. Include cycles, including
