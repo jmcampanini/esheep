@@ -10,14 +10,12 @@ import (
 )
 
 const (
-	variablePrefix                = "{{esheep."
-	sourcesVariable               = "{{esheep.sources}}"
-	includeVariablePrefix         = "{{esheep.include-by-harness \""
-	optionalIncludeVariablePrefix = "{{esheep.include-by-harness-optional \""
+	variablePrefix  = "{{esheep."
+	sourcesVariable = "{{esheep.sources}}"
 )
 
 // Variables supplies resolved source paths and the current document root and
-// harness. Root and Harness are required only when an include is used; nested
+// harness. Includes require Root; only harness includes require Harness. Nested
 // includes always resolve from Root, including through symlinks.
 type Variables struct {
 	Harness string
@@ -45,6 +43,8 @@ type variableKind uint8
 
 const (
 	variableSources variableKind = iota
+	variableInclude
+	variableIncludeOptional
 	variableIncludeByHarness
 	variableIncludeByHarnessOptional
 )
@@ -57,7 +57,7 @@ type bodyVariable struct {
 }
 
 // Expand replaces whole-line esheep variables, recursively expanding included
-// harness files. Missing optional includes contribute no bytes. Other bytes,
+// files. Missing optional includes contribute no bytes. Other bytes,
 // including line endings, are preserved. Generated source paths are literal
 // values and are not expanded again. Failed expansion returns no partial text.
 func Expand(body []byte, variables Variables) ([]byte, error) {
@@ -83,7 +83,7 @@ func (variables Variables) expand(body []byte, chain []includedFile) ([]byte, er
 				return nil, fmt.Errorf("expand %s: no source directories provided", sourcesVariable)
 			}
 			expanded.WriteString("- " + strings.Join(variables.Sources, "\n- "))
-		case variableIncludeByHarness, variableIncludeByHarnessOptional:
+		case variableInclude, variableIncludeOptional, variableIncludeByHarness, variableIncludeByHarnessOptional:
 			content, err := variables.include(token.argument, token.kind, chain)
 			if err != nil {
 				return nil, err
@@ -129,8 +129,10 @@ func parseVariable(text []byte) (bodyVariable, bool) {
 		kind   variableKind
 		prefix string
 	}{
-		{kind: variableIncludeByHarness, prefix: includeVariablePrefix},
-		{kind: variableIncludeByHarnessOptional, prefix: optionalIncludeVariablePrefix},
+		{kind: variableInclude, prefix: "{{esheep.include \""},
+		{kind: variableIncludeOptional, prefix: "{{esheep.include-optional \""},
+		{kind: variableIncludeByHarness, prefix: "{{esheep.include-by-harness \""},
+		{kind: variableIncludeByHarnessOptional, prefix: "{{esheep.include-by-harness-optional \""},
 	} {
 		argument, ok := bytes.CutPrefix(text, []byte(include.prefix))
 		if !ok {

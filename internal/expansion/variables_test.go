@@ -12,6 +12,8 @@ func TestValidateAcceptsWholeLineVariables(t *testing.T) {
 	t.Parallel()
 	for _, variable := range []string{
 		"{{esheep.sources}}",
+		"{{esheep.include \"body\"}}",
+		"{{esheep.include-optional \"extras\"}}",
 		"{{esheep.include-by-harness \"body\"}}",
 		"{{esheep.include-by-harness-optional \"extras\"}}",
 		"{{esheep.include-by-harness-optional \"" + strings.Repeat("a", 64) + "\"}}",
@@ -54,7 +56,7 @@ func TestValidateRejectsInvalidVariables(t *testing.T) {
 		{name: "indented", body: "  {{esheep.sources}}\n", detail: "must occupy its own line"},
 		{name: "adjacent variables", body: "{{esheep.sources}}{{esheep.sources}}\n", detail: "must occupy its own line"},
 	}
-	for _, kind := range []string{"include-by-harness", "include-by-harness-optional"} {
+	for _, kind := range []string{"include", "include-optional", "include-by-harness", "include-by-harness-optional"} {
 		for _, argument := range []string{`"../body"`, `""`, "body", `'body'`, `"Body"`, ` "body"`, `"body" `, `"` + strings.Repeat("a", 65) + `"`} {
 			tests = append(tests, syntaxCase{name: kind + " " + argument, body: fmt.Sprintf("{{esheep.%s %s}}", kind, argument), detail: "unknown esheep variable"})
 		}
