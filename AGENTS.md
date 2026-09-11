@@ -27,7 +27,7 @@
 - Install managed skills atomically and record `source`, `skill`, and `target` ownership in `.esheep.toml` markers.
 - Leave disabled targets untouched during synchronization and pruning.
 - Skip dot-prefixed supporting entries before validation at every depth, except the reserved skill-root `.esheep.toml` name.
-- Validate `esheep-` prefixed source entries but never install them or their descendants. Expand harness includes from the owning root: the skill directory for skills or the source's `agents-md/` directory for agents files. Keep that root fixed through nested includes and symlinks, reject cycles, and preserve the affected destination when expansion fails.
+- Validate `esheep-` prefixed source entries but never install them or their descendants. Expand includes from the owning root: the skill directory for skills or the source's `agents-md/` directory for agents files. Keep that root fixed through nested includes and symlinks, reject cycles, and preserve the affected destination when expansion fails.
 - Apply the same include language to skill bodies and entire managed agents files. Optional includes insert zero bytes only for genuinely absent files; broken symlinks and other read or validation failures remain errors. Leave surrounding line endings unchanged and install empty rendered agents files.
 - Treat sources as trusted: follow included symlinks wherever they resolve, and treat an included link that does not resolve or produces a directory cycle as an error.
 - Discover managed global instruction files only under each source's `agents-md/` directory; container-root `AGENTS*.md` files are repository content esheep never reads.

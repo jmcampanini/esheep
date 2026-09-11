@@ -32,7 +32,7 @@ Visible directories remain even when all their contents are skipped.
 Within each skill, files and directories with the case-sensitive esheep-
 prefix are source-only at every depth. They and all descendants remain
 subject to source validation but are never copied into an installation.
-Harness include files use this prefix and stay in the owning root: the
+Include files use this prefix and stay in the owning root: the
 skill directory for skills or the source's agents-md/ directory for agents
 files. Agents include fragments are source-only and never deployed.
 
@@ -98,8 +98,8 @@ does not inherit the base SKILL.md flag, and a selected disabled variant
 does not fall back to SKILL.md. Remove the flag or set it to false to
 re-enable that manifest subject to its target and profile gates.
 Disabling preserves discovery and validation, including required fields,
-supporting files, name collisions, and profile conflicts. Target-specific
-includes are not expanded for a disabled manifest.
+supporting files, name collisions, and profile conflicts. Includes are not
+expanded for a disabled manifest.
 
 List and status report disabled readiness for a valid selected disabled
 manifest; invalid, collision, and conflict take precedence. On the next
@@ -136,6 +136,15 @@ Variables for skill bodies and agents files:
                             absolute paths, one per line, in
                             configuration order.
 
+  {{esheep.include "body"}}
+                            Insert the required esheep-body.md from the
+                            owning root, without selecting by harness.
+
+  {{esheep.include-optional "extras"}}
+                            Insert esheep-extras.md from the owning root.
+                            A genuinely absent file quietly inserts zero
+                            bytes. Surrounding line endings stay unchanged.
+
   {{esheep.include-by-harness "body"}}
                             Insert the required esheep-body-<harness>.md
                             from the owning root, using claude, pi, or codex
@@ -147,11 +156,14 @@ Variables for skill bodies and agents files:
                             zero bytes, with no fallback to another file.
                             Surrounding line endings remain unchanged.
 
-Both include directives accept a 1-64 character lowercase name using the
-skill name grammar. esheep adds the esheep- prefix, harness suffix, and .md
-extension. Paths are not accepted. The owning root is the skill directory
-or the selected source's agents-md/ directory. Every nested include uses
-that same root and harness, even inside a symlinked fragment.
+All include directives accept a 1-64 character lowercase name using the
+skill name grammar. esheep adds the esheep- prefix and .md extension; only
+the by-harness forms add a harness suffix. Paths are not accepted. The
+owning root is the skill directory or the selected source's agents-md/
+directory. Every nested include uses that same root, even inside a symlinked
+fragment. All include forms can nest together; harness includes use the
+current installation harness. Plain includes never add a harness suffix,
+and harness includes never fall back to a shared file.
 
 Variables in included files expand recursively. Include cycles, including
 symlink aliases, fail immediately. At most %d included-file levels are
@@ -164,7 +176,7 @@ Includes expand only for enabled targets and, for skills, only where the
 selected manifest applies. A missing required include fails rendering.
 Optional includes permit only genuinely absent files: broken symlinks,
 unreadable or nonregular files, malformed variables, cycles, and depth
-violations fail for both directives. A target-specific rendering failure
+violations fail for all include directives. A target-specific rendering failure
 preserves that destination. Synchronization continues unrelated work and
 exits nonzero on failure. Status compares each destination against its
 per-target rendered bytes. Agents-file rendering errors report blocked even

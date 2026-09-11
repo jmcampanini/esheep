@@ -19,24 +19,33 @@ type includedFile struct {
 }
 
 func (variables Variables) include(prefix string, kind variableKind, chain []includedFile) ([]byte, error) {
-	if variables.Harness == "" || variables.Root == "" {
-		return nil, fmt.Errorf("include by harness %q: document root and harness are required", prefix)
+	if variables.Root == "" {
+		return nil, fmt.Errorf("include %q: document root is required", prefix)
 	}
-	name := "esheep-" + prefix + "-" + variables.Harness + ".md"
+	name := "esheep-" + prefix
+	if kind == variableIncludeByHarness || kind == variableIncludeByHarnessOptional {
+		if variables.Harness == "" {
+			return nil, fmt.Errorf("include by harness %q: harness is required", prefix)
+		}
+		name += "-" + variables.Harness
+	}
+	name += ".md"
+	optional := kind == variableIncludeOptional || kind == variableIncludeByHarnessOptional
+
 	path := filepath.Join(variables.Root, name)
 	file, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
 	if err != nil {
-		if kind == variableIncludeByHarnessOptional && errors.Is(err, os.ErrNotExist) && includeAbsent(path) {
+		if optional && errors.Is(err, os.ErrNotExist) && includeAbsent(path) {
 			return nil, nil
 		}
-		if kind == variableIncludeByHarnessOptional && errors.Is(err, os.ErrNotExist) {
+		if optional && errors.Is(err, os.ErrNotExist) {
 			err = fmt.Errorf("optional include cannot be omitted; check for a broken symlink or unavailable document root: %w", err)
 		}
-		return nil, fmt.Errorf("include %q for harness %q: %w", name, variables.Harness, err)
+		return nil, fmt.Errorf("include %q: %w", name, err)
 	}
 	content, err := readIncludedFile(file, name, chain)
 	if err := errors.Join(err, file.Close()); err != nil {
-		return nil, fmt.Errorf("include %q for harness %q: %w", name, variables.Harness, err)
+		return nil, fmt.Errorf("include %q: %w", name, err)
 	}
 
 	expanded, err := variables.expand(content.body, append(chain, includedFile{info: content.info, name: name}))

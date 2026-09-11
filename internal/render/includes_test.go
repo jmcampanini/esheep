@@ -17,7 +17,8 @@ func TestRenderIncludesBodyWithoutInstallingSourceOnlyEntries(t *testing.T) {
 	t.Parallel()
 	root := filepath.Join(t.TempDir(), "demo")
 	files := map[string]string{
-		"SKILL.md":                           "---\nname: demo\nesheep-trigger: shared\nesheep-targets: [codex]\n---\n{{esheep.include-by-harness \"body\"}}",
+		"SKILL.md":                           "---\nname: demo\nesheep-trigger: shared\nesheep-targets: [codex]\n---\n{{esheep.include \"body\"}}",
+		"esheep-body.md":                     "Shared instructions\n{{esheep.include-by-harness \"body\"}}",
 		"esheep-body-codex.md":               "Codex instructions",
 		"esheep-body-pi.md":                  "{{esheep.unknown}}",
 		"esheep-notes/ordinary.md":           "source notes",
@@ -58,7 +59,7 @@ func TestRenderIncludesBodyWithoutInstallingSourceOnlyEntries(t *testing.T) {
 		t.Fatalf("installed paths = %q, want %q", paths, want)
 	}
 	manifest, err := os.ReadFile(filepath.Join(staging, "SKILL.md"))
-	if want := "---\nname: demo\ndescription: shared\n---\nCodex instructions"; err != nil || string(manifest) != want {
+	if want := "---\nname: demo\ndescription: shared\n---\nShared instructions\nCodex instructions"; err != nil || string(manifest) != want {
 		t.Fatalf("installed manifest = %q, %v, want %q", manifest, err, want)
 	}
 	guide, err := os.ReadFile(filepath.Join(staging, "support/guide.md"))
