@@ -108,9 +108,10 @@ modifying them.
 Run 'esheep config' to inspect the effective configuration and resolved
 paths, 'esheep help skill-format' for the authoring format, and
 'esheep help exit-codes' for exit-status meanings.`,
-		Version:       effectiveVersion(),
-		SilenceErrors: true,
-		SilenceUsage:  true,
+		Version:            effectiveVersion(),
+		DisableSuggestions: true,
+		SilenceErrors:      true,
+		SilenceUsage:       true,
 		RunE: func(command *cobra.Command, _ []string) error {
 			return command.Help()
 		},

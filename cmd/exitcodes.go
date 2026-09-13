@@ -19,6 +19,9 @@ func newExitCodesTopic() *cobra.Command {
      'doctor' exits 1 when any environment check fails.
   2  Invalid command usage or command wiring failure.
 
+'esheep help <topic>' with an unknown topic prints 'Unknown help topic'
+and the root usage on stderr and exits 0.
+
 JSON modes report an unsuccessful result inside the emitted document and
 still use the exit status; they do not duplicate the report as a stderr
 error.`,
