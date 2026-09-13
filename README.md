@@ -51,7 +51,7 @@ make build
 | `esheep config [--provenance]` | Write the effective configuration and resolved paths. |
 | `esheep profiles [--json]` | Report effective and referenced profiles. |
 | `esheep sessions list [--json]` | List historical harness sessions with their canonical transcript paths. |
-| `esheep sessions search <pattern> [--json]` | Search session transcripts in place; hits address transcript lines. |
+| `esheep sessions search [pattern] [--json]` | Search session transcripts in place; hits address transcript lines. |
 | `esheep skills list [--json]` | Inventory skills in every configured source. |
 | `esheep sync` | Install, repair, and prune esheep-owned output on enabled targets. |
 | `esheep skills status [--json]` | Report source readiness and per-target deployment health. |

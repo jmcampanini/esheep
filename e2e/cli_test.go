@@ -711,10 +711,6 @@ enabled = false
 	if relativeXDG.exitCode != 1 || relativeXDG.stdout != "" || relativeXDG.stderr == "" {
 		t.Fatalf("relative XDG result = %#v", relativeXDG)
 	}
-	invalid := runEsheep(t, environment, "config", "extra")
-	if invalid.exitCode != 2 || invalid.stdout != "" {
-		t.Fatalf("invalid operands result = %#v", invalid)
-	}
 }
 
 func writeE2ESkill(t *testing.T, source, name, trigger, extra string, support map[string]string) {

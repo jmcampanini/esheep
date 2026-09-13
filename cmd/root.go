@@ -111,7 +111,6 @@ paths, 'esheep help skill-format' for the authoring format, and
 		Version:       effectiveVersion(),
 		SilenceErrors: true,
 		SilenceUsage:  true,
-		Args:          cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			return command.Help()
 		},
