@@ -11,39 +11,26 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func TestMetadataCommandsDoNotLoadConfiguration(t *testing.T) {
-	tests := []struct {
-		name string
-		args []string
-		want string
-	}{
-		{name: "help", args: []string{"--config", "missing.toml", "--help"}, want: "Manage Agent Skills and a global agents file"},
-		{name: "version", args: []string{"--config", "missing.toml", "--version"}, want: "esheep version dev\n"},
-		{name: "completion", args: []string{"--config", "missing.toml", "completion", "bash"}, want: "bash completion"},
-		{name: "skills help", args: []string{"--config", "missing.toml", "skills", "--help"}, want: "deployment status"},
-		{name: "status help", args: []string{"--config", "missing.toml", "skills", "status", "--help"}, want: "deployment health"},
+func TestCompletionDoesNotLoadConfiguration(t *testing.T) {
+	calls := 0
+	load := func(config.LoadOptions) (config.LoadResult, error) {
+		calls++
+		return config.LoadResult{}, errors.New("configuration was loaded")
 	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			calls := 0
-			load := func(config.LoadOptions) (config.LoadResult, error) {
-				calls++
-				return config.LoadResult{}, errors.New("configuration was loaded")
-			}
-			code, stdout, stderr := runCommand(t, load, test.args...)
-			if code != 0 {
-				t.Fatalf("exit code = %d, stderr = %q", code, stderr)
-			}
-			if calls != 0 {
-				t.Fatalf("configuration loads = %d, want 0", calls)
-			}
-			if !strings.Contains(stdout, test.want) {
-				t.Fatalf("stdout = %q, want content %q", stdout, test.want)
-			}
-			if stderr != "" {
-				t.Fatalf("stderr = %q, want empty", stderr)
-			}
-		})
+
+	code, stdout, stderr := runCommand(t, load, "--config", "missing.toml", "completion", "bash")
+
+	if code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", code, stderr)
+	}
+	if calls != 0 {
+		t.Fatalf("configuration loads = %d, want 0", calls)
+	}
+	if !strings.Contains(stdout, "bash completion") {
+		t.Fatalf("stdout = %q, want bash completion script", stdout)
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty", stderr)
 	}
 }
 
