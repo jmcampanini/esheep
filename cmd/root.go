@@ -118,6 +118,11 @@ paths, 'esheep help skill-format' for the authoring format, and
 	if err := config.RegisterFlags(root.PersistentFlags()); err != nil {
 		panic(fmt.Sprintf("register configuration flags: %v", err))
 	}
+	// Cobra registers --help and --version only when it executes the found
+	// command, but it strips flags while finding it. Registering them here keeps
+	// 'esheep --help --config x' from reading "x" as an unknown command.
+	root.InitDefaultHelpFlag()
+	root.InitDefaultVersionFlag()
 	root.AddCommand(
 		newCompletionCommand(),
 		newConfigCommand(load),
