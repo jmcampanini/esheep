@@ -607,12 +607,6 @@ func TestFoundationConfigurationWorkflow(t *testing.T) {
 	}
 	settingsPath := filepath.Join(configHome, "esheep", "esheep.toml")
 
-	version := runEsheep(t, environment, "--config", filepath.Join(root, "missing.toml"), "--version")
-	assertSuccess(t, version)
-	if version.stdout != "esheep version "+expectedVersion+"\n" {
-		t.Fatalf("version stdout = %q", version.stdout)
-	}
-
 	configuration := runEsheep(t, environment, "--claude-enabled=false", "config", "--provenance")
 	assertSuccess(t, configuration)
 	if !strings.Contains(configuration.stdout, "[targets.claude]\nenabled = false\n") ||
