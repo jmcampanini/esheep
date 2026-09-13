@@ -1,10 +1,6 @@
 package cmd
 
-import (
-	"fmt"
-
-	"github.com/spf13/cobra"
-)
+import "github.com/spf13/cobra"
 
 func newCompletionCommand() *cobra.Command {
 	return &cobra.Command{
@@ -29,8 +25,6 @@ configuration.`,
 				err = root.GenFishCompletion(command.OutOrStdout(), true)
 			case "powershell":
 				err = root.GenPowerShellCompletion(command.OutOrStdout())
-			default:
-				return fmt.Errorf("unsupported shell %q; choose bash, zsh, fish, or powershell", args[0])
 			}
 			return appError(err)
 		},

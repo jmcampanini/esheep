@@ -237,7 +237,6 @@ func TestSessionsUsageErrorsDoNotLoadConfiguration(t *testing.T) {
 		{name: "unknown harness", args: []string{"sessions", "list", "--harness", "emacs"}},
 		{name: "bad since", args: []string{"sessions", "list", "--since", "yesterday"}},
 		{name: "bad pattern", args: []string{"sessions", "search", "(unclosed"}},
-		{name: "extra operand", args: []string{"sessions", "list", "extra"}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

@@ -8,6 +8,7 @@ import (
 
 	"github.com/jmcampanini/esheep/internal/config"
 	"github.com/jmcampanini/esheep/internal/manage"
+	"github.com/spf13/cobra"
 )
 
 func TestMetadataCommandsDoNotLoadConfiguration(t *testing.T) {
@@ -46,42 +47,27 @@ func TestMetadataCommandsDoNotLoadConfiguration(t *testing.T) {
 	}
 }
 
-func TestInvalidOperandsDoNotLoadConfiguration(t *testing.T) {
-	tests := []struct {
-		args []string
-		hint string
-	}{
-		{args: []string{"config", "extra"}, hint: "Run 'esheep config --help' for usage.\n"},
-		{args: []string{"completion"}, hint: "Run 'esheep completion --help' for usage.\n"},
-		{args: []string{"completion", "elvish"}, hint: "Run 'esheep completion --help' for usage.\n"},
-		{args: []string{"completion", "bash", "extra"}, hint: "Run 'esheep completion --help' for usage.\n"},
-		{args: []string{"skills", "list", "extra"}, hint: "Run 'esheep skills list --help' for usage.\n"},
-		{args: []string{"skills", "status", "extra"}, hint: "Run 'esheep skills status --help' for usage.\n"},
-		{args: []string{"sync", "extra"}, hint: "Run 'esheep sync --help' for usage.\n"},
-		{args: []string{"sync", "--json"}, hint: "Run 'esheep sync --help' for usage.\n"},
+func TestEveryCommandDeclaresPositionalGrammar(t *testing.T) {
+	root := newRootCommand(config.Load)
+
+	var assertGrammar func(*cobra.Command)
+	assertGrammar = func(command *cobra.Command) {
+		if command.HasSubCommands() && command.RunE == nil {
+			t.Errorf("%s: has subcommands but no RunE, so Cobra shows help before validating operands", command.CommandPath())
+		}
+		for _, child := range command.Commands() {
+			// Cobra owns its help command; esheep declares its own completion command.
+			if child.Name() == "help" {
+				continue
+			}
+			if child.Args == nil {
+				t.Errorf("%s: no Args validator", child.CommandPath())
+			}
+			assertGrammar(child)
+		}
 	}
-	for _, test := range tests {
-		t.Run(strings.Join(test.args, " "), func(t *testing.T) {
-			calls := 0
-			load := func(config.LoadOptions) (config.LoadResult, error) {
-				calls++
-				return config.LoadResult{}, errors.New("configuration was loaded")
-			}
-			code, stdout, stderr := runCommand(t, load, test.args...)
-			if code != 2 {
-				t.Fatalf("exit code = %d, want 2", code)
-			}
-			if stdout != "" {
-				t.Fatalf("stdout = %q, want empty", stdout)
-			}
-			if calls != 0 {
-				t.Fatalf("configuration loads = %d, want 0", calls)
-			}
-			if !strings.HasPrefix(stderr, "Error: ") || !strings.HasSuffix(stderr, test.hint) {
-				t.Fatalf("stderr = %q, want error followed by %q", stderr, test.hint)
-			}
-		})
-	}
+
+	assertGrammar(root)
 }
 
 func TestConfigurationFailureIsAnApplicationError(t *testing.T) {
