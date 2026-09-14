@@ -26,6 +26,28 @@ to override a path. Omitted settings retain these defaults:
 The output includes all effective settings, including defaults, so it
 contains more than you need to put in esheep.toml.
 
+[[machines]] entries name other machines that run esheep, for
+'sessions list --remote' and 'sessions search --remote'. They are
+configured only in the TOML file:
+
+  [[machines]]
+  name = "nas"                           # hostname; ssh destination defaults to it
+
+  [[machines]]
+  name = "studio"
+  host = "javier@studio.tail1234.ts.net" # ssh destination (default: name)
+  command = "/opt/homebrew/bin/esheep"   # remote command (default: esheep)
+  timeout = "2m"                         # whole call, Go duration (default: 60s)
+
+An entry has exactly those four keys; transcript locations are the remote
+machine's own configuration. name is the machine's hostname: the entry
+whose first label matches this machine's is this machine. Names must be
+non-empty, unique ignoring case, and free of commas and whitespace; 'all'
+is reserved. command is inserted verbatim into the ssh command line, so it
+can name a path the remote login shell lacks on PATH. timeout must be a
+positive Go duration. The output lists every entry with its effective
+host, command, and timeout.
+
 ` + configResolutionHelp + `
 
 Source and target paths must be absolute, exactly '~', or begin with '~/'.

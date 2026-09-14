@@ -119,7 +119,8 @@ derived from its home. Cowork's platform defaults and configuration are
 described below. A missing root skips that location with a diagnostic.
 
 'sessions list' inventories sessions; 'sessions search' finds sessions whose
-transcripts match a pattern or structural criteria.
+transcripts match a pattern or structural criteria. Both accept --remote to
+include configured machines, where they run 'sessions query' over ssh.
 
 ` + sessionHarnessHelp,
 		Args: cobra.NoArgs,

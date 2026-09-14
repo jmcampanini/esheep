@@ -1,6 +1,6 @@
 # Remote session search
 
-Design and implementation plan for running `esheep sessions list` and `esheep sessions search` across several machines from one of them. Settled on 2026-09-13 through a pivotal-questions interview. Implementation has not started.
+Design and implementation plan for running `esheep sessions list` and `esheep sessions search` across several machines from one of them. Settled on 2026-09-13 through a pivotal-questions interview and implemented on the same branch.
 
 ## Goal and constraints
 
@@ -278,6 +278,6 @@ A machine that cannot answer makes the report incomplete, the command exits 1, a
 - Version drift symptoms. With no check, a stale remote after a breaking change may return an empty or odd document rather than an error. If that bites, a protocol number is the fallback and would be a small addition.
 - Request schema stability. The request mirrors the flags one-to-one, so any flag change is a request change. That is intended under clean-break mode but worth remembering when adding filters.
 
-## Next step
+## Remaining before merge
 
-The first landable piece is the request type plus the `sessions query` endpoint, which is useful on its own and testable without any ssh.
+One real run against the second machine, including a fish login shell and a Homebrew-only PATH, to confirm the ssh command line and `command` key behave outside the fake-ssh tests.
