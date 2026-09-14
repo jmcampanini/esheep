@@ -12,7 +12,8 @@
 - Keep Cobra command wiring in `cmd/`, with one command per file where practical.
 - Keep application-specific implementation under `internal/`.
 - Support macOS and Linux only.
-- Treat configured source directories as human-managed, read-only inputs; never access the network or create, update, or delete source directories.
+- Treat configured source directories as human-managed, read-only inputs; never create, update, or delete source directories.
+- Contact another machine only when `--remote` names it, and only to run esheep there over ssh; every other command stays offline.
 
 ## CLI behavior
 

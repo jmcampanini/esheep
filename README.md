@@ -1,6 +1,6 @@
 # esheep
 
-esheep manages Agent Skills and a global agents file from human-maintained source directories and renders them for Claude Code, Pi, and Codex. The Codex target installs skills into the shared Agent Skills directory (`~/.agents/skills`) that Codex reads. esheep never accesses the network, executes source content, or creates, updates, or deletes source directories.
+esheep manages Agent Skills and a global agents file from human-maintained source directories and renders them for Claude Code, Pi, and Codex. The Codex target installs skills into the shared Agent Skills directory (`~/.agents/skills`) that Codex reads. esheep never executes source content or creates, updates, or deletes source directories, and it contacts another machine only when `--remote` names one.
 
 esheep also finds historical harness sessions. `esheep sessions list` and `esheep sessions search` read the session transcripts Claude Code, Pi, Codex, local ChatGPT Work tasks, and local Claude Cowork conversations leave on disk, in place and read-only. Every result points at the canonical transcript file.
 
@@ -11,6 +11,8 @@ Use `--harness chatgpt-work` to select identified local Work tasks, `--harness c
 Use `--harness claude-cowork` for locally saved Cowork conversations. On macOS, esheep discovers their `audit.jsonl` files under Claude's standard Application Support location. Linux requires a configured path. Missing companion metadata does not hide readable messages; conversations without an archive flag are treated as active. Primary requests to subagents and their returned results are searchable by default; `--subagents` adds child activity, including records embedded in a Cowork audit.
 
 Every session reports a `projects` array. `--project` matches any recorded folder, including Cowork's selected host folders and Codex/Work workspace roots across saved turns. Folder filtering does not read the folders themselves.
+
+Both commands can span several machines. `--remote nas,studio` adds configured machines to the local scan and `--remote all` adds every one; `--no-local` drops this machine. Each machine runs `esheep sessions query` over ssh in batch mode using its own configuration, and only results cross the wire, so every machine needs esheep installed and reachable by `ssh <host>` without a prompt. Results interleave most recent first and every session names its `machine`. A machine that cannot answer makes the report incomplete while the results that did arrive are printed. `esheep sessions list --help` describes the flags and failure codes, `esheep sessions query --help` the request schema, and `esheep config --help` the `[[machines]]` entries.
 
 Command help is the canonical reference: `esheep --help` and each command's `--help` describe every user-facing contract, `esheep help skill-format` describes the authoring format, and `esheep help exit-codes` describes exit statuses.
 
@@ -52,6 +54,7 @@ make build
 | `esheep profiles [--json]` | Report effective and referenced profiles. |
 | `esheep sessions list [--json]` | List historical harness sessions with their canonical transcript paths. |
 | `esheep sessions search [pattern] [--json]` | Search session transcripts in place; hits address transcript lines. |
+| `esheep sessions query` | Answer a list or search request read from stdin; the endpoint `--remote` runs over ssh. |
 | `esheep skills list [--json]` | Inventory skills in every configured source. |
 | `esheep sync` | Install, repair, and prune esheep-owned output on enabled targets. |
 | `esheep skills status [--json]` | Report source readiness and per-target deployment health. |
@@ -96,5 +99,18 @@ Omitted settings retain their defaults. `esheep config --help` lists the target 
 The Codex session home is selected by `--codex-home`, `ESHEEP_CODEX_HOME`, the TOML setting, `CODEX_HOME`, then `~/.codex`, in that order. Configuring one home determines both transcript locations.
 
 Set `[sessions.claude-cowork].path` to override Cowork's macOS default or provide its required path on Linux.
+
+Add a `[[machines]]` entry per other machine for `--remote`. `name` is its hostname; `host`, `command`, and `timeout` are optional and default to the name, `esheep`, and 60 seconds:
+
+```toml
+[[machines]]
+name = "nas"
+
+[[machines]]
+name = "studio"
+host = "javier@studio.tail1234.ts.net"
+command = "/opt/homebrew/bin/esheep"
+timeout = "2m"
+```
 
 Users own the settings file and source directories and choose how both are maintained. esheep never creates, updates, or deletes either one.

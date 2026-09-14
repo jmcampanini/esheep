@@ -75,12 +75,14 @@ type event struct {
 }
 
 // Session is metadata about one historical session transcript. Path is the
-// canonical transcript file; best-effort fields may be zero when a grammar
-// does not record them.
+// canonical transcript file on the machine named by Machine; best-effort
+// fields may be zero when a grammar does not record them. Reading leaves
+// Machine empty; the caller that merges machines stamps it.
 type Session struct {
 	Archived   bool      `json:"archived"`
 	Harness    Harness   `json:"harness"`
 	ID         string    `json:"id"`
+	Machine    string    `json:"machine"`
 	ModifiedAt time.Time `json:"modified_at"`
 	Path       string    `json:"path"`
 	Projects   []string  `json:"projects"`
@@ -105,10 +107,12 @@ type Match struct {
 	Hits []Hit `json:"hits"`
 }
 
-// Diagnostic is a stable record of a session-reading issue.
+// Diagnostic is a stable record of a session-reading issue. Machine names
+// the machine the issue occurred on and is stamped by the merging caller.
 type Diagnostic struct {
 	Code    string  `json:"code"`
 	Harness Harness `json:"harness,omitempty"`
+	Machine string  `json:"machine"`
 	Message string  `json:"message,omitempty"`
 	Path    string  `json:"path,omitempty"`
 }
@@ -447,7 +451,7 @@ func collect(ctx context.Context, roots Roots, filter Filter) ([]located, []Diag
 	}
 	sort.SliceStable(sessions, func(left, right int) bool {
 		l, r := sessions[left].session, sessions[right].session
-		lt, rt := l.sortTime(), r.sortTime()
+		lt, rt := l.SortTime(), r.SortTime()
 		if !lt.Equal(rt) {
 			return lt.After(rt)
 		}
@@ -549,7 +553,7 @@ func (f Filter) matchesSession(s Session) bool {
 	if len(f.Harnesses) != 0 && !slices.Contains(f.Harnesses, s.Harness) {
 		return false
 	}
-	if !f.Until.IsZero() && s.sortTime().After(f.Until) {
+	if !f.Until.IsZero() && s.SortTime().After(f.Until) {
 		return false
 	}
 	if f.Project != "" {
@@ -570,9 +574,9 @@ func projectPaths(paths ...string) []string {
 	return projects
 }
 
-// sortTime prefers the recorded start and falls back to the file
-// modification time for transcripts whose grammar hid the start.
-func (s Session) sortTime() time.Time {
+// SortTime is the instant sessions are ordered by: the recorded start, or
+// the file modification time for transcripts whose grammar hid the start.
+func (s Session) SortTime() time.Time {
 	if !s.StartedAt.IsZero() {
 		return s.StartedAt
 	}

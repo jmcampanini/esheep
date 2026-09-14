@@ -5,11 +5,12 @@ import (
 	"encoding/csv"
 	"errors"
 	"fmt"
-	"regexp"
+	"os/exec"
 	"strings"
 	"time"
 
 	"github.com/jmcampanini/esheep/internal/config"
+	"github.com/jmcampanini/esheep/internal/remote"
 	"github.com/jmcampanini/esheep/internal/session"
 	"github.com/jmcampanini/esheep/internal/ui"
 	"github.com/spf13/cobra"
@@ -118,7 +119,8 @@ derived from its home. Cowork's platform defaults and configuration are
 described below. A missing root skips that location with a diagnostic.
 
 'sessions list' inventories sessions; 'sessions search' finds sessions whose
-transcripts match a pattern or structural criteria.
+transcripts match a pattern or structural criteria. Both accept --remote to
+include configured machines, where they run 'sessions query' over ssh.
 
 ` + sessionHarnessHelp,
 		Args: cobra.NoArgs,
@@ -127,8 +129,9 @@ transcripts match a pattern or structural criteria.
 		},
 	}
 	command.AddCommand(
-		newSessionsListCommand(load, operations.sessionList),
-		newSessionsSearchCommand(load, operations.sessionSearch),
+		newSessionsListCommand(load, operations),
+		newSessionsQueryCommand(load, operations),
+		newSessionsSearchCommand(load, operations),
 	)
 	return command
 }
@@ -138,7 +141,9 @@ type sessionFilterFlags struct {
 	archiveState string
 	harnesses    []string
 	ids          []string
+	noLocal      bool
 	project      string
+	remote       []string
 	since        string
 	subagents    bool
 	until        string
@@ -148,56 +153,44 @@ func registerSessionFilterFlags(command *cobra.Command, flags *sessionFilterFlag
 	command.Flags().StringVar(&flags.archiveState, "archive-state", "all", "limit to archive state (all, active, archived)")
 	command.Flags().StringSliceVar(&flags.harnesses, "harness", nil, "limit to harnesses (chatgpt-work, claude, claude-cowork, codex, pi); repeatable or comma-separated")
 	command.Flags().StringArrayVar(&flags.ids, "id", nil, "limit to exact session IDs; repeatable or comma-separated")
+	command.Flags().BoolVar(&flags.noLocal, "no-local", false, "skip this machine; requires --remote")
 	command.Flags().StringVar(&flags.project, "project", "", "limit to sessions with any project path containing this text")
+	command.Flags().StringSliceVar(&flags.remote, "remote", nil, "also query configured machines by name, or all; repeatable or comma-separated")
 	command.Flags().StringVar(&flags.since, "since", "", "limit to sessions active since a day count (7d), duration (36h), or date (2026-01-02)")
 	command.Flags().BoolVar(&flags.subagents, "subagents", false, "include subagent transcripts and embedded child activity")
 	command.Flags().StringVar(&flags.until, "until", "", "limit to sessions started before a day count, duration, or date")
 }
 
-func (f sessionFilterFlags) filter(now time.Time) (session.Filter, error) {
-	archiveState, err := session.ParseArchiveState(f.archiveState)
-	if err != nil {
-		return session.Filter{}, err
-	}
-	filter := session.Filter{ArchiveState: archiveState, IncludeSubagents: f.subagents, Project: f.project}
+// requestFilter converts the flag values into the request form, resolving
+// relative times against now so every machine applies the same instants.
+func (f sessionFilterFlags) requestFilter(now time.Time) (session.RequestFilter, error) {
+	filter := session.RequestFilter{ArchiveState: f.archiveState, Harnesses: append([]string{}, f.harnesses...), IDs: []string{}, Project: f.project, Subagents: f.subagents}
 	for _, value := range f.ids {
 		if value == "" {
-			return session.Filter{}, errors.New("--id must not be empty")
+			return session.RequestFilter{}, errors.New("--id must not be empty")
 		}
 		if strings.ContainsAny(value, "\r\n") {
-			return session.Filter{}, errors.New("--id must not contain line breaks")
+			return session.RequestFilter{}, errors.New("--id must not contain line breaks")
 		}
 		ids, err := csv.NewReader(strings.NewReader(value)).Read()
 		if err != nil {
-			return session.Filter{}, fmt.Errorf("--id: parse comma-separated IDs: %w", err)
-		}
-		for _, id := range ids {
-			if id == "" {
-				return session.Filter{}, errors.New("--id must not contain empty IDs")
-			}
+			return session.RequestFilter{}, fmt.Errorf("--id: parse comma-separated IDs: %w", err)
 		}
 		filter.IDs = append(filter.IDs, ids...)
-	}
-	for _, name := range f.harnesses {
-		harness, err := session.ParseHarness(name)
-		if err != nil {
-			return session.Filter{}, err
-		}
-		filter.Harnesses = append(filter.Harnesses, harness)
 	}
 	if f.since != "" {
 		since, err := session.ParseTimeFlag(f.since, now)
 		if err != nil {
-			return session.Filter{}, fmt.Errorf("--since: %w", err)
+			return session.RequestFilter{}, fmt.Errorf("--since: %w", err)
 		}
-		filter.Since = since
+		filter.Since = &since
 	}
 	if f.until != "" {
 		until, err := session.ParseTimeFlag(f.until, now)
 		if err != nil {
-			return session.Filter{}, fmt.Errorf("--until: %w", err)
+			return session.RequestFilter{}, fmt.Errorf("--until: %w", err)
 		}
-		filter.Until = until
+		filter.Until = &until
 	}
 	return filter, nil
 }
@@ -212,7 +205,38 @@ func sessionRoots(loaded config.LoadResult) session.Roots {
 	}
 }
 
-func newSessionsListCommand(load configLoader, list func(context.Context, session.Roots, session.Filter) session.ListReport) *cobra.Command {
+// sessionScope is the set of machines one session command queries, the ssh
+// client that reaches them, and any selection diagnostic to report.
+type sessionScope struct {
+	diagnostics []session.Diagnostic
+	selection   remote.Selection
+	ssh         string
+}
+
+// resolveSessionScope selects machines against the loaded configuration.
+// Selection failures are usage errors; a missing ssh client is an
+// application error and is only checked when a machine is selected.
+func resolveSessionScope(operations commandOperations, loaded config.LoadResult, names remote.Names) (sessionScope, error) {
+	hostname, err := operations.localHostname()
+	if err != nil {
+		return sessionScope{}, appError(fmt.Errorf("determine hostname: %w", err))
+	}
+	selection, diagnostics, err := names.Select(loaded.ResolvedMachines, hostname)
+	if err != nil {
+		return sessionScope{}, err
+	}
+
+	scope := sessionScope{diagnostics: diagnostics, selection: selection}
+	if len(selection.Machines) != 0 {
+		scope.ssh, err = exec.LookPath("ssh")
+		if err != nil {
+			return sessionScope{}, appError(fmt.Errorf("locate ssh client: %w", err))
+		}
+	}
+	return scope, nil
+}
+
+func newSessionsListCommand(load configLoader, operations commandOperations) *cobra.Command {
 	var filterFlags sessionFilterFlags
 	var jsonOutput bool
 	command := &cobra.Command{
@@ -239,22 +263,46 @@ diagnostic.
 
 ` + sessionIDHelp + `
 
+` + sessionRemoteHelp + `
+
 ` + streamContractHelp + `
 
 ` + jsonContractHelp + ` List JSON includes "complete"; timestamps are
 RFC 3339, "projects" is an array of paths, "archived" marks archive state,
-and "subagent" marks non-primary transcripts.`,
+"subagent" marks non-primary transcripts, and "machine" names the machine
+that owns each session and diagnostic.`,
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
-			filter, err := filterFlags.filter(time.Now())
+			names, err := remote.ParseNames(filterFlags.remote, filterFlags.noLocal)
 			if err != nil {
 				return err
 			}
+			requestFilter, err := filterFlags.requestFilter(time.Now())
+			if err != nil {
+				return err
+			}
+			request := session.Request{Filter: requestFilter, Mode: session.ModeList}
+			filter, _, err := request.Resolve()
+			if err != nil {
+				return err
+			}
+
 			loaded, err := loadConfiguration(command, load)
 			if err != nil {
 				return err
 			}
-			report := list(command.Context(), sessionRoots(loaded), filter)
+			scope, err := resolveSessionScope(operations, loaded, names)
+			if err != nil {
+				return err
+			}
+			report, err := remote.List(command.Context(), scope.ssh, scope.selection, request, func(ctx context.Context) session.ListReport {
+				return operations.sessionList(ctx, sessionRoots(loaded), filter)
+			})
+			if err != nil {
+				return appError(err)
+			}
+			report.Diagnostics = append(scope.diagnostics, report.Diagnostics...)
+
 			if jsonOutput {
 				if err := ui.WriteSessionListJSON(command.OutOrStdout(), report); err != nil {
 					return appError(err)
@@ -264,10 +312,11 @@ and "subagent" marks non-primary transcripts.`,
 				}
 				return nil
 			}
-			if err := ui.WriteSessionList(command.OutOrStdout(), report, ui.ShouldColor(command.OutOrStdout())); err != nil {
+			machines := len(filterFlags.remote) != 0
+			if err := ui.WriteSessionList(command.OutOrStdout(), report, ui.ShouldColor(command.OutOrStdout()), machines); err != nil {
 				return appError(err)
 			}
-			if err := ui.WriteSessionDiagnostics(command.ErrOrStderr(), report.Diagnostics); err != nil {
+			if err := ui.WriteSessionDiagnostics(command.ErrOrStderr(), report.Diagnostics, machines); err != nil {
 				return appError(err)
 			}
 			if !report.Complete {
@@ -281,7 +330,7 @@ and "subagent" marks non-primary transcripts.`,
 	return command
 }
 
-func newSessionsSearchCommand(load configLoader, search func(context.Context, session.Roots, session.Filter, session.SearchQuery) session.SearchReport) *cobra.Command {
+func newSessionsSearchCommand(load configLoader, operations commandOperations) *cobra.Command {
 	var errorsOnly bool
 	var filterFlags sessionFilterFlags
 	var jsonOutput bool
@@ -299,7 +348,9 @@ esheep decodes every transcript line before matching, so the pattern runs
 against what was actually said or done, not escaped JSON: user text,
 assistant text, and tool calls and results (tool arguments and output). The
 pattern is a case-insensitive Go regular expression and is optional when
---tool or --errors already select events.
+--tool or --errors already select events. An empty pattern is a usage error;
+use '.' to select every event, for example 'sessions search . --id <id>' to
+print one session's events with their line numbers.
 
 --id limits which sessions are searched; it does not select events. A pattern,
 --tool, or --errors is still required. Use 'sessions list --id <id>' to locate
@@ -328,6 +379,8 @@ saved history. Use --raw to inspect other records in qualifying audits.
 
 ` + sessionIDHelp + `
 
+` + sessionRemoteHelp + `
+
 Unparseable transcript lines are skipped and reported as diagnostics without
 failing the search. The command exits nonzero only when filesystem failures
 prevent a complete search.
@@ -335,48 +388,45 @@ prevent a complete search.
 ` + streamContractHelp + `
 
 ` + jsonContractHelp + ` Search JSON includes "complete"; each session
-carries "projects", an "archived" boolean, and a "hits" array. Each hit carries "line", "role",
+carries "machine", "projects", an "archived" boolean, and a "hits" array. Each hit carries "line", "role",
 and "excerpt"; "tool" and "timestamp" appear when known, and "error" appears
 for known failures.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
-			query := session.SearchQuery{ErrorsOnly: errorsOnly, Raw: raw, Tool: tool}
-			if role != "" {
-				parsed, err := session.ParseRole(role)
-				if err != nil {
-					return err
-				}
-				query.Role = parsed
-			}
-			if len(args) == 1 {
-				pattern, err := regexp.Compile("(?i)" + args[0])
-				if err != nil {
-					return fmt.Errorf("invalid pattern: %w", err)
-				}
-				query.Pattern = pattern
-			}
-			if query.Pattern == nil && query.Tool == "" && !query.ErrorsOnly {
-				return errors.New("search requires a pattern, --tool, or --errors")
-			}
-			if raw && (query.Role != "" || query.Tool != "" || query.ErrorsOnly) {
-				return errors.New("--raw cannot combine with --role, --tool, or --errors")
-			}
-			if raw && query.Pattern == nil {
-				return errors.New("--raw requires a pattern")
-			}
-			if query.Role != "" && query.Role != session.RoleTool && (query.Tool != "" || query.ErrorsOnly) {
-				return errors.New("--role user or assistant cannot combine with --tool or --errors")
-			}
-
-			filter, err := filterFlags.filter(time.Now())
+			names, err := remote.ParseNames(filterFlags.remote, filterFlags.noLocal)
 			if err != nil {
 				return err
 			}
+			requestFilter, err := filterFlags.requestFilter(time.Now())
+			if err != nil {
+				return err
+			}
+			request := session.Request{
+				Filter: requestFilter,
+				Mode:   session.ModeSearch,
+				Query:  session.RequestQuery{Errors: errorsOnly, Pattern: strings.Join(args, ""), Raw: raw, Role: role, Tool: tool},
+			}
+			filter, query, err := request.Resolve()
+			if err != nil {
+				return err
+			}
+
 			loaded, err := loadConfiguration(command, load)
 			if err != nil {
 				return err
 			}
-			report := search(command.Context(), sessionRoots(loaded), filter, query)
+			scope, err := resolveSessionScope(operations, loaded, names)
+			if err != nil {
+				return err
+			}
+			report, err := remote.Search(command.Context(), scope.ssh, scope.selection, request, func(ctx context.Context) session.SearchReport {
+				return operations.sessionSearch(ctx, sessionRoots(loaded), filter, query)
+			})
+			if err != nil {
+				return appError(err)
+			}
+			report.Diagnostics = append(scope.diagnostics, report.Diagnostics...)
+
 			if jsonOutput {
 				if err := ui.WriteSessionSearchJSON(command.OutOrStdout(), report); err != nil {
 					return appError(err)
@@ -386,10 +436,11 @@ for known failures.`,
 				}
 				return nil
 			}
-			if err := ui.WriteSessionSearch(command.OutOrStdout(), report); err != nil {
+			machines := len(filterFlags.remote) != 0
+			if err := ui.WriteSessionSearch(command.OutOrStdout(), report, machines); err != nil {
 				return appError(err)
 			}
-			if err := ui.WriteSessionDiagnostics(command.ErrOrStderr(), report.Diagnostics); err != nil {
+			if err := ui.WriteSessionDiagnostics(command.ErrOrStderr(), report.Diagnostics, machines); err != nil {
 				return appError(err)
 			}
 			if !report.Complete {
