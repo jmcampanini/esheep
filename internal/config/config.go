@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jmcampanini/esheep/internal/naming"
 	"github.com/jmcampanini/go-config-loader/configloader"
@@ -81,6 +82,17 @@ type CodexSessions struct {
 	Home string `toml:"home" config:"codex-home" help:"Codex home containing sessions and archived_sessions for Codex and local ChatGPT Work"`
 }
 
+// Machine configures one other machine that runs esheep. Name is its
+// hostname and identifies it on the command line and in output; Host,
+// Command, and Timeout are optional and default to the name, "esheep", and
+// one minute.
+type Machine struct {
+	Command string `toml:"command"`
+	Host    string `toml:"host"`
+	Name    string `toml:"name"`
+	Timeout string `toml:"timeout"`
+}
+
 // Sessions contains the session transcript roots.
 type Sessions struct {
 	Claude       ClaudeSessions `toml:"claude"`
@@ -91,11 +103,12 @@ type Sessions struct {
 
 // Config is the complete human-owned esheep configuration.
 type Config struct {
-	Profiles    []string `toml:"profiles" config:"profiles" pflag_singular:"profile" help:"active profiles; --profiles accepts comma-separated values."`
-	EnvProfiles []string `toml:"env_profiles"`
-	Sources     []Source `toml:"sources"`
-	Targets     Targets  `toml:"targets"`
-	Sessions    Sessions `toml:"sessions"`
+	Profiles    []string  `toml:"profiles" config:"profiles" pflag_singular:"profile" help:"active profiles; --profiles accepts comma-separated values."`
+	EnvProfiles []string  `toml:"env_profiles"`
+	Sources     []Source  `toml:"sources"`
+	Targets     Targets   `toml:"targets"`
+	Sessions    Sessions  `toml:"sessions"`
+	Machines    []Machine `toml:"machines"`
 }
 
 // Locations contains the discovered or explicit settings path.
@@ -145,12 +158,21 @@ type ResolvedSessions struct {
 	Pi           string
 }
 
+// ResolvedMachine is a machine entry with every default applied.
+type ResolvedMachine struct {
+	Command string
+	Host    string
+	Name    string
+	Timeout time.Duration
+}
+
 // LoadResult is an effective configuration together with provenance and resolved paths.
 type LoadResult struct {
 	Config            Config
 	EffectiveProfiles []string
 	Home              string
 	Locations         Locations
+	ResolvedMachines  []ResolvedMachine
 	ResolvedSessions  ResolvedSessions
 	ResolvedSources   []ResolvedSource
 	ResolvedTargets   ResolvedTargets
@@ -248,11 +270,16 @@ func Load(options LoadOptions) (LoadResult, error) {
 	if err != nil {
 		return LoadResult{}, err
 	}
+	resolvedMachines, err := resolveMachines(cfg.Machines)
+	if err != nil {
+		return LoadResult{}, err
+	}
 	return LoadResult{
 		Config:            cfg,
 		EffectiveProfiles: effectiveProfiles,
 		Home:              home,
 		Locations:         locations,
+		ResolvedMachines:  resolvedMachines,
 		ResolvedSessions:  resolvedSessions,
 		ResolvedSources:   resolvedSources,
 		ResolvedTargets:   resolvedTargets,
@@ -347,6 +374,11 @@ func Render(result LoadResult, options ReportOptions) ([]byte, error) {
 	writeResolved("sessions.codex.home", result.ResolvedSessions.Codex.Home)
 	writeResolved("sessions.codex.sessions", result.ResolvedSessions.Codex.Sessions)
 	writeResolved("sessions.codex.archived_sessions", result.ResolvedSessions.Codex.ArchivedSessions)
+	for _, machine := range result.ResolvedMachines {
+		writeResolved("machines."+machine.Name+".host", machine.Host)
+		writeResolved("machines."+machine.Name+".command", machine.Command)
+		writeResolved("machines."+machine.Name+".timeout", machine.Timeout.String())
+	}
 	if options.Provenance {
 		b.WriteString("\n# Provenance\n")
 		for _, row := range reporter.ProvenanceRows() {
@@ -585,6 +617,52 @@ func resolveSessions(cfg Sessions, home string) (ResolvedSessions, error) {
 			return ResolvedSessions{}, err
 		}
 		*root.resolved = path
+	}
+	return resolved, nil
+}
+
+// Machine entry defaults.
+const (
+	defaultMachineCommand = "esheep"
+	defaultMachineTimeout = time.Minute
+)
+
+// resolveMachines validates machine entries and applies their defaults.
+// Names are hostnames, so they compare case-insensitively; "all" is reserved
+// for the --remote selector.
+func resolveMachines(configured []Machine) ([]ResolvedMachine, error) {
+	resolved := make([]ResolvedMachine, 0, len(configured))
+	for _, machine := range configured {
+		if machine.Name == "" || strings.ContainsAny(machine.Name, ", \t\r\n") {
+			return nil, fmt.Errorf("config: machine name %q must be a non-empty hostname without commas or whitespace", machine.Name)
+		}
+		if strings.EqualFold(machine.Name, "all") {
+			return nil, errors.New(`config: machine name "all" is reserved`)
+		}
+		for _, prior := range resolved {
+			if strings.EqualFold(prior.Name, machine.Name) {
+				return nil, fmt.Errorf("config: duplicate machine name %q", machine.Name)
+			}
+		}
+
+		entry := ResolvedMachine{Command: defaultMachineCommand, Host: machine.Name, Name: machine.Name, Timeout: defaultMachineTimeout}
+		if machine.Host != "" {
+			entry.Host = machine.Host
+		}
+		if machine.Command != "" {
+			entry.Command = machine.Command
+		}
+		if machine.Timeout != "" {
+			timeout, err := time.ParseDuration(machine.Timeout)
+			if err != nil {
+				return nil, fmt.Errorf("config: machine %q timeout: %w", machine.Name, err)
+			}
+			if timeout <= 0 {
+				return nil, fmt.Errorf("config: machine %q timeout must be positive", machine.Name)
+			}
+			entry.Timeout = timeout
+		}
+		resolved = append(resolved, entry)
 	}
 	return resolved, nil
 }

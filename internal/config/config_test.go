@@ -9,6 +9,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/BurntSushi/toml"
 	"github.com/spf13/pflag"
@@ -562,5 +563,70 @@ func TestRenderIsValidTOMLAndSanitizesProvenance(t *testing.T) {
 	var decoded Config
 	if _, err := toml.Decode(string(output), &decoded); err != nil {
 		t.Fatalf("rendered output is not TOML: %v\n%s", err, output)
+	}
+}
+
+func TestMachinesLoadFromTOMLWithDefaults(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "home")
+	configHome := filepath.Join(t.TempDir(), "config")
+	if err := os.MkdirAll(filepath.Join(configHome, "esheep"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	settings := "[[machines]]\nname = \"nas\"\n\n[[machines]]\nname = \"studio\"\nhost = \"javier@studio.example\"\ncommand = \"/opt/homebrew/bin/esheep\"\ntimeout = \"2m\"\n"
+	if err := os.WriteFile(filepath.Join(configHome, "esheep", "esheep.toml"), []byte(settings), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := Load(LoadOptions{Env: testEnv(home, configHome)})
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []ResolvedMachine{
+		{Command: "esheep", Host: "nas", Name: "nas", Timeout: time.Minute},
+		{Command: "/opt/homebrew/bin/esheep", Host: "javier@studio.example", Name: "studio", Timeout: 2 * time.Minute},
+	}
+	if !reflect.DeepEqual(result.ResolvedMachines, want) {
+		t.Fatalf("resolved machines = %#v, want %#v", result.ResolvedMachines, want)
+	}
+	output, err := Render(result, ReportOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range []string{
+		"[[machines]]",
+		`# machines.nas.host = "nas"`,
+		`# machines.nas.command = "esheep"`,
+		`# machines.nas.timeout = "1m0s"`,
+		`# machines.studio.host = "javier@studio.example"`,
+		`# machines.studio.timeout = "2m0s"`,
+	} {
+		if !strings.Contains(string(output), line) {
+			t.Errorf("rendered config missing %q:\n%s", line, output)
+		}
+	}
+}
+
+func TestMachinesRejectInvalidEntries(t *testing.T) {
+	tests := []struct {
+		machines []Machine
+		name     string
+		want     string
+	}{
+		{name: "empty name", machines: []Machine{{}}, want: "must be a non-empty hostname"},
+		{name: "comma in name", machines: []Machine{{Name: "a,b"}}, want: "must be a non-empty hostname"},
+		{name: "reserved all", machines: []Machine{{Name: "ALL"}}, want: "reserved"},
+		{name: "duplicate ignoring case", machines: []Machine{{Name: "nas"}, {Name: "NAS"}}, want: "duplicate machine name"},
+		{name: "bad timeout", machines: []Machine{{Name: "nas", Timeout: "soon"}}, want: "timeout"},
+		{name: "zero timeout", machines: []Machine{{Name: "nas", Timeout: "0s"}}, want: "must be positive"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := resolveMachines(test.machines)
+
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("resolveMachines() error = %v, want containing %q", err, test.want)
+			}
+		})
 	}
 }
