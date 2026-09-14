@@ -349,7 +349,9 @@ esheep decodes every transcript line before matching, so the pattern runs
 against what was actually said or done, not escaped JSON: user text,
 assistant text, and tool calls and results (tool arguments and output). The
 pattern is a case-insensitive Go regular expression and is optional when
---tool or --errors already select events.
+--tool or --errors already select events. An empty pattern is a usage error;
+use '.' to select every event, for example 'sessions search . --id <id>' to
+print one session's events with their line numbers.
 
 --id limits which sessions are searched; it does not select events. A pattern,
 --tool, or --errors is still required. Use 'sessions list --id <id>' to locate
