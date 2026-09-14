@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"time"
 )
 
@@ -48,16 +49,6 @@ type RequestQuery struct {
 	Tool    string `json:"tool"`
 }
 
-// CompilePattern compiles a user-supplied search pattern as a
-// case-insensitive Go regular expression.
-func CompilePattern(source string) (*regexp.Regexp, error) {
-	pattern, err := regexp.Compile("(?i)" + source)
-	if err != nil {
-		return nil, fmt.Errorf("invalid pattern: %w", err)
-	}
-	return pattern, nil
-}
-
 // Resolve validates the request and converts it into the filter and query
 // List and Search accept. Every rule the command flags enforce applies here
 // with the same message, so a remote request fails exactly as the local
@@ -87,13 +78,11 @@ func (f RequestFilter) resolve() (Filter, error) {
 	if err != nil {
 		return Filter{}, err
 	}
-	filter := Filter{ArchiveState: archiveState, IncludeSubagents: f.Subagents, Project: f.Project}
-	for _, id := range f.IDs {
-		if id == "" {
-			return Filter{}, errors.New("--id must not contain empty IDs")
-		}
-		filter.IDs = append(filter.IDs, id)
+	if slices.Contains(f.IDs, "") {
+		return Filter{}, errors.New("--id must not contain empty IDs")
 	}
+
+	filter := Filter{ArchiveState: archiveState, IDs: slices.Clone(f.IDs), IncludeSubagents: f.Subagents, Project: f.Project}
 	for _, name := range f.Harnesses {
 		harness, err := ParseHarness(name)
 		if err != nil {
@@ -120,9 +109,9 @@ func (q RequestQuery) resolve() (SearchQuery, error) {
 		query.Role = role
 	}
 	if q.Pattern != "" {
-		pattern, err := CompilePattern(q.Pattern)
+		pattern, err := regexp.Compile("(?i)" + q.Pattern)
 		if err != nil {
-			return SearchQuery{}, err
+			return SearchQuery{}, fmt.Errorf("invalid pattern: %w", err)
 		}
 		query.Pattern = pattern
 	}
