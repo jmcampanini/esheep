@@ -29,6 +29,7 @@ func effectiveVersion() string {
 type configLoader func(config.LoadOptions) (config.LoadResult, error)
 
 type commandOperations struct {
+	hostname      func() (string, error)
 	list          func(context.Context, config.LoadResult) manage.ListReport
 	profiles      func(context.Context, config.LoadResult) manage.ProfilesReport
 	sessionList   func(context.Context, session.Roots, session.Filter) session.ListReport
@@ -48,6 +49,15 @@ func (e applicationError) Error() string {
 
 func (e applicationError) Unwrap() error {
 	return e.err
+}
+
+// localHostname names this machine, using the operating system when no
+// hostname operation is injected.
+func (o commandOperations) localHostname() (string, error) {
+	if o.hostname == nil {
+		return os.Hostname()
+	}
+	return o.hostname()
 }
 
 // Execute runs esheep with the process arguments and streams.
@@ -79,6 +89,7 @@ func execute(root *cobra.Command, args []string) int {
 
 func newRootCommand(load configLoader) *cobra.Command {
 	return newRootCommandWithOperations(load, commandOperations{
+		hostname:      os.Hostname,
 		list:          manage.List,
 		profiles:      manage.Profiles,
 		sessionList:   session.List,
@@ -97,13 +108,13 @@ source directories.
 
 esheep reads skills and an optional agents file from configured source
 containers and renders them for the Claude, Pi, and Codex targets. It never
-accesses the network, never executes source content, and never creates,
-updates, or deletes source directories. Commands accept only the arguments
-shown and never prompt.
+executes source content and never creates, updates, or deletes source
+directories. Commands accept only the arguments shown and never prompt.
 
 'esheep sessions list' and 'esheep sessions search' find historical harness
 session transcripts, reading the harness-owned files in place and never
-modifying them.
+modifying them. esheep contacts another machine only when --remote names
+it, and only to run esheep there over ssh; every other command is offline.
 
 Run 'esheep config' to inspect the effective configuration and resolved
 paths, 'esheep help skill-format' for the authoring format, and

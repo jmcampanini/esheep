@@ -170,11 +170,16 @@ func WriteDoctor(writer io.Writer, report doctor.Report, color bool) error {
 	return writeTable(writer, []string{"CHECK", "RESULT", "DETAIL"}, rows, color)
 }
 
-// WriteSessionList writes a human session inventory table.
-func WriteSessionList(writer io.Writer, report session.ListReport, color bool) error {
+// WriteSessionList writes a human session inventory table. machines adds a
+// leading MACHINE column for reports that span more than this machine.
+func WriteSessionList(writer io.Writer, report session.ListReport, color bool, machines bool) error {
+	headers := []string{"HARNESS", "ID", "STARTED", "ARCHIVE STATE", "PROJECTS", "TITLE", "PATH"}
+	if machines {
+		headers = append([]string{"MACHINE"}, headers...)
+	}
 	rows := make([][]string, 0, len(report.Sessions))
 	for _, entry := range report.Sessions {
-		rows = append(rows, []string{
+		row := []string{
 			string(entry.Harness),
 			dashIfEmpty(clean(entry.ID)),
 			sessionTime(entry),
@@ -182,9 +187,13 @@ func WriteSessionList(writer io.Writer, report session.ListReport, color bool) e
 			dashIfEmpty(clean(strings.Join(entry.Projects, ", "))),
 			dashIfEmpty(clean(entry.Title)),
 			clean(entry.Path),
-		})
+		}
+		if machines {
+			row = append([]string{clean(entry.Machine)}, row...)
+		}
+		rows = append(rows, row)
 	}
-	return writeTable(writer, []string{"HARNESS", "ID", "STARTED", "ARCHIVE STATE", "PROJECTS", "TITLE", "PATH"}, rows, color)
+	return writeTable(writer, headers, rows, color)
 }
 
 // WriteSessionListJSON writes one complete session inventory JSON document.
@@ -200,7 +209,8 @@ func WriteSessionListJSON(writer io.Writer, report session.ListReport) error {
 
 // WriteSessionSearch writes matching sessions grouped with their hits, each
 // hit addressed as a line number within the canonical transcript path.
-func WriteSessionSearch(writer io.Writer, report session.SearchReport) error {
+// machines leads each session header with its machine name.
+func WriteSessionSearch(writer io.Writer, report session.SearchReport, machines bool) error {
 	for index, entry := range report.Sessions {
 		if index > 0 {
 			if _, err := fmt.Fprintln(writer); err != nil {
@@ -208,6 +218,9 @@ func WriteSessionSearch(writer io.Writer, report session.SearchReport) error {
 			}
 		}
 		header := []string{string(entry.Harness), sessionTime(entry.Session)}
+		if machines {
+			header = append([]string{clean(entry.Machine)}, header...)
+		}
 		if len(entry.Projects) != 0 {
 			header = append(header, clean(strings.Join(entry.Projects, ", ")))
 		}
@@ -254,11 +267,17 @@ func WriteSessionSearchJSON(writer io.Writer, report session.SearchReport) error
 }
 
 // WriteSessionDiagnostics writes actionable human session diagnostics.
-func WriteSessionDiagnostics(writer io.Writer, diagnostics []session.Diagnostic) error {
+// machines prefixes every line with the machine the diagnostic came from.
+func WriteSessionDiagnostics(writer io.Writer, diagnostics []session.Diagnostic, machines bool) error {
 	for _, diagnostic := range diagnostics {
 		location := diagnostic.Path
 		if diagnostic.Harness != "" {
 			location += " [" + string(diagnostic.Harness) + "]"
+		}
+		if machines && location == "" {
+			location = diagnostic.Machine
+		} else if machines {
+			location = diagnostic.Machine + ": " + location
 		}
 		if _, err := fmt.Fprintf(writer, "%s: %s: %s\n", clean(location), diagnostic.Code, clean(diagnostic.Message)); err != nil {
 			return err

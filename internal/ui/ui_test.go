@@ -222,7 +222,7 @@ func TestWriteSessionListRendersPlaceholdersAndTimes(t *testing.T) {
 	}
 	var output bytes.Buffer
 
-	if err := WriteSessionList(&output, report, false); err != nil {
+	if err := WriteSessionList(&output, report, false, false); err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"HARNESS", "2026-08-20 10:00", "Debug permissions", "2026-08-25 09:30", "/roots/codex/rollout-def.jsonl"} {
@@ -279,12 +279,51 @@ func TestWriteSessionDiagnosticsNamesHarness(t *testing.T) {
 		Harness: session.HarnessPi,
 		Message: "session root does not exist; harness skipped",
 		Path:    "/roots/pi",
-	}})
+	}}, false)
 
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := output.String(); got != "/roots/pi [pi]: root-missing: session root does not exist; harness skipped\n" {
 		t.Fatalf("output = %q", got)
+	}
+}
+
+func TestSessionWritersNameMachinesOnlyWhenAsked(t *testing.T) {
+	t.Parallel()
+	entry := session.Session{Harness: session.HarnessClaude, ID: "abc", Machine: "nas", Path: "/home/j/.claude/abc.jsonl", StartedAt: time.Date(2026, 9, 12, 9, 14, 0, 0, time.Local)}
+	diagnostics := []session.Diagnostic{
+		{Code: "machine-timeout", Machine: "laptop", Message: "no reply within 1m0s"},
+		{Code: "root-missing", Harness: session.HarnessPi, Machine: "nas", Message: "skipped", Path: "/home/j/.pi"},
+	}
+
+	var list, search, stderr bytes.Buffer
+	if err := WriteSessionList(&list, session.ListReport{Sessions: []session.Session{entry}}, false, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteSessionSearch(&search, session.SearchReport{Sessions: []session.Match{{Session: entry, Hits: []session.Hit{{Line: 1, Role: session.RoleUser}}}}}, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteSessionDiagnostics(&stderr, diagnostics, true); err != nil {
+		t.Fatal(err)
+	}
+
+	if !strings.Contains(list.String(), "MACHINE") || !strings.HasPrefix(strings.TrimSpace(strings.Split(list.String(), "\n")[1]), "nas") {
+		t.Errorf("list output = %q, want a leading MACHINE column", list.String())
+	}
+	if !strings.HasPrefix(search.String(), "nas  claude  2026-09-12 09:14") {
+		t.Errorf("search output = %q, want the machine leading the header", search.String())
+	}
+	want := "laptop: machine-timeout: no reply within 1m0s\nnas: /home/j/.pi [pi]: root-missing: skipped\n"
+	if stderr.String() != want {
+		t.Errorf("diagnostics = %q, want %q", stderr.String(), want)
+	}
+
+	var local bytes.Buffer
+	if err := WriteSessionSearch(&local, session.SearchReport{Sessions: []session.Match{{Session: entry}}}, false); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(local.String(), "nas") {
+		t.Errorf("local search output = %q, want no machine name", local.String())
 	}
 }

@@ -93,9 +93,15 @@ func runCommand(t *testing.T, load configLoader, args ...string) (int, string, s
 
 func runCommandWithOperations(t *testing.T, load configLoader, operations commandOperations, args ...string) (int, string, string) {
 	t.Helper()
+	return runCommandWithInput(t, load, operations, "", args...)
+}
+
+func runCommandWithInput(t *testing.T, load configLoader, operations commandOperations, stdin string, args ...string) (int, string, string) {
+	t.Helper()
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	root := newRootCommandWithOperations(load, operations)
+	root.SetIn(strings.NewReader(stdin))
 	root.SetOut(&stdout)
 	root.SetErr(&stderr)
 	return execute(root, args), stdout.String(), stderr.String()
