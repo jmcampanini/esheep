@@ -89,7 +89,7 @@ command = "~/bin/esheep"
 ## What runs on the remote
 
 ```
-ssh -o BatchMode=yes -o ConnectTimeout=10 javier@studio.tail1234.ts.net /opt/homebrew/bin/esheep sessions query
+ssh -T -o BatchMode=yes -o ConnectTimeout=10 javier@studio.tail1234.ts.net /opt/homebrew/bin/esheep sessions query
 ```
 
 Request on stdin:

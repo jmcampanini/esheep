@@ -230,7 +230,10 @@ func stamp[S any](part *document[S], machine string, describe func(*S) *session.
 func query[S any](ctx context.Context, ssh string, machine config.ResolvedMachine, request []byte) document[S] {
 	ctx, cancel := context.WithTimeout(ctx, machine.Timeout)
 	defer cancel()
+	// -T overrides a RequestTTY setting in ssh config; a terminal would echo
+	// the request and merge stderr into the JSON reply.
 	command := exec.CommandContext(ctx, ssh,
+		"-T",
 		"-o", "BatchMode=yes",
 		"-o", "ConnectTimeout="+strconv.Itoa(connectTimeoutSeconds(machine.Timeout)),
 		machine.Host,

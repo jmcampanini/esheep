@@ -38,7 +38,7 @@ func TestRemoteSessionsWorkflow(t *testing.T) {
 	// in the remote fixture home and refuses every other host like ssh does.
 	script := `#!/bin/sh
 cat > "$REMOTE_RECORD"
-shift 4
+shift 5
 host="$1"
 shift
 if [ "$host" != "e2e-remote" ]; then

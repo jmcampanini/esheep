@@ -37,7 +37,7 @@ matches this machine's is skipped by 'all', and naming it is a usage error,
 as is naming an unknown machine. 'all' with no other machine configured
 reports a no-machines diagnostic and scans locally.
 
-Each selected machine runs 'ssh -o BatchMode=yes -o ConnectTimeout=<n>
+Each selected machine runs 'ssh -T -o BatchMode=yes -o ConnectTimeout=<n>
 <host> <command> sessions query' with the request on stdin, concurrently
 with the local scan and under the entry's timeout. The remote esheep reads
 its own configuration and transcripts and returns only results, so a

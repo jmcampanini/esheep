@@ -128,7 +128,7 @@ func fakeSSH(t *testing.T) (ssh string, recordDir string) {
 	script := `#!/bin/sh
 printf '%s\n' "$@" > "$RECORD_DIR/args"
 cat > "$RECORD_DIR/stdin"
-host="$5"
+host="$6"
 case "$host" in
 ok)
   printf '%s' '{"complete":true,"diagnostics":[{"code":"root-missing","harness":"pi","message":"skipped","path":"/home/j/.pi"}],"sessions":[{"harness":"claude","id":"remote-1","machine":"ignored","modified_at":"2026-09-10T10:00:00Z","path":"/home/j/.claude/a.jsonl","projects":[],"started_at":"2026-09-10T10:00:00Z","subagent":false,"hits":[{"line":3,"role":"user","excerpt":"timeout"}]}],"future_field":1}'
@@ -201,7 +201,7 @@ func TestSearchMergesLocalAndRemoteReplies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantArgs := "-o\nBatchMode=yes\n-o\nConnectTimeout=10\nok\n/opt/homebrew/bin/esheep sessions query\n"
+	wantArgs := "-T\n-o\nBatchMode=yes\n-o\nConnectTimeout=10\nok\n/opt/homebrew/bin/esheep sessions query\n"
 	if string(args) != wantArgs {
 		t.Errorf("ssh args = %q, want %q", args, wantArgs)
 	}
