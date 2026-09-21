@@ -379,15 +379,8 @@ func Search(ctx context.Context, roots Roots, filter Filter, query SearchQuery) 
 	sessions, diagnostics, complete := collect(ctx, roots, filter)
 	report := SearchReport{Complete: complete, Diagnostics: diagnostics, Period: filter.period()}
 
-	type scanResult struct {
-		err       error
-		hits      []Hit
-		malformed int
-		undated   int
-	}
 	results := parallelMap(ctx, sessions, func(entry located) scanResult {
-		hits, malformed, undated, err := scanSession(entry, filter, query)
-		return scanResult{err: err, hits: hits, malformed: malformed, undated: undated}
+		return scanSession(entry, filter, query)
 	})
 	for index, result := range results {
 		entry := sessions[index].session
@@ -422,29 +415,37 @@ func Search(ctx context.Context, roots Roots, filter Filter, query SearchQuery) 
 	return report
 }
 
-func scanSession(entry located, filter Filter, query SearchQuery) ([]Hit, int, int, error) {
+type scanResult struct {
+	err       error
+	hits      []Hit
+	malformed int
+	undated   int
+}
+
+func scanSession(entry located, filter Filter, query SearchQuery) scanResult {
+	var result scanResult
 	if query.Raw {
-		hits, err := scanRaw(entry.session.Path, query.Pattern)
-		return hits, 0, 0, err
+		result.hits, result.err = scanRaw(entry.session.Path, query.Pattern)
+		return result
 	}
-	var hits []Hit
-	undated := 0
-	malformed, err := entry.adapter.scan(entry.session.Path, func(e event) bool {
+	result.malformed, result.err = entry.adapter.scan(entry.session.Path, func(e event) bool {
 		if e.subagent && !filter.IncludeSubagents {
 			return true
 		}
-		if hit, ok := matchEvent(e, query); ok {
-			if filter.hasPeriod() && !filter.contains(e.timestamp) {
-				if e.timestamp.IsZero() {
-					undated++
-				}
-				return true
-			}
-			hits = append(hits, hit)
+		hit, ok := matchEvent(e, query)
+		if !ok {
+			return true
 		}
+		if filter.hasPeriod() && !filter.contains(e.timestamp) {
+			if e.timestamp.IsZero() {
+				result.undated++
+			}
+			return true
+		}
+		result.hits = append(result.hits, hit)
 		return true
 	})
-	return hits, malformed, undated, err
+	return result
 }
 
 func scanRaw(path string, pattern *regexp.Regexp) ([]Hit, error) {
