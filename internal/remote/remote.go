@@ -164,6 +164,7 @@ func Search(ctx context.Context, ssh string, selection Selection, request sessio
 type document[S any] struct {
 	Complete    bool                 `json:"complete"`
 	Diagnostics []session.Diagnostic `json:"diagnostics"`
+	Period      session.Period       `json:"period"`
 	Sessions    []S                  `json:"sessions"`
 }
 
@@ -194,6 +195,11 @@ func run[S any](ctx context.Context, ssh string, selection Selection, request se
 	wg.Wait()
 
 	merged := document[S]{Complete: true, Diagnostics: []session.Diagnostic{}, Sessions: []S{}}
+	if selection.Local {
+		merged.Period = parts[0].Period
+	} else {
+		merged.Period = session.Period{Since: request.Filter.Since, Until: request.Filter.Until}
+	}
 	for index, part := range parts {
 		if index == 0 && !selection.Local {
 			continue

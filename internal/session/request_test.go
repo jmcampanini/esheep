@@ -68,12 +68,38 @@ func TestRequestResolveListIgnoresQuery(t *testing.T) {
 	}
 }
 
+func TestListRequestPreservesPeriodInstants(t *testing.T) {
+	since := time.Date(2026, 11, 1, 0, 0, 0, 0, time.FixedZone("EDT", -4*3600))
+	until := time.Date(2026, 11, 2, 0, 0, 0, 0, time.FixedZone("EST", -5*3600))
+	request := Request{Mode: ModeList, Filter: RequestFilter{ArchiveState: "all", Since: &since, Until: &until}}
+	encoded, err := json.Marshal(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded Request
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatal(err)
+	}
+
+	filter, _, err := decoded.Resolve()
+
+	if err != nil || !filter.Since.Equal(since) || !filter.Until.Equal(until) {
+		t.Fatalf("resolved filter = %+v, error = %v; want original instants", filter, err)
+	}
+}
+
 func TestRequestResolveRejectsInvalidRequests(t *testing.T) {
+	since := time.Date(2026, 9, 14, 0, 0, 0, 0, time.UTC)
+	earlier := since.Add(-time.Hour)
 	tests := []struct {
 		name    string
 		request Request
 		want    string
 	}{
+		{name: "equal bounds", request: Request{Filter: RequestFilter{ArchiveState: "all", Since: &since, Until: &since}, Mode: ModeList}, want: "--since 2026-09-14T00:00:00Z must be before --until 2026-09-14T00:00:00Z"},
+		{name: "reversed bounds", request: Request{Filter: RequestFilter{ArchiveState: "all", Since: &since, Until: &earlier}, Mode: ModeSearch}, want: "--since 2026-09-14T00:00:00Z must be before --until 2026-09-13T23:00:00Z"},
+		{name: "raw with since", request: Request{Filter: RequestFilter{ArchiveState: "all", Since: &since}, Mode: ModeSearch, Query: RequestQuery{Pattern: "x", Raw: true}}, want: "--raw cannot combine with --since or --until"},
+		{name: "raw with until", request: Request{Filter: RequestFilter{ArchiveState: "all", Until: &since}, Mode: ModeSearch, Query: RequestQuery{Pattern: "x", Raw: true}}, want: "--raw cannot combine with --since or --until"},
 		{name: "unknown mode", request: Request{Filter: RequestFilter{ArchiveState: "all"}, Mode: "count"}, want: "unknown mode"},
 		{name: "unknown archive state", request: Request{Filter: RequestFilter{ArchiveState: "old"}, Mode: ModeList}, want: "unknown archive state"},
 		{name: "unknown harness", request: Request{Filter: RequestFilter{ArchiveState: "all", Harnesses: []string{"emacs"}}, Mode: ModeList}, want: "unknown harness"},

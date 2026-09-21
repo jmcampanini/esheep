@@ -164,7 +164,7 @@ func TestWorkSearchPreservesProvenanceToolsAndTranscriptLines(t *testing.T) {
 		`{"type":"event_msg","payload":{"type":"mcp_tool_call_end","invocation":{"tool":"query"},"result":{"Err":"migration denied"}}}`,
 		`malformed`,
 	)
-	filter := Filter{Harnesses: []Harness{HarnessChatGPTWork}, Project: "/project/work", Since: time.Date(2026, 9, 6, 10, 30, 0, 0, time.UTC), Until: time.Date(2026, 9, 6, 10, 30, 0, 0, time.UTC)}
+	filter := Filter{Harnesses: []Harness{HarnessChatGPTWork}, Project: "/project/work"}
 	for _, test := range []struct {
 		lines []int
 		name  string

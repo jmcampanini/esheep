@@ -48,7 +48,7 @@ func (codexAdapter) meta(t transcript, ids idFilter) describedSession {
 				}
 			}
 			if !eligible {
-				decoder.decode(envelope, event{line: line}, func(event) { eligible = true })
+				decoder.decode(envelope, event{line: line}, func(event) bool { eligible = true; return false })
 			}
 			return true
 		}
@@ -106,7 +106,7 @@ func codexFallbackID(path string) string {
 	return stem
 }
 
-func (codexAdapter) scan(path string, visit func(event)) (int, error) {
+func (codexAdapter) scan(path string, visit func(event) bool) (int, error) {
 	malformed := 0
 	decoder := codexDecoder{toolNames: make(map[string]string)}
 	err := forEachLine(path, func(line int, data []byte) bool {
@@ -116,8 +116,7 @@ func (codexAdapter) scan(path string, visit func(event)) (int, error) {
 			return true
 		}
 		base := event{line: line, timestamp: parseTimestamp(envelope.Timestamp)}
-		decoder.decode(envelope, base, visit)
-		return true
+		return decoder.decode(envelope, base, visit)
 	})
 	return malformed, err
 }
@@ -128,18 +127,22 @@ type codexDecoder struct {
 	toolNames              map[string]string
 }
 
-func (d *codexDecoder) decode(envelope codexEnvelope, base event, visit func(event)) {
+func (d *codexDecoder) decode(envelope codexEnvelope, base event, visit func(event) bool) bool {
 	switch envelope.Type {
 	case "response_item":
-		d.provenanceUserMessages = codexResponseEvents(envelope.Payload, base, d.toolNames, visit) || d.provenanceUserMessages
+		provenance, more := codexResponseEvents(envelope.Payload, base, d.toolNames, visit)
+		d.provenanceUserMessages = provenance || d.provenanceUserMessages
+		return more
 	case "event_msg":
-		codexEventMessage(envelope.Payload, base, d.provenanceUserMessages, visit)
+		return codexEventMessage(envelope.Payload, base, d.provenanceUserMessages, visit)
 	}
+	return true
 }
 
 // codexResponseEvents emits messages and tool calls from the response_item
-// stream and reports whether it found provenance-tagged user content.
-func codexResponseEvents(raw json.RawMessage, base event, toolNames map[string]string, visit func(event)) bool {
+// stream and reports whether it found provenance-tagged user content and
+// whether scanning should continue.
+func codexResponseEvents(raw json.RawMessage, base event, toolNames map[string]string, visit func(event) bool) (bool, bool) {
 	var payload struct {
 		Arguments string `json:"arguments"`
 		CallID    string `json:"call_id"`
@@ -156,7 +159,7 @@ func codexResponseEvents(raw json.RawMessage, base event, toolNames map[string]s
 		Type   string          `json:"type"`
 	}
 	if json.Unmarshal(raw, &payload) != nil {
-		return false
+		return false, true
 	}
 	switch payload.Type {
 	case "message":
@@ -172,15 +175,16 @@ func codexResponseEvents(raw json.RawMessage, base event, toolNames map[string]s
 		text := strings.Join(parts, "\n")
 		switch payload.Role {
 		case "user":
+			provenance := len(payload.Metadata.ContentItemKinds) > 0
 			if text != "" {
 				base.role, base.text = RoleUser, text
-				visit(base)
+				return provenance, visit(base)
 			}
-			return len(payload.Metadata.ContentItemKinds) > 0
+			return provenance, true
 		case "assistant":
 			if text != "" {
 				base.role, base.text = RoleAssistant, text
-				visit(base)
+				return false, visit(base)
 			}
 		}
 	case "function_call", "custom_tool_call":
@@ -190,17 +194,17 @@ func codexResponseEvents(raw json.RawMessage, base event, toolNames map[string]s
 		if base.text == "" {
 			base.text = payload.Input
 		}
-		visit(base)
+		return false, visit(base)
 	case "function_call_output", "custom_tool_call_output":
 		base.role, base.tool, base.text = RoleTool, toolNames[payload.CallID], flattenText(payload.Output)
-		visit(base)
+		return false, visit(base)
 	}
-	return false
+	return false, true
 }
 
 // codexEventMessage emits legacy user messages and extracts the one tool error
 // signal the grammar has: the Ok/Err union on mcp_tool_call_end results.
-func codexEventMessage(raw json.RawMessage, base event, provenanceUserMessages bool, visit func(event)) {
+func codexEventMessage(raw json.RawMessage, base event, provenanceUserMessages bool, visit func(event) bool) bool {
 	var payload struct {
 		Invocation struct {
 			Tool string `json:"tool"`
@@ -210,21 +214,22 @@ func codexEventMessage(raw json.RawMessage, base event, provenanceUserMessages b
 		Type    string          `json:"type"`
 	}
 	if json.Unmarshal(raw, &payload) != nil {
-		return
+		return true
 	}
 	switch payload.Type {
 	case "user_message":
 		if !provenanceUserMessages && payload.Message != "" {
 			base.role, base.text = RoleUser, payload.Message
-			visit(base)
+			return visit(base)
 		}
 	case "mcp_tool_call_end":
 		var result map[string]json.RawMessage
 		if json.Unmarshal(payload.Result, &result) != nil {
-			return
+			return true
 		}
 		base.role, base.tool, base.text = RoleTool, payload.Invocation.Tool, compactJSON(payload.Result)
 		base.failed = result["Err"] != nil
-		visit(base)
+		return visit(base)
 	}
+	return true
 }

@@ -425,7 +425,7 @@ func TestSearchReportsMalformedLinesWithoutFailing(t *testing.T) {
 	}
 }
 
-func TestParseTimeFlag(t *testing.T) {
+func TestParseSince(t *testing.T) {
 	now := time.Date(2026, 8, 30, 12, 0, 0, 0, time.UTC)
 	tests := []struct {
 		value   string
@@ -440,18 +440,18 @@ func TestParseTimeFlag(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.value, func(t *testing.T) {
-			got, err := ParseTimeFlag(test.value, now)
+			got, err := ParseSince(test.value, now)
 			if test.wantErr {
 				if err == nil {
-					t.Fatalf("ParseTimeFlag(%q) = %v, want error", test.value, got)
+					t.Fatalf("ParseSince(%q) = %v, want error", test.value, got)
 				}
 				return
 			}
 			if err != nil {
-				t.Fatalf("ParseTimeFlag(%q): %v", test.value, err)
+				t.Fatalf("ParseSince(%q): %v", test.value, err)
 			}
 			if !got.Equal(test.want) {
-				t.Fatalf("ParseTimeFlag(%q) = %v, want %v", test.value, got, test.want)
+				t.Fatalf("ParseSince(%q) = %v, want %v", test.value, got, test.want)
 			}
 		})
 	}

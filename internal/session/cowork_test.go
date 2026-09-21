@@ -123,7 +123,7 @@ func TestCoworkSearchKeepsPrimaryRequestsAndResponses(t *testing.T) {
 		{name: "no inferred primary failure", query: SearchQuery{ErrorsOnly: true}},
 		{name: "structured child failure", filter: Filter{IncludeSubagents: true}, query: SearchQuery{ErrorsOnly: true}, lines: []int{7}},
 		{name: "raw includes saved child and unsupported lines", query: SearchQuery{Raw: true}, lines: []int{2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}},
-		{name: "second folder with archive and time filters", filter: Filter{ArchiveState: ArchiveArchived, Project: "DOCS", Since: modified, Until: started}, lines: []int{2, 3, 4, 8, 9}},
+		{name: "second folder with archive filter", filter: Filter{ArchiveState: ArchiveArchived, Project: "DOCS"}, lines: []int{2, 3, 4, 8, 9}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			test.query.Pattern = regexp.MustCompile("needle")

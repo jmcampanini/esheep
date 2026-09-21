@@ -126,6 +126,7 @@ const (
 	codeRootMissing     = "root-missing"
 	codeRootUnusable    = "root-unusable"
 	codeTranscriptRead  = "transcript-read"
+	codeUndatedEvents   = "undated-events"
 	codeWalk            = "walk"
 )
 
@@ -140,6 +141,7 @@ func affectsCompleteness(code string) bool {
 type ListReport struct {
 	Complete    bool         `json:"complete"`
 	Diagnostics []Diagnostic `json:"diagnostics"`
+	Period      Period       `json:"period"`
 	Sessions    []Session    `json:"sessions"`
 }
 
@@ -147,6 +149,7 @@ type ListReport struct {
 type SearchReport struct {
 	Complete    bool         `json:"complete"`
 	Diagnostics []Diagnostic `json:"diagnostics"`
+	Period      Period       `json:"period"`
 	Sessions    []Match      `json:"sessions"`
 }
 
@@ -186,8 +189,14 @@ func ParseArchiveState(value string) (ArchiveState, error) {
 	}
 }
 
-// Filter selects sessions by metadata. A zero Filter selects every main
-// session; subagent transcripts require IncludeSubagents.
+// Period echoes resolved event-time bounds, with null for each open bound.
+type Period struct {
+	Since *time.Time `json:"since"`
+	Until *time.Time `json:"until"`
+}
+
+// Filter selects sessions by metadata and events by recorded time. A zero
+// Filter selects every main session; subagents require IncludeSubagents.
 type Filter struct {
 	ArchiveState ArchiveState
 	Harnesses    []Harness
@@ -198,6 +207,25 @@ type Filter struct {
 	Project          string
 	Since            time.Time
 	Until            time.Time
+}
+
+func (f Filter) hasPeriod() bool {
+	return !f.Since.IsZero() || !f.Until.IsZero()
+}
+
+func (f Filter) contains(t time.Time) bool {
+	return !t.IsZero() && (f.Since.IsZero() || !t.Before(f.Since)) && (f.Until.IsZero() || t.Before(f.Until))
+}
+
+func (f Filter) period() Period {
+	var period Period
+	if !f.Since.IsZero() {
+		period.Since = &f.Since
+	}
+	if !f.Until.IsZero() {
+		period.Until = &f.Until
+	}
+	return period
 }
 
 type idFilter []string
@@ -218,10 +246,10 @@ type SearchQuery struct {
 	Tool       string
 }
 
-// ParseTimeFlag interprets a --since or --until value as a day count
+// ParseSince interprets a lower bound as a day count
 // ("7d"), a Go duration ("36h") subtracted from now, or a local calendar
 // date ("2026-08-01").
-func ParseTimeFlag(value string, now time.Time) (time.Time, error) {
+func ParseSince(value string, now time.Time) (time.Time, error) {
 	if days, ok := strings.CutSuffix(value, "d"); ok {
 		if n, err := time.ParseDuration(days + "h"); err == nil && !strings.ContainsAny(days, ".-") {
 			return now.Add(-24 * n), nil
@@ -239,6 +267,15 @@ func ParseTimeFlag(value string, now time.Time) (time.Time, error) {
 	return time.Time{}, fmt.Errorf("session: time %q is not a day count (7d), duration (36h), or date (2026-01-02)", value)
 }
 
+// ParseUntil interprets an upper bound like ParseSince, but includes the
+// entire local calendar day when value is a date.
+func ParseUntil(value string, now time.Time) (time.Time, error) {
+	if date, err := time.ParseInLocation("2006-01-02", value, now.Location()); err == nil {
+		return date.AddDate(0, 0, 1), nil
+	}
+	return ParseSince(value, now)
+}
+
 // adapter interprets one harness grammar. Implementations own every fact
 // about their format: layout, subagent marking, roles, and error flags.
 type adapter interface {
@@ -250,8 +287,9 @@ type adapter interface {
 	// transcripts require saved conversation events.
 	meta(t transcript, ids idFilter) describedSession
 	// scan interprets the transcript and calls visit once per event,
-	// returning the count of unparseable lines.
-	scan(path string, visit func(event)) (int, error)
+	// stopping when visit returns false and returning the count of unparseable
+	// lines encountered before stopping.
+	scan(path string, visit func(event) bool) (int, error)
 }
 
 // transcript is one discovered session file.
@@ -271,27 +309,85 @@ type located struct {
 // recently started first.
 func List(ctx context.Context, roots Roots, filter Filter) ListReport {
 	sessions, diagnostics, complete := collect(ctx, roots, filter)
-	report := ListReport{Complete: complete, Diagnostics: diagnostics}
-	for _, entry := range sessions {
-		report.Sessions = append(report.Sessions, entry.session)
+	report := ListReport{Complete: complete, Diagnostics: diagnostics, Period: filter.period()}
+	if !filter.hasPeriod() {
+		for _, entry := range sessions {
+			report.Sessions = append(report.Sessions, entry.session)
+		}
+		return report
+	}
+	results := parallelMap(ctx, sessions, func(entry located) periodScan {
+		return qualifiesInPeriod(entry, filter)
+	})
+	for index, result := range results {
+		entry := sessions[index].session
+		if result.err != nil {
+			report.Diagnostics = append(report.Diagnostics, Diagnostic{
+				Code: codeTranscriptRead, Harness: entry.Harness, Message: result.err.Error(), Path: entry.Path,
+			})
+			report.Complete = false
+			continue
+		}
+		if result.malformed > 0 {
+			report.Diagnostics = append(report.Diagnostics, Diagnostic{
+				Code: codeMalformedLines, Harness: entry.Harness,
+				Message: fmt.Sprintf("skipped %d unparseable lines", result.malformed), Path: entry.Path,
+			})
+		}
+		if result.qualified {
+			report.Sessions = append(report.Sessions, entry)
+		} else if result.undated > 0 {
+			report.Diagnostics = append(report.Diagnostics, Diagnostic{
+				Code: codeUndatedEvents, Harness: entry.Harness,
+				Message: fmt.Sprintf("excluded session: %d events without a usable timestamp and none dated within the period", result.undated), Path: entry.Path,
+			})
+		}
+	}
+	if ctx.Err() != nil {
+		report.Complete = false
 	}
 	return report
+}
+
+type periodScan struct {
+	err       error
+	malformed int
+	qualified bool
+	undated   int
+}
+
+func qualifiesInPeriod(entry located, filter Filter) periodScan {
+	var result periodScan
+	result.malformed, result.err = entry.adapter.scan(entry.session.Path, func(e event) bool {
+		if e.subagent && !filter.IncludeSubagents {
+			return true
+		}
+		if e.timestamp.IsZero() {
+			result.undated++
+		} else if filter.contains(e.timestamp) {
+			result.qualified = true
+			return false
+		}
+		return true
+	})
+	return result
 }
 
 // Search scans matching sessions' transcripts and reports the sessions with
 // at least one matching event, most recently started first.
 func Search(ctx context.Context, roots Roots, filter Filter, query SearchQuery) SearchReport {
 	sessions, diagnostics, complete := collect(ctx, roots, filter)
-	report := SearchReport{Complete: complete, Diagnostics: diagnostics}
+	report := SearchReport{Complete: complete, Diagnostics: diagnostics, Period: filter.period()}
 
 	type scanResult struct {
 		err       error
 		hits      []Hit
 		malformed int
+		undated   int
 	}
 	results := parallelMap(ctx, sessions, func(entry located) scanResult {
-		hits, malformed, err := scanSession(entry, filter, query)
-		return scanResult{err: err, hits: hits, malformed: malformed}
+		hits, malformed, undated, err := scanSession(entry, filter, query)
+		return scanResult{err: err, hits: hits, malformed: malformed, undated: undated}
 	})
 	for index, result := range results {
 		entry := sessions[index].session
@@ -313,25 +409,42 @@ func Search(ctx context.Context, roots Roots, filter Filter, query SearchQuery) 
 		if len(result.hits) != 0 {
 			report.Sessions = append(report.Sessions, Match{Session: entry, Hits: result.hits})
 		}
+		if result.undated > 0 {
+			report.Diagnostics = append(report.Diagnostics, Diagnostic{
+				Code: codeUndatedEvents, Harness: entry.Harness,
+				Message: fmt.Sprintf("excluded %d matching events without a usable timestamp", result.undated), Path: entry.Path,
+			})
+		}
+	}
+	if ctx.Err() != nil {
+		report.Complete = false
 	}
 	return report
 }
 
-func scanSession(entry located, filter Filter, query SearchQuery) ([]Hit, int, error) {
+func scanSession(entry located, filter Filter, query SearchQuery) ([]Hit, int, int, error) {
 	if query.Raw {
 		hits, err := scanRaw(entry.session.Path, query.Pattern)
-		return hits, 0, err
+		return hits, 0, 0, err
 	}
 	var hits []Hit
-	malformed, err := entry.adapter.scan(entry.session.Path, func(e event) {
+	undated := 0
+	malformed, err := entry.adapter.scan(entry.session.Path, func(e event) bool {
 		if e.subagent && !filter.IncludeSubagents {
-			return
+			return true
 		}
 		if hit, ok := matchEvent(e, query); ok {
+			if filter.hasPeriod() && !filter.contains(e.timestamp) {
+				if e.timestamp.IsZero() {
+					undated++
+				}
+				return true
+			}
 			hits = append(hits, hit)
 		}
+		return true
 	})
-	return hits, malformed, err
+	return hits, malformed, undated, err
 }
 
 func scanRaw(path string, pattern *regexp.Regexp) ([]Hit, error) {
@@ -407,9 +520,6 @@ func collect(ctx context.Context, roots Roots, filter Filter) ([]located, []Diag
 				continue
 			}
 			if t.subagent && !filter.IncludeSubagents {
-				continue
-			}
-			if !filter.Since.IsZero() && t.modTime.Before(filter.Since) {
 				continue
 			}
 			kept = append(kept, t)
@@ -551,9 +661,6 @@ func (f Filter) matchesSession(s Session) bool {
 		return false
 	}
 	if len(f.Harnesses) != 0 && !slices.Contains(f.Harnesses, s.Harness) {
-		return false
-	}
-	if !f.Until.IsZero() && s.SortTime().After(f.Until) {
 		return false
 	}
 	if f.Project != "" {
