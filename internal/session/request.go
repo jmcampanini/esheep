@@ -67,6 +67,9 @@ func (r Request) Resolve() (Filter, SearchQuery, error) {
 		if err != nil {
 			return Filter{}, SearchQuery{}, err
 		}
+		if query.Raw && filter.hasPeriod() {
+			return Filter{}, SearchQuery{}, errors.New("--raw cannot combine with --since or --until")
+		}
 		return filter, query, nil
 	default:
 		return Filter{}, SearchQuery{}, fmt.Errorf("session: unknown mode %q (expected list or search)", r.Mode)
@@ -95,6 +98,9 @@ func (f RequestFilter) resolve() (Filter, error) {
 	}
 	if f.Until != nil {
 		filter.Until = *f.Until
+	}
+	if !filter.Since.IsZero() && !filter.Until.IsZero() && !filter.Since.Before(filter.Until) {
+		return Filter{}, fmt.Errorf("--since %s must be before --until %s", filter.Since.Format(time.RFC3339Nano), filter.Until.Format(time.RFC3339Nano))
 	}
 	return filter, nil
 }

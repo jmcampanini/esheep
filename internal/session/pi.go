@@ -61,7 +61,7 @@ func (piAdapter) meta(t transcript, ids idFilter) describedSession {
 	return describedSession{eligible: ids.matches(entry.ID), session: entry}
 }
 
-func (piAdapter) scan(path string, visit func(event)) (int, error) {
+func (piAdapter) scan(path string, visit func(event) bool) (int, error) {
 	malformed := 0
 	err := forEachLine(path, func(line int, data []byte) bool {
 		var envelope struct {
@@ -76,13 +76,12 @@ func (piAdapter) scan(path string, visit func(event)) (int, error) {
 		if envelope.Type != "message" {
 			return true
 		}
-		piMessageEvents(envelope.Message, event{line: line, timestamp: parseTimestamp(envelope.Timestamp)}, visit)
-		return true
+		return piMessageEvents(envelope.Message, event{line: line, timestamp: parseTimestamp(envelope.Timestamp)}, visit)
 	})
 	return malformed, err
 }
 
-func piMessageEvents(raw json.RawMessage, base event, visit func(event)) {
+func piMessageEvents(raw json.RawMessage, base event, visit func(event) bool) bool {
 	var message struct {
 		Content []struct {
 			Arguments json.RawMessage `json:"arguments"`
@@ -95,7 +94,7 @@ func piMessageEvents(raw json.RawMessage, base event, visit func(event)) {
 		ToolName string `json:"toolName"`
 	}
 	if json.Unmarshal(raw, &message) != nil {
-		return
+		return true
 	}
 	switch message.Role {
 	case "user", "assistant":
@@ -109,12 +108,16 @@ func piMessageEvents(raw json.RawMessage, base event, visit func(event)) {
 				if block.Text != "" {
 					e := base
 					e.role, e.text = role, block.Text
-					visit(e)
+					if !visit(e) {
+						return false
+					}
 				}
 			case "toolCall":
 				e := base
 				e.role, e.tool, e.text = RoleTool, block.Name, compactJSON(block.Arguments)
-				visit(e)
+				if !visit(e) {
+					return false
+				}
 			}
 		}
 	case "toolResult":
@@ -126,6 +129,7 @@ func piMessageEvents(raw json.RawMessage, base event, visit func(event)) {
 		}
 		base.role, base.tool, base.text = RoleTool, message.ToolName, strings.Join(parts, "\n")
 		base.failed = message.IsError != nil && *message.IsError
-		visit(base)
+		return visit(base)
 	}
+	return true
 }

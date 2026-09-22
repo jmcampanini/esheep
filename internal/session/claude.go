@@ -65,7 +65,7 @@ func (claudeAdapter) meta(t transcript, ids idFilter) describedSession {
 	return describedSession{eligible: true, err: err, session: entry}
 }
 
-func (claudeAdapter) scan(path string, visit func(event)) (int, error) {
+func (claudeAdapter) scan(path string, visit func(event) bool) (int, error) {
 	malformed := 0
 	toolNames := make(map[string]string)
 	err := forEachLine(path, func(line int, data []byte) bool {
@@ -82,9 +82,9 @@ func (claudeAdapter) scan(path string, visit func(event)) (int, error) {
 		base := event{line: line, timestamp: parseTimestamp(envelope.Timestamp)}
 		switch envelope.Type {
 		case "user":
-			claudeUserEvents(envelope.Message, envelope.IsMeta, base, toolNames, visit)
+			return claudeUserEvents(envelope.Message, envelope.IsMeta, base, toolNames, visit)
 		case "assistant":
-			claudeAssistantEvents(envelope.Message, base, toolNames, visit)
+			return claudeAssistantEvents(envelope.Message, base, toolNames, visit)
 		}
 		return true
 	})
@@ -105,24 +105,24 @@ type claudeContentItem struct {
 // claudeUserEvents emits user text and tool results. A user record's content
 // is either the typed prompt string or an array mixing text and tool_result
 // blocks; isMeta marks injected text the human never wrote.
-func claudeUserEvents(message json.RawMessage, isMeta bool, base event, toolNames map[string]string, visit func(event)) {
+func claudeUserEvents(message json.RawMessage, isMeta bool, base event, toolNames map[string]string, visit func(event) bool) bool {
 	var wrapper struct {
 		Content json.RawMessage `json:"content"`
 	}
 	if json.Unmarshal(message, &wrapper) != nil {
-		return
+		return true
 	}
 	var text string
 	if json.Unmarshal(wrapper.Content, &text) == nil {
 		if !isMeta && text != "" {
 			base.role, base.text = RoleUser, text
-			visit(base)
+			return visit(base)
 		}
-		return
+		return true
 	}
 	var items []claudeContentItem
 	if json.Unmarshal(wrapper.Content, &items) != nil {
-		return
+		return true
 	}
 	for _, item := range items {
 		switch item.Type {
@@ -130,7 +130,9 @@ func claudeUserEvents(message json.RawMessage, isMeta bool, base event, toolName
 			if !isMeta && item.Text != "" {
 				e := base
 				e.role, e.text = RoleUser, item.Text
-				visit(e)
+				if !visit(e) {
+					return false
+				}
 			}
 		case "tool_result":
 			e := base
@@ -138,17 +140,20 @@ func claudeUserEvents(message json.RawMessage, isMeta bool, base event, toolName
 			e.tool = toolNames[item.ToolUseID]
 			e.text = flattenText(item.Content)
 			e.failed = item.IsError != nil && *item.IsError
-			visit(e)
+			if !visit(e) {
+				return false
+			}
 		}
 	}
+	return true
 }
 
-func claudeAssistantEvents(message json.RawMessage, base event, toolNames map[string]string, visit func(event)) {
+func claudeAssistantEvents(message json.RawMessage, base event, toolNames map[string]string, visit func(event) bool) bool {
 	var wrapper struct {
 		Content []claudeContentItem `json:"content"`
 	}
 	if json.Unmarshal(message, &wrapper) != nil {
-		return
+		return true
 	}
 	for _, item := range wrapper.Content {
 		switch item.Type {
@@ -156,13 +161,18 @@ func claudeAssistantEvents(message json.RawMessage, base event, toolNames map[st
 			if item.Text != "" {
 				e := base
 				e.role, e.text = RoleAssistant, item.Text
-				visit(e)
+				if !visit(e) {
+					return false
+				}
 			}
 		case "tool_use":
 			toolNames[item.ID] = item.Name
 			e := base
 			e.role, e.tool, e.text = RoleTool, item.Name, compactJSON(item.Input)
-			visit(e)
+			if !visit(e) {
+				return false
+			}
 		}
 	}
+	return true
 }

@@ -183,7 +183,7 @@ func TestSessionsListPassesFilterAndRoots(t *testing.T) {
 	if !slices.Equal(gotFilter.IDs, []string{"first", "second", "third"}) {
 		t.Errorf("IDs = %v, want first, second, third", gotFilter.IDs)
 	}
-	want := time.Now().AddDate(0, 0, -7)
+	want := time.Now().Add(-7 * 24 * time.Hour)
 	if gotFilter.Since.IsZero() || gotFilter.Since.Sub(want).Abs() > time.Minute {
 		t.Errorf("since = %v, want about %v", gotFilter.Since, want)
 	}
@@ -218,6 +218,24 @@ func TestSessionsSearchPassesQuery(t *testing.T) {
 	}
 }
 
+func TestSessionsUntilDateEndsAtNextLocalMidnight(t *testing.T) {
+	var got session.Filter
+	operations := commandOperations{
+		sessionList: func(_ context.Context, _ session.Roots, filter session.Filter) session.ListReport {
+			got = filter
+			return session.ListReport{Complete: true}
+		},
+	}
+
+	code, _, stderr := runCommandWithOperations(t, sessionLoader(t), operations,
+		"sessions", "list", "--until", "2026-09-21")
+
+	want := time.Date(2026, 9, 22, 0, 0, 0, 0, time.Local)
+	if code != 0 || !got.Until.Equal(want) {
+		t.Fatalf("exit = %d, until = %v, stderr = %q; want %v", code, got.Until, stderr, want)
+	}
+}
+
 func TestSessionsUsageErrorsDoNotLoadConfiguration(t *testing.T) {
 	tests := []struct {
 		args []string
@@ -235,6 +253,8 @@ func TestSessionsUsageErrorsDoNotLoadConfiguration(t *testing.T) {
 		{name: "non-tool role with tool filter", args: []string{"sessions", "search", "x", "--role", "user", "--tool", "Bash"}},
 		{name: "unknown role", args: []string{"sessions", "search", "x", "--role", "system"}},
 		{name: "unknown harness", args: []string{"sessions", "list", "--harness", "emacs"}},
+		{name: "raw with period", args: []string{"sessions", "search", "x", "--raw", "--since", "7d"}},
+		{name: "reversed period", args: []string{"sessions", "list", "--since", "2026-09-21", "--until", "2026-09-14"}},
 		{name: "bad since", args: []string{"sessions", "list", "--since", "yesterday"}},
 		{name: "bad pattern", args: []string{"sessions", "search", "(unclosed"}},
 		{name: "no-local without remote", args: []string{"sessions", "list", "--no-local"}},
@@ -322,6 +342,7 @@ func TestSessionsSearchWritesHitsGroupedBySession(t *testing.T) {
 		"/roots/claude/p/abc.jsonl",
 		":2",
 		"tool:Bash",
+		"2026-08-20 10:00:00",
 		"error  permission denied",
 	} {
 		if !strings.Contains(stdout, want) {

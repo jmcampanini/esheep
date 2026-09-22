@@ -67,9 +67,10 @@ func TestIDFilterPreservesMatchingSessions(t *testing.T) {
 	}
 
 	for _, test := range []struct {
-		filter Filter
-		name   string
-		want   []string
+		diagnostics int
+		filter      Filter
+		name        string
+		want        []string
 	}{
 		{name: "across harnesses and archives", filter: Filter{IDs: []string{"Shared"}}, want: []string{"claude", "codex", "work", "pi"}},
 		{name: "union and repeated IDs", filter: Filter{IDs: []string{"Shared", "local_Shared", "Shared"}}, want: []string{"claude", "codex", "work", "pi", "cowork-a", "cowork-b"}},
@@ -87,8 +88,8 @@ func TestIDFilterPreservesMatchingSessions(t *testing.T) {
 		{name: "harness intersection", filter: Filter{Harnesses: []Harness{HarnessPi}, IDs: []string{"Shared"}}, want: []string{"pi"}},
 		{name: "archive intersection", filter: Filter{ArchiveState: ArchiveArchived, IDs: []string{"Shared"}}, want: []string{"work"}},
 		{name: "late project intersection", filter: Filter{IDs: []string{"Shared"}, Project: "LATE-PROJECT"}, want: []string{"codex", "work"}},
-		{name: "since intersection", filter: Filter{IDs: []string{"Shared"}, Since: modified.Add(time.Second)}},
-		{name: "until intersection", filter: Filter{IDs: []string{"Shared"}, Until: started.Add(-time.Second)}},
+		{name: "since intersection", filter: Filter{IDs: []string{"Shared"}, Since: modified.Add(time.Second)}, diagnostics: 3},
+		{name: "until intersection", filter: Filter{IDs: []string{"Shared"}, Until: started.Add(-time.Second)}, diagnostics: 3},
 		{name: "subagents on request", filter: Filter{IDs: []string{"Shared"}, IncludeSubagents: true}, want: []string{"claude", "child", "codex", "work", "pi"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -112,11 +113,18 @@ func TestIDFilterPreservesMatchingSessions(t *testing.T) {
 			list := List(context.Background(), roots, test.filter)
 			search := Search(context.Background(), roots, test.filter, query)
 
-			if !list.Complete || len(list.Diagnostics) != 0 || !reflect.DeepEqual(list.Sessions, wantSessions) {
-				t.Errorf("List = %+v, want sessions %+v without diagnostics", list, wantSessions)
+			if !list.Complete || len(list.Diagnostics) != test.diagnostics || !reflect.DeepEqual(list.Sessions, wantSessions) {
+				t.Errorf("List = %+v, want sessions %+v with %d diagnostics", list, wantSessions, test.diagnostics)
 			}
-			if !search.Complete || len(search.Diagnostics) != 0 || !reflect.DeepEqual(search.Sessions, wantHits) {
-				t.Errorf("Search = %+v, want matches %+v without diagnostics", search, wantHits)
+			if !search.Complete || len(search.Diagnostics) != test.diagnostics || !reflect.DeepEqual(search.Sessions, wantHits) {
+				t.Errorf("Search = %+v, want matches %+v with %d diagnostics", search, wantHits, test.diagnostics)
+			}
+			for _, diagnostics := range [][]Diagnostic{list.Diagnostics, search.Diagnostics} {
+				for _, diagnostic := range diagnostics {
+					if diagnostic.Code != codeUndatedEvents {
+						t.Errorf("diagnostic = %+v, want undated-events", diagnostic)
+					}
+				}
 			}
 		})
 	}

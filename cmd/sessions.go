@@ -100,6 +100,28 @@ rules as an unfiltered scan. Errors in skipped content or companion metadata
 are not reported; discovery failures and failures reading required IDs or
 matching transcripts still affect completeness.`
 
+const sessionPeriodHelp = `--since and --until select activity by event timestamps recorded in each
+transcript. File modification time and session start do not determine period
+membership or skip candidate transcripts. An event qualifies when
+since <= timestamp < until; omitted bounds are unrestricted.
+
+Dates are inclusive local calendar days on the calling machine. --since starts
+at local midnight on that date; --until ends at local midnight on the next date.
+Day counts (7d) and durations (36h) subtract elapsed time from one caller clock
+reading and resolve to exact instants at either bound. Remotes receive those
+resolved instants and never reinterpret dates. A since at or after until is a
+usage error naming both resolved instants.
+
+Under a period, undated events never qualify. Search reports undated-events
+for events that match its other criteria but lack usable timestamps. List
+reports it when undated events exist and none qualify before EOF. These
+diagnostics do not change complete. List stops at its first qualifying event
+and reports malformed-lines only for the portion scanned. --raw cannot combine
+with --since or --until.
+
+List and search JSON always include period with resolved since and until
+instants, each null when open.`
+
 func newSessionsCommand(load configLoader, operations commandOperations) *cobra.Command {
 	command := &cobra.Command{
 		Use:   "sessions",
@@ -156,9 +178,9 @@ func registerSessionFilterFlags(command *cobra.Command, flags *sessionFilterFlag
 	command.Flags().BoolVar(&flags.noLocal, "no-local", false, "skip this machine; requires --remote")
 	command.Flags().StringVar(&flags.project, "project", "", "limit to sessions with any project path containing this text")
 	command.Flags().StringSliceVar(&flags.remote, "remote", nil, "also query configured machines by name, or all; repeatable or comma-separated")
-	command.Flags().StringVar(&flags.since, "since", "", "limit to sessions active since a day count (7d), duration (36h), or date (2026-01-02)")
+	command.Flags().StringVar(&flags.since, "since", "", "keep activity recorded at or after a day count (7d), duration (36h), or local date (2026-01-02)")
 	command.Flags().BoolVar(&flags.subagents, "subagents", false, "include subagent transcripts and embedded child activity")
-	command.Flags().StringVar(&flags.until, "until", "", "limit to sessions started before a day count, duration, or date")
+	command.Flags().StringVar(&flags.until, "until", "", "keep activity recorded before a day count, duration, or the end of a local date")
 }
 
 // requestFilter converts the flag values into the request form, resolving
@@ -179,14 +201,14 @@ func (f sessionFilterFlags) requestFilter(now time.Time) (session.RequestFilter,
 		filter.IDs = append(filter.IDs, ids...)
 	}
 	if f.since != "" {
-		since, err := session.ParseTimeFlag(f.since, now)
+		since, err := session.ParseSince(f.since, now)
 		if err != nil {
 			return session.RequestFilter{}, fmt.Errorf("--since: %w", err)
 		}
 		filter.Since = &since
 	}
 	if f.until != "" {
-		until, err := session.ParseTimeFlag(f.until, now)
+		until, err := session.ParseUntil(f.until, now)
 		if err != nil {
 			return session.RequestFilter{}, fmt.Errorf("--until: %w", err)
 		}
@@ -246,14 +268,16 @@ func newSessionsListCommand(load configLoader, operations commandOperations) *co
 recently started first. Claude Code, Pi, and Cowork usually need only a short
 metadata read. Codex and Work transcripts are read in full to collect workspace
 roots across saved turns. Cowork audits are read until a supported conversation
-event and a start time are found, or the end of the file.
+event and a start time are found, or the end of the file. With a period,
+each candidate transcript is also scanned until its first event in the period
+or the end of the file.
 
 Each row carries the harness, session ID, recorded start time (or file
 modification time when unavailable), archive state, project directories, title where the grammar
 records one, and the canonical transcript path. Subagent and
-sidechain transcripts are excluded unless --subagents is set. --since keeps
-sessions still active at the given time; --until drops sessions started
-after it. Best-effort fields a grammar does not record appear as -.
+sidechain transcripts are excluded unless --subagents is set. --since and
+--until keep sessions with at least one recorded event in the period.
+Best-effort fields a grammar does not record appear as -.
 
 The command exits nonzero only when filesystem failures prevent a complete
 inventory; a missing session root merely skips that location with a
@@ -267,7 +291,9 @@ diagnostic.
 
 ` + streamContractHelp + `
 
-` + jsonContractHelp + ` List JSON includes "complete"; timestamps are
+` + sessionPeriodHelp + `
+
+` + jsonContractHelp + ` List JSON includes "complete" and "period"; timestamps are
 RFC 3339, "projects" is an array of paths, "archived" marks archive state,
 "subagent" marks non-primary transcripts, and "machine" names the machine
 that owns each session and diagnostic.`,
@@ -362,7 +388,7 @@ grammar flags a failure; Codex and ChatGPT Work transcripts flag errors only
 on MCP calls, so other failing tool calls in those transcripts cannot match.
 --raw drops to byte-level
 matching against the undecoded lines and cannot combine with --role, --tool,
-or --errors.
+--errors, --since, or --until.
 
 Codex and ChatGPT Work limitations: decoded search omits web-search events
 and may report one MCP call twice under different tool names. Use --raw to
@@ -387,7 +413,12 @@ prevent a complete search.
 
 ` + streamContractHelp + `
 
-` + jsonContractHelp + ` Search JSON includes "complete"; each session
+` + sessionPeriodHelp + `
+
+With a period, hits are matching events within that period. A session that
+started earlier contributes its qualifying events.
+
+` + jsonContractHelp + ` Search JSON includes "complete" and "period"; each session
 carries "machine", "projects", an "archived" boolean, and a "hits" array. Each hit carries "line", "role",
 and "excerpt"; "tool" and "timestamp" appear when known, and "error" appears
 for known failures.`,

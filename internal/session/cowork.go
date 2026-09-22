@@ -67,7 +67,7 @@ func (a coworkAdapter) meta(t transcript, ids idFilter) describedSession {
 		if meta.session.StartedAt.IsZero() {
 			meta.session.StartedAt = base.timestamp
 		}
-		decoder.decode(envelope, base, func(event) { meta.eligible = true })
+		decoder.decode(envelope, base, func(event) bool { meta.eligible = true; return false })
 		return !meta.eligible || meta.session.StartedAt.IsZero()
 	})
 	return meta
@@ -144,9 +144,9 @@ type coworkDecoder struct {
 	toolNames map[string]map[string]string
 }
 
-func (d *coworkDecoder) decode(envelope coworkEnvelope, base event, visit func(event)) {
+func (d *coworkDecoder) decode(envelope coworkEnvelope, base event, visit func(event) bool) bool {
 	if envelope.Type != "user" && envelope.Type != "assistant" {
-		return
+		return true
 	}
 	names := d.toolNames[envelope.ParentToolUseID]
 	if names == nil {
@@ -155,13 +155,14 @@ func (d *coworkDecoder) decode(envelope coworkEnvelope, base event, visit func(e
 	}
 	switch envelope.Type {
 	case "user":
-		claudeUserEvents(envelope.Message, envelope.IsMeta || envelope.IsSynthetic, base, names, visit)
+		return claudeUserEvents(envelope.Message, envelope.IsMeta || envelope.IsSynthetic, base, names, visit)
 	case "assistant":
-		claudeAssistantEvents(envelope.Message, base, names, visit)
+		return claudeAssistantEvents(envelope.Message, base, names, visit)
 	}
+	return true
 }
 
-func (coworkAdapter) scan(path string, visit func(event)) (int, error) {
+func (coworkAdapter) scan(path string, visit func(event) bool) (int, error) {
 	malformed := 0
 	decoder := coworkDecoder{toolNames: make(map[string]map[string]string)}
 	err := forEachLine(path, func(line int, data []byte) bool {
@@ -170,8 +171,7 @@ func (coworkAdapter) scan(path string, visit func(event)) (int, error) {
 			malformed++
 			return true
 		}
-		decoder.decode(envelope, envelope.event(line), visit)
-		return true
+		return decoder.decode(envelope, envelope.event(line), visit)
 	})
 	return malformed, err
 }

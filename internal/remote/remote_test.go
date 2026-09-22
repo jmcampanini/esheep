@@ -168,7 +168,7 @@ func TestSearchMergesLocalAndRemoteReplies(t *testing.T) {
 	since := time.Date(2026, 9, 6, 21, 47, 6, 0, time.UTC)
 	request := session.Request{Filter: session.RequestFilter{ArchiveState: "all", Since: &since}, Mode: session.ModeSearch, Query: session.RequestQuery{Pattern: "timeout"}}
 	local := func(context.Context) session.SearchReport {
-		return session.SearchReport{Complete: true, Sessions: []session.Match{
+		return session.SearchReport{Complete: true, Period: session.Period{Since: &since}, Sessions: []session.Match{
 			{Session: session.Session{Harness: session.HarnessPi, ID: "local-old", Path: "/Users/j/.pi/old.jsonl", StartedAt: time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)}},
 			{Session: session.Session{Harness: session.HarnessPi, ID: "local-tie", Path: "/Users/j/.pi/tie.jsonl", StartedAt: time.Date(2026, 9, 10, 10, 0, 0, 0, time.UTC)}},
 		}}
@@ -182,6 +182,9 @@ func TestSearchMergesLocalAndRemoteReplies(t *testing.T) {
 	}
 	if !report.Complete {
 		t.Errorf("complete = false, want the remote document's completeness to win over its exit status")
+	}
+	if report.Period.Since == nil || !report.Period.Since.Equal(since) || report.Period.Until != nil {
+		t.Errorf("period = %+v, want the local resolved period", report.Period)
 	}
 	var ids []string
 	for _, match := range report.Sessions {
@@ -230,6 +233,24 @@ func TestListWithoutMachinesStampsLocalResults(t *testing.T) {
 	}
 	if report.Complete || len(report.Sessions) != 1 || report.Sessions[0].Machine != "laptop" || report.Diagnostics[0].Machine != "laptop" {
 		t.Errorf("report = %+v, want local results stamped laptop and incompleteness preserved", report)
+	}
+}
+
+func TestRemoteOnlyPeriodComesFromRequest(t *testing.T) {
+	ssh, _ := fakeSSH(t)
+	since := time.Date(2026, 11, 1, 0, 0, 0, 0, time.FixedZone("EDT", -4*3600))
+	until := since.Add(25 * time.Hour)
+	for _, host := range []string{"ok", "down"} {
+		t.Run(host, func(t *testing.T) {
+			request := session.Request{Mode: session.ModeList, Filter: session.RequestFilter{Since: &since, Until: &until}}
+			selection := Selection{Machines: []config.ResolvedMachine{machine("nas", host, time.Minute)}}
+
+			report, err := List(context.Background(), ssh, selection, request, nil)
+
+			if err != nil || report.Period.Since == nil || !report.Period.Since.Equal(since) || report.Period.Until == nil || !report.Period.Until.Equal(until) {
+				t.Fatalf("period = %+v, error = %v; want request bounds even on failure", report.Period, err)
+			}
+		})
 	}
 }
 

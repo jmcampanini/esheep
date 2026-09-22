@@ -245,7 +245,7 @@ func WriteSessionSearch(writer io.Writer, report session.SearchReport, machines 
 			}
 			timestamp := "-"
 			if !hit.Timestamp.IsZero() {
-				timestamp = hit.Timestamp.Local().Format("15:04:05")
+				timestamp = hit.Timestamp.Local().Format("2006-01-02 15:04:05")
 			}
 			if _, err := fmt.Fprintf(writer, "  :%-6d %-*s  %s  %s%s\n", hit.Line, width, hitRole(hit), timestamp, marker, clean(hit.Excerpt)); err != nil {
 				return err

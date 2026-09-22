@@ -43,7 +43,8 @@ The request mirrors the list and search flags:
 "mode" is list or search. "filter" carries every shared filter: archive_state
 is all, active, or archived; harnesses and ids are arrays of the values the
 flags accept; since and until are RFC 3339 instants or null, already resolved
-on the caller's clock so a skewed clock here cannot move the window. "query"
+on the caller's clock, with dates expanded to inclusive-day bounds, so a skewed
+clock here cannot move the window. "query"
 is ignored for list; pattern is the case-insensitive regular expression
 source. Unknown fields are ignored and missing fields take their zero value.
 
@@ -52,9 +53,11 @@ raw cannot combine with role, tool, or errors; empty IDs are rejected. An
 invalid or empty request exits 2 with the reason on stderr.
 
 Stdout is exactly the document 'sessions list --json' or 'sessions search
---json' prints here, including "complete", "diagnostics", and "sessions",
+--json' prints here, including "complete", "diagnostics", "period", and "sessions",
 with "machine" naming this host. Exit status follows the underlying
-command: 0 complete, 1 incomplete or application failure, 2 usage.`,
+command: 0 complete, 1 incomplete or application failure, 2 usage.
+
+` + sessionPeriodHelp,
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			data, err := io.ReadAll(command.InOrStdin())

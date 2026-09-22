@@ -4,6 +4,8 @@ esheep manages Agent Skills and a global agents file from human-maintained sourc
 
 esheep also finds historical harness sessions. `esheep sessions list` and `esheep sessions search` read the session transcripts Claude Code, Pi, Codex, local ChatGPT Work tasks, and local Claude Cowork conversations leave on disk, in place and read-only. Every result points at the canonical transcript file.
 
+The `--since` and `--until` flags select activity by recorded event time. Dates are inclusive local calendar days.
+
 Use `esheep sessions list --id <id>` to locate a known session, or `esheep sessions search --id <id> 'pattern'` to search its content. IDs match exactly and case-sensitively; repeat `--id` or provide comma-separated IDs to select several sessions. Other filters still apply. Cowork accepts its full scoped ID or the complete `local_<id>` component and reports every matching scope.
 
 Use `--harness chatgpt-work` to select identified local Work tasks, `--harness codex` for Codex CLI and desktop, or `--harness codex,chatgpt-work` for both. Unfiltered queries include all harnesses. Codex and Work share `[sessions.codex].home`, reading its `sessions/` and `archived_sessions/` directories. Both locations are included by default; use `--archive-state active` or `--archive-state archived` to select one. Work results require saved messages or supported tool records; partial history qualifies, while title-only and injected-context-only records do not. Results do not imply complete remote history.
