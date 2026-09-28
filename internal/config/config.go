@@ -20,11 +20,12 @@ import (
 )
 
 const (
-	appName    = "esheep"
-	configName = "esheep.toml"
-	configFlag = "config"
-	envPrefix  = "esheep"
-	configHelp = "path to the configuration file (replaces discovered files)"
+	appName         = "esheep"
+	configName      = "esheep.toml"
+	configFlag      = "config"
+	envPrefix       = "esheep"
+	configHelp      = "path to the configuration file (replaces discovered files)"
+	memoryDirectory = "memory"
 )
 
 // Source configures one human-managed directory containing skills.
@@ -101,6 +102,11 @@ type Sessions struct {
 	Codex        CodexSessions  `toml:"codex"`
 }
 
+// Memory locates the root directory 'memory record' appends to.
+type Memory struct {
+	Path string `toml:"path" config:"memory-path" help:"root directory for recorded memories"`
+}
+
 // Config is the complete human-owned esheep configuration.
 type Config struct {
 	Profiles    []string  `toml:"profiles" config:"profiles" pflag_singular:"profile" help:"active profiles; --profiles accepts comma-separated values."`
@@ -108,6 +114,7 @@ type Config struct {
 	Sources     []Source  `toml:"sources"`
 	Targets     Targets   `toml:"targets"`
 	Sessions    Sessions  `toml:"sessions"`
+	Memory      Memory    `toml:"memory"`
 	Machines    []Machine `toml:"machines"`
 }
 
@@ -173,6 +180,7 @@ type LoadResult struct {
 	Home              string
 	Locations         Locations
 	ResolvedMachines  []ResolvedMachine
+	ResolvedMemory    string
 	ResolvedSessions  ResolvedSessions
 	ResolvedSources   []ResolvedSource
 	ResolvedTargets   ResolvedTargets
@@ -245,6 +253,17 @@ func Load(options LoadOptions) (LoadResult, error) {
 			}}, nil
 		})
 	}
+	if dataHome := env["XDG_DATA_HOME"]; dataHome != "" {
+		if !filepath.IsAbs(dataHome) {
+			return LoadResult{}, fmt.Errorf("config: XDG_DATA_HOME must be absolute")
+		}
+		loaders = append(loaders, func(base flagConfig) (flagConfig, configloader.LoadReport, error) {
+			base.Memory.Path = filepath.Join(dataHome, appName, memoryDirectory)
+			return base, configloader.LoadReport{Updates: configloader.Updates{
+				"memory.path": "XDG_DATA_HOME",
+			}}, nil
+		})
+	}
 	loaders = append(loaders, fileLoader, envLoader)
 	if options.Flags != nil {
 		flagLoader, loaderErr := pflagloader.NewLoader[flagConfig](options.Flags)
@@ -262,7 +281,7 @@ func Load(options LoadOptions) (LoadResult, error) {
 	if err != nil {
 		return LoadResult{}, err
 	}
-	resolvedSources, resolvedTargets, err := resolvePaths(cfg, home, locations.ConfigFile)
+	resolvedSources, resolvedTargets, resolvedMemory, err := resolvePaths(cfg, home, locations.ConfigFile)
 	if err != nil {
 		return LoadResult{}, err
 	}
@@ -280,6 +299,7 @@ func Load(options LoadOptions) (LoadResult, error) {
 		Home:              home,
 		Locations:         locations,
 		ResolvedMachines:  resolvedMachines,
+		ResolvedMemory:    resolvedMemory,
 		ResolvedSessions:  resolvedSessions,
 		ResolvedSources:   resolvedSources,
 		ResolvedTargets:   resolvedTargets,
@@ -374,6 +394,7 @@ func Render(result LoadResult, options ReportOptions) ([]byte, error) {
 	writeResolved("sessions.codex.home", result.ResolvedSessions.Codex.Home)
 	writeResolved("sessions.codex.sessions", result.ResolvedSessions.Codex.Sessions)
 	writeResolved("sessions.codex.archived_sessions", result.ResolvedSessions.Codex.ArchivedSessions)
+	writeResolved("memory.path", result.ResolvedMemory)
 	for _, machine := range result.ResolvedMachines {
 		writeResolved("machines."+machine.Name+".host", machine.Host)
 		writeResolved("machines."+machine.Name+".command", machine.Command)
@@ -427,6 +448,7 @@ func defaults() flagConfig {
 			Pi:           PiSessions{Path: "~/.pi/agent/sessions"},
 			Codex:        CodexSessions{Home: "~/.codex"},
 		},
+		Memory: Memory{Path: "~/.local/share/" + appName + "/" + memoryDirectory},
 	}
 }
 
@@ -455,35 +477,65 @@ func locationsFromEnv(env map[string]string, home string) (Locations, error) {
 	return Locations{ConfigFile: filepath.Join(filepath.Clean(configHome), appName, configName)}, nil
 }
 
-func resolvePaths(cfg Config, home, configPath string) ([]ResolvedSource, ResolvedTargets, error) {
+// resolvePaths resolves every path esheep reads from or writes to and
+// rejects layouts where a write location could reach a read-only source or
+// another write location.
+func resolvePaths(cfg Config, home, configPath string) ([]ResolvedSource, ResolvedTargets, string, error) {
 	resolvedConfigPath, err := canonicalPath(configPath)
 	if err != nil {
-		return nil, ResolvedTargets{}, fmt.Errorf("config: resolve settings path: %w", err)
+		return nil, ResolvedTargets{}, "", fmt.Errorf("config: resolve settings path: %w", err)
 	}
 	sources, err := resolveSources(cfg.Sources, home)
 	if err != nil {
-		return nil, ResolvedTargets{}, err
+		return nil, ResolvedTargets{}, "", err
 	}
 	targets, enabled, err := resolveTargets(cfg.Targets, home)
 	if err != nil {
-		return nil, ResolvedTargets{}, err
+		return nil, ResolvedTargets{}, "", err
 	}
 	for _, target := range enabled {
 		if samePath(resolvedConfigPath, target.agentsMD) {
-			return nil, ResolvedTargets{}, fmt.Errorf("config: targets.%s.agents_md_path must not be the settings file", target.name)
+			return nil, ResolvedTargets{}, "", fmt.Errorf("config: targets.%s.agents_md_path must not be the settings file", target.name)
 		}
 	}
 	for _, source := range sources {
 		for _, target := range enabled {
 			if pathsOverlap(source.Path, target.skills) {
-				return nil, ResolvedTargets{}, fmt.Errorf("config: source %q overlaps enabled target %q", source.Name, target.name)
+				return nil, ResolvedTargets{}, "", fmt.Errorf("config: source %q overlaps enabled target %q", source.Name, target.name)
 			}
 			if pathsOverlap(source.Path, target.agentsMD) {
-				return nil, ResolvedTargets{}, fmt.Errorf("config: targets.%s.agents_md_path is inside source %q", target.name, source.Name)
+				return nil, ResolvedTargets{}, "", fmt.Errorf("config: targets.%s.agents_md_path is inside source %q", target.name, source.Name)
 			}
 		}
 	}
-	return sources, targets, nil
+	memory, err := resolveMemory(cfg.Memory.Path, home, sources, enabled)
+	if err != nil {
+		return nil, ResolvedTargets{}, "", err
+	}
+	return sources, targets, memory, nil
+}
+
+// resolveMemory resolves the memory root, the one write location outside
+// targets, under the same breadth and overlap rules as target paths.
+func resolveMemory(path, home string, sources []ResolvedSource, enabled []resolvedTarget) (string, error) {
+	memory, err := resolveManagedPath("memory.path", path, home)
+	if err != nil {
+		return "", err
+	}
+	if memory == string(filepath.Separator) || samePath(memory, home) {
+		return "", errors.New("config: memory.path is too broad")
+	}
+	for _, source := range sources {
+		if pathsOverlap(memory, source.Path) {
+			return "", fmt.Errorf("config: memory.path overlaps source %q", source.Name)
+		}
+	}
+	for _, target := range enabled {
+		if pathsOverlap(memory, target.skills) {
+			return "", fmt.Errorf("config: memory.path overlaps enabled target %q", target.name)
+		}
+	}
+	return memory, nil
 }
 
 func resolveSources(configured []Source, home string) ([]ResolvedSource, error) {

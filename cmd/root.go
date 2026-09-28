@@ -9,6 +9,7 @@ import (
 
 	"github.com/jmcampanini/esheep/internal/config"
 	"github.com/jmcampanini/esheep/internal/manage"
+	"github.com/jmcampanini/esheep/internal/memory"
 	"github.com/jmcampanini/esheep/internal/session"
 	"github.com/spf13/cobra"
 )
@@ -31,6 +32,7 @@ type configLoader func(config.LoadOptions) (config.LoadResult, error)
 type commandOperations struct {
 	hostname      func() (string, error)
 	list          func(context.Context, config.LoadResult) manage.ListReport
+	memoryRecord  func(context.Context, memory.Request) (memory.Result, error)
 	profiles      func(context.Context, config.LoadResult) manage.ProfilesReport
 	sessionList   func(context.Context, session.Roots, session.Filter) session.ListReport
 	sessionSearch func(context.Context, session.Roots, session.Filter, session.SearchQuery) session.SearchReport
@@ -91,6 +93,7 @@ func newRootCommand(load configLoader) *cobra.Command {
 	return newRootCommandWithOperations(load, commandOperations{
 		hostname:      os.Hostname,
 		list:          manage.List,
+		memoryRecord:  memory.Record,
 		profiles:      manage.Profiles,
 		sessionList:   session.List,
 		sessionSearch: session.Search,
@@ -118,7 +121,11 @@ it, and only to run esheep there over ssh; every other command is offline.
 
 Run 'esheep config' to inspect the effective configuration and resolved
 paths, 'esheep help skill-format' for the authoring format, and
-'esheep help exit-codes' for exit-status meanings.`,
+'esheep help exit-codes' for exit-status meanings.
+
+'esheep memory record' appends a memory for the calling harness session
+under the configured memory root; it is the only command that writes
+there.`,
 		Version:            effectiveVersion(),
 		DisableSuggestions: true,
 		SilenceErrors:      true,
@@ -140,6 +147,7 @@ paths, 'esheep help skill-format' for the authoring format, and
 		newConfigCommand(load),
 		newDoctorCommand(load),
 		newExitCodesTopic(),
+		newMemoryCommand(load, operations.memoryRecord),
 		newProfilesCommand(load, operations.profiles),
 		newSessionsCommand(load, operations),
 		newSkillFormatTopic(),

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -292,12 +293,24 @@ func TestManagedPathsMustBeDisjointAndAbsolute(t *testing.T) {
 		{name: "home target", mutate: func(cfg *Config) { cfg.Targets.Claude.SkillsPath = home }},
 		{name: "home agents md", mutate: func(cfg *Config) { cfg.Targets.Claude.AgentsMDPath = home }},
 		{name: "root target", mutate: func(cfg *Config) { cfg.Targets.Claude.SkillsPath = string(filepath.Separator) }},
+		{name: "memory inside source", mutate: func(cfg *Config) {
+			cfg.Sources = []Source{{Name: "one", Path: filepath.Join(root, "container")}}
+			cfg.Memory.Path = filepath.Join(root, "container", "memory")
+		}},
+		{name: "source inside memory", mutate: func(cfg *Config) {
+			cfg.Sources = []Source{{Name: "one", Path: filepath.Join(home, ".local", "share", "esheep", "memory", "container")}}
+		}},
+		{name: "memory inside enabled target", mutate: func(cfg *Config) {
+			cfg.Memory.Path = filepath.Join(home, ".claude", "skills", "memory")
+		}},
+		{name: "home memory", mutate: func(cfg *Config) { cfg.Memory.Path = home }},
+		{name: "root memory", mutate: func(cfg *Config) { cfg.Memory.Path = string(filepath.Separator) }},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			cfg := base
 			test.mutate(&cfg)
-			if _, _, err := resolvePaths(cfg, home, filepath.Join(root, "settings.toml")); err == nil {
+			if _, _, _, err := resolvePaths(cfg, home, filepath.Join(root, "settings.toml")); err == nil {
 				t.Fatal("resolvePaths succeeded")
 			}
 		})
@@ -332,7 +345,7 @@ func TestMissingPathResolvesExistingSymlinkedParent(t *testing.T) {
 	cfg := Config(defaults())
 	cfg.Sources = []Source{{Name: "one", Path: sourcePath}}
 	cfg.Targets.Claude.SkillsPath = filepath.Join(alias, "source", "missing-target")
-	if _, _, err := resolvePaths(cfg, home, filepath.Join(root, "settings.toml")); err == nil {
+	if _, _, _, err := resolvePaths(cfg, home, filepath.Join(root, "settings.toml")); err == nil {
 		t.Fatal("overlap through a symlinked parent succeeded")
 	}
 }
@@ -346,7 +359,7 @@ func TestEnabledAgentsMDPathMustNotBeDirectory(t *testing.T) {
 	}
 	cfg := Config(defaults())
 	cfg.Targets.Claude.AgentsMDPath = directory
-	if _, _, err := resolvePaths(cfg, home, filepath.Join(root, "settings.toml")); err == nil {
+	if _, _, _, err := resolvePaths(cfg, home, filepath.Join(root, "settings.toml")); err == nil {
 		t.Fatal("directory agents md path succeeded")
 	}
 }
@@ -360,7 +373,7 @@ func TestEnabledAgentsMDPathMustBeRegular(t *testing.T) {
 	}
 	cfg := Config(defaults())
 	cfg.Targets.Claude.AgentsMDPath = fifo
-	if _, _, err := resolvePaths(cfg, home, filepath.Join(root, "settings.toml")); err == nil {
+	if _, _, _, err := resolvePaths(cfg, home, filepath.Join(root, "settings.toml")); err == nil {
 		t.Fatal("non-regular agents md path succeeded")
 	}
 }
@@ -378,7 +391,7 @@ func TestEnabledAgentsMDPathMustNotBeSymlink(t *testing.T) {
 	}
 	cfg := Config(defaults())
 	cfg.Targets.Claude.AgentsMDPath = alias
-	if _, _, err := resolvePaths(cfg, home, filepath.Join(root, "settings.toml")); err == nil {
+	if _, _, _, err := resolvePaths(cfg, home, filepath.Join(root, "settings.toml")); err == nil {
 		t.Fatal("symlinked agents md path succeeded")
 	}
 }
@@ -396,7 +409,7 @@ func TestEnabledTargetRootMustNotBeSymlink(t *testing.T) {
 	}
 	cfg := Config(defaults())
 	cfg.Targets.Claude.SkillsPath = alias
-	if _, _, err := resolvePaths(cfg, home, filepath.Join(root, "settings.toml")); err == nil {
+	if _, _, _, err := resolvePaths(cfg, home, filepath.Join(root, "settings.toml")); err == nil {
 		t.Fatal("symlinked target succeeded")
 	}
 }
@@ -414,7 +427,7 @@ func TestSourceSymlinksUseCanonicalBoundary(t *testing.T) {
 	}
 	cfg := Config(defaults())
 	cfg.Sources = []Source{{Name: "one", Path: realSource}, {Name: "two", Path: alias}}
-	if _, _, err := resolvePaths(cfg, home, filepath.Join(root, "settings.toml")); err == nil {
+	if _, _, _, err := resolvePaths(cfg, home, filepath.Join(root, "settings.toml")); err == nil {
 		t.Fatal("aliased sources succeeded")
 	}
 }
@@ -629,4 +642,90 @@ func TestMachinesRejectInvalidEntries(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestMemoryPathDefaultsAndOverrides(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "home")
+	configHome := filepath.Join(t.TempDir(), "config")
+	dataHome := filepath.Join(t.TempDir(), "data")
+	tests := []struct {
+		env       map[string]string
+		flags     []string
+		name      string
+		want      string
+		wantValue string
+	}{
+		{name: "default under home", env: testEnv(home, configHome), want: filepath.Join(home, ".local", "share", "esheep", "memory"), wantValue: "<default>"},
+		{name: "XDG_DATA_HOME default", env: withEnv(testEnv(home, configHome), "XDG_DATA_HOME", dataHome), want: filepath.Join(dataHome, "esheep", "memory"), wantValue: "XDG_DATA_HOME"},
+		{name: "ESHEEP_MEMORY_PATH wins over XDG_DATA_HOME", env: withEnv(withEnv(testEnv(home, configHome), "XDG_DATA_HOME", dataHome), "ESHEEP_MEMORY_PATH", "~/memories"), want: filepath.Join(home, "memories"), wantValue: "<env>"},
+		{name: "flag wins over environment", env: withEnv(testEnv(home, configHome), "ESHEEP_MEMORY_PATH", "~/memories"), flags: []string{"--memory-path=~/from-flag"}, want: filepath.Join(home, "from-flag"), wantValue: "<pflag>"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			flags := pflag.NewFlagSet("test", pflag.ContinueOnError)
+			flags.SetOutput(io.Discard)
+			if err := RegisterFlags(flags); err != nil {
+				t.Fatal(err)
+			}
+			if err := flags.Parse(test.flags); err != nil {
+				t.Fatal(err)
+			}
+
+			result, err := Load(LoadOptions{Env: test.env, Flags: flags})
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+
+			want, err := canonicalPath(test.want)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.ResolvedMemory != want {
+				t.Fatalf("ResolvedMemory = %q, want %q", result.ResolvedMemory, want)
+			}
+			if got := result.Report.Updates["memory.path"]; got != test.wantValue {
+				t.Fatalf("provenance = %q, want %q", got, test.wantValue)
+			}
+		})
+	}
+}
+
+func TestMemoryPathMustBeAbsoluteAndDataHomeMustBeAbsolute(t *testing.T) {
+	env := testEnv(filepath.Join(t.TempDir(), "home"), filepath.Join(t.TempDir(), "config"))
+
+	env["ESHEEP_MEMORY_PATH"] = "relative/memory"
+	if _, err := Load(LoadOptions{Env: env}); err == nil || !strings.Contains(err.Error(), "memory.path") {
+		t.Fatalf("relative memory path error = %v", err)
+	}
+	delete(env, "ESHEEP_MEMORY_PATH")
+	env["XDG_DATA_HOME"] = "data"
+	if _, err := Load(LoadOptions{Env: env}); err == nil || !strings.Contains(err.Error(), "XDG_DATA_HOME") {
+		t.Fatalf("relative XDG_DATA_HOME error = %v", err)
+	}
+}
+
+func TestRenderReportsResolvedMemoryPath(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "home")
+	result, err := Load(LoadOptions{Env: testEnv(home, filepath.Join(t.TempDir(), "config"))})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	output, err := Render(result, ReportOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !strings.Contains(string(output), "# memory.path = "+strconv.Quote(result.ResolvedMemory)) {
+		t.Fatalf("report = %s", output)
+	}
+}
+
+func withEnv(env map[string]string, key, value string) map[string]string {
+	copied := make(map[string]string, len(env)+1)
+	for k, v := range env {
+		copied[k] = v
+	}
+	copied[key] = value
+	return copied
 }

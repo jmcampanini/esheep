@@ -914,12 +914,17 @@ type processResult struct {
 
 func runEsheep(t *testing.T, environment map[string]string, args ...string) processResult {
 	t.Helper()
+	command := exec.Command(binaryPath, args...)
+	command.Env = processEnvironment(environment)
+	return runProcess(t, command)
+}
+
+func runProcess(t *testing.T, command *exec.Cmd) processResult {
+	t.Helper()
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
-	command := exec.Command(binaryPath, args...)
 	command.Stdout = &stdout
 	command.Stderr = &stderr
-	command.Env = processEnvironment(environment)
 	exitCode := 0
 	if err := command.Run(); err != nil {
 		var exitError *exec.ExitError
@@ -940,7 +945,8 @@ func assertSuccess(t *testing.T, result processResult) {
 
 func processEnvironment(overrides map[string]string) []string {
 	blocked := map[string]struct{}{
-		"CODEX_HOME": {}, "HOME": {}, "XDG_CONFIG_HOME": {},
+		"CLAUDE_CODE_SESSION_ID": {}, "CODEX_HOME": {}, "CODEX_THREAD_ID": {}, "HOME": {},
+		"PI_SESSION_ID": {}, "XDG_CONFIG_HOME": {}, "XDG_DATA_HOME": {},
 	}
 	var environment []string
 	for _, entry := range os.Environ() {

@@ -17,6 +17,8 @@ func newExitCodesTopic() *cobra.Command {
      'skills status' exits 1 whenever deployment health is not proven.
      'skills list' and 'profiles' exit 1 only when discovery is incomplete.
      'doctor' exits 1 when any environment check fails.
+     'memory record' exits 1 when no session can be derived or the
+     project lookup or append fails.
   2  Invalid command usage or command wiring failure.
 
 'esheep help <topic>' with an unknown topic prints 'Unknown help topic'

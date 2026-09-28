@@ -26,6 +26,12 @@ to override a path. Omitted settings retain these defaults:
 The output includes all effective settings, including defaults, so it
 contains more than you need to put in esheep.toml.
 
+[memory].path is the root 'memory record' appends under. It defaults to
+$XDG_DATA_HOME/esheep/memory when XDG_DATA_HOME is set, otherwise
+~/.local/share/esheep/memory. It must be absolute or start with ~/, may
+not overlap a source root or an enabled target skills path, and may not
+be '/' or the home directory.
+
 [[machines]] entries name other machines that run esheep, for
 'sessions list --remote' and 'sessions search --remote'. They are
 configured only in the TOML file:
