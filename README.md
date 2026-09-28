@@ -16,6 +16,8 @@ Every session reports a `projects` array. `--project` matches any recorded folde
 
 Both commands can span several machines. `--remote nas,studio` adds configured machines to the local scan and `--remote all` adds every one; `--no-local` drops this machine. Each machine runs `esheep sessions query` over ssh in batch mode using its own configuration, and only results cross the wire, so every machine needs esheep installed and reachable by `ssh <host>` without a prompt. Results interleave most recent first and every session names its `machine`. A machine that cannot answer makes the report incomplete while the results that did arrive are printed. `esheep sessions list --help` describes the flags and failure codes, `esheep sessions query --help` the request schema, and `esheep config --help` the `[[machines]]` entries.
 
+`esheep memory record TEXT` appends one memory for the calling harness session. It detects the session from `CODEX_THREAD_ID`, `PI_SESSION_ID`, or `CLAUDE_CODE_SESSION_ID`, identifies the project by the git origin remote as `host/org/repo` so every clone and worktree converges, or by the directory outside git, and appends one JSON line to `<root>/<project>/memory/<session>.jsonl`. `--why` and repeatable `--source` add a reason and pointers, `-` reads the text from stdin, and `--session` records by hand. The root defaults to `$XDG_DATA_HOME/esheep/memory` or `~/.local/share/esheep/memory` and is set by `[memory].path`. `esheep memory record --help` describes the entry shape and derivation rules.
+
 Command help is the canonical reference: `esheep --help` and each command's `--help` describe every user-facing contract, `esheep help skill-format` describes the authoring format, and `esheep help exit-codes` describes exit statuses.
 
 ## Platform support
@@ -61,6 +63,7 @@ make build
 | `esheep sync` | Install, repair, and prune esheep-owned output on enabled targets. |
 | `esheep skills status [--json]` | Report source readiness and per-target deployment health. |
 | `esheep doctor` | Verify external tool configuration agrees with esheep. |
+| `esheep memory record TEXT` | Append one memory for the current harness session under the memory root. |
 
 The typical loop after changing a source skill is `esheep sync` followed by `esheep skills status`.
 
