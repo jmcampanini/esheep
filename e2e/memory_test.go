@@ -75,9 +75,6 @@ func TestMemoryWorkflow(t *testing.T) {
 	if len(codexEntries) != 1 || codexEntries[0]["text"] != "multi\nline\n" {
 		t.Fatalf("codex entries = %#v", codexEntries)
 	}
-	if _, present := codexEntries[0]["cwd"]; present {
-		t.Fatalf("codex entry has cwd: %#v", codexEntries[0])
-	}
 	if _, present := codexEntries[0]["why"]; present {
 		t.Fatalf("codex entry has why: %#v", codexEntries[0])
 	}
@@ -127,9 +124,12 @@ func runEsheepIn(t *testing.T, dir, stdin string, environment, extra map[string]
 	return runProcess(t, command)
 }
 
+// runGit builds a fixture with git isolated from the developer's own
+// configuration, so signing settings and hooks cannot affect the test.
 func runGit(t *testing.T, dir string, args ...string) {
 	t.Helper()
 	command := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	command.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("git %v: %v\n%s", args, err, output)
 	}

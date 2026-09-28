@@ -12,7 +12,10 @@ import (
 
 func TestRecordAppendsOneLinePerMemoryInFieldOrder(t *testing.T) {
 	root := t.TempDir()
-	cwd := t.TempDir()
+	cwd, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	env := map[string]string{"CLAUDE_CODE_SESSION_ID": "session-1"}
 	first := Request{Cwd: cwd, Env: env, Root: root, Text: "prefer merge over rebase", Time: time.Date(2026, 9, 28, 10, 30, 0, 0, time.FixedZone("EDT", -4*3600))}
 	second := first
@@ -176,7 +179,10 @@ func TestProjectIdentityWithLocalOriginFallsBackWithDiagnostic(t *testing.T) {
 }
 
 func TestProjectIdentityOutsideGitIsWorkingDirectory(t *testing.T) {
-	cwd := t.TempDir()
+	cwd, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	identity, diagnostics, err := resolveProject(context.Background(), cwd)
 	if err != nil {
@@ -185,6 +191,28 @@ func TestProjectIdentityOutsideGitIsWorkingDirectory(t *testing.T) {
 
 	if identity != cwd || len(diagnostics) != 0 {
 		t.Fatalf("identity = %q, diagnostics = %q, want %q and none", identity, diagnostics, cwd)
+	}
+}
+
+func TestProjectIdentityFollowsSymlinkedWorkingDirectory(t *testing.T) {
+	repository := initRepository(t)
+	runGit(t, repository, "remote", "add", "origin", "https://github.com/acme/widgets.git")
+	inside := filepath.Join(repository, "src")
+	if err := os.MkdirAll(inside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	shortcut := filepath.Join(t.TempDir(), "shortcut")
+	if err := os.Symlink(inside, shortcut); err != nil {
+		t.Fatal(err)
+	}
+
+	identity, _, err := resolveProject(context.Background(), shortcut)
+	if err != nil {
+		t.Fatalf("resolveProject: %v", err)
+	}
+
+	if identity != "github.com/acme/widgets" {
+		t.Fatalf("identity = %q, want github.com/acme/widgets", identity)
 	}
 }
 
@@ -238,9 +266,12 @@ func initRepository(t *testing.T) string {
 	return repository
 }
 
+// runGit builds a fixture with git isolated from the developer's own
+// configuration, so signing settings and hooks cannot affect the test.
 func runGit(t *testing.T, dir string, args ...string) {
 	t.Helper()
 	command := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	command.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("git %v: %v\n%s", args, err, output)
 	}

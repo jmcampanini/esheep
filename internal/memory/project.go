@@ -18,9 +18,15 @@ import (
 // a usable origin uses its main worktree root. Outside git the identity is
 // the working directory itself. Both fallbacks are absolute paths.
 func resolveProject(ctx context.Context, cwd string) (string, []string, error) {
+	// The working directory may be a symlink into a repository, so its
+	// lexical parents would never meet the .git entry; resolve it first.
+	cwd, err := filepath.EvalSymlinks(cwd)
+	if err != nil {
+		return "", nil, fmt.Errorf("resolve working directory: %w", err)
+	}
 	worktree, found := findWorktree(cwd)
 	if !found {
-		return filepath.Clean(cwd), nil, nil
+		return cwd, nil, nil
 	}
 
 	commonDir, err := git(ctx, cwd, "rev-parse", "--path-format=absolute", "--git-common-dir")

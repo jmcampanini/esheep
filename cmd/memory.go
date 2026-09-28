@@ -51,9 +51,8 @@ repeat --source for several.
 
 Each entry is one JSON object on its own line with keys in this order:
 time (RFC 3339 with the local offset), text, then why and sources only
-when given. Text is stored as given. The working directory is not
-recorded; the session's transcript holds it. The append is a single
-write, so entries from concurrent invocations never interleave.
+when given. Text is stored as given. The append is a single write, so
+entries from concurrent invocations never interleave.
 
 The session comes from --session, else from the first of CODEX_THREAD_ID,
 PI_SESSION_ID, and CLAUDE_CODE_SESSION_ID that is set. That order picks the
