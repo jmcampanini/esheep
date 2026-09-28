@@ -37,8 +37,8 @@ func TestRecordAppendsOneLinePerMemoryInFieldOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `{"time":"2026-09-28T10:30:00-04:00","cwd":` + quote(cwd) + `,"text":"prefer merge over rebase"}` + "\n" +
-		`{"time":"2026-09-28T10:30:00-04:00","cwd":` + quote(cwd) + `,"text":"multi\nline","why":"the user said so","sources":["README.md","https://example.test/doc"]}` + "\n"
+	want := `{"time":"2026-09-28T10:30:00-04:00","text":"prefer merge over rebase"}` + "\n" +
+		`{"time":"2026-09-28T10:30:00-04:00","text":"multi\nline","why":"the user said so","sources":["README.md","https://example.test/doc"]}` + "\n"
 	if string(data) != want {
 		t.Fatalf("file = %s, want %s", data, want)
 	}
@@ -244,8 +244,4 @@ func runGit(t *testing.T, dir string, args ...string) {
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("git %v: %v\n%s", args, err, output)
 	}
-}
-
-func quote(value string) string {
-	return `"` + strings.ReplaceAll(value, `"`, `\"`) + `"`
 }

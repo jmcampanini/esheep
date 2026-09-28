@@ -65,15 +65,18 @@ func TestMemoryWorkflow(t *testing.T) {
 	}
 
 	claudeEntries := readMemoryEntries(t, filepath.Join(wantDirectory, "claude-1.jsonl"))
-	if len(claudeEntries) != 1 || claudeEntries[0]["text"] != "prefer merge over rebase" || claudeEntries[0]["why"] != "one merge commit" || claudeEntries[0]["cwd"] != repository {
+	if len(claudeEntries) != 1 || claudeEntries[0]["text"] != "prefer merge over rebase" || claudeEntries[0]["why"] != "one merge commit" {
 		t.Fatalf("claude entries = %#v", claudeEntries)
 	}
 	if sources, ok := claudeEntries[0]["sources"].([]any); !ok || len(sources) != 1 || sources[0] != "README.md" {
 		t.Fatalf("claude sources = %#v", claudeEntries[0]["sources"])
 	}
 	codexEntries := readMemoryEntries(t, filepath.Join(wantDirectory, "codex-1.jsonl"))
-	if len(codexEntries) != 1 || codexEntries[0]["text"] != "multi\nline\n" || codexEntries[0]["cwd"] != worktree {
+	if len(codexEntries) != 1 || codexEntries[0]["text"] != "multi\nline\n" {
 		t.Fatalf("codex entries = %#v", codexEntries)
+	}
+	if _, present := codexEntries[0]["cwd"]; present {
+		t.Fatalf("codex entry has cwd: %#v", codexEntries[0])
 	}
 	if _, present := codexEntries[0]["why"]; present {
 		t.Fatalf("codex entry has why: %#v", codexEntries[0])
@@ -98,8 +101,8 @@ func readMemoryEntries(t *testing.T, path string) []map[string]any {
 		if err := json.Unmarshal([]byte(line), &entry); err != nil {
 			t.Fatalf("decode %q: %v", line, err)
 		}
-		if !strings.HasPrefix(line, `{"time":"`) || !strings.Contains(line, `","cwd":"`) {
-			t.Fatalf("line %q does not start with time then cwd", line)
+		if !strings.HasPrefix(line, `{"time":"`) || !strings.Contains(line, `","text":"`) {
+			t.Fatalf("line %q does not start with time then text", line)
 		}
 		entries = append(entries, entry)
 	}

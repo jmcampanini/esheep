@@ -24,8 +24,7 @@ var sessionVariables = []string{"CODEX_THREAD_ID", "PI_SESSION_ID", "CLAUDE_CODE
 
 // Request describes one memory to append.
 type Request struct {
-	// Cwd is the working directory the project identity derives from and is
-	// recorded on the entry.
+	// Cwd is the working directory the project identity derives from.
 	Cwd string
 	// Env is the process environment consulted for the session ID.
 	Env map[string]string
@@ -55,7 +54,6 @@ type Result struct {
 // entry is the JSON line written for one memory; field order is the key order.
 type entry struct {
 	Time    string   `json:"time"`
-	Cwd     string   `json:"cwd"`
 	Text    string   `json:"text"`
 	Why     string   `json:"why,omitempty"`
 	Sources []string `json:"sources,omitempty"`
@@ -77,7 +75,6 @@ func Record(ctx context.Context, request Request) (Result, error) {
 
 	line, err := json.Marshal(entry{
 		Time:    request.Time.Format(time.RFC3339),
-		Cwd:     request.Cwd,
 		Text:    request.Text,
 		Why:     request.Why,
 		Sources: request.Sources,
