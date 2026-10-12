@@ -15,8 +15,9 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-const expectedVersion = "e2e-test"
-
+// binaryPath is the binary under test. The mise test task builds it through
+// the build task and passes its path in ESHEEP_E2E_BINARY, so the suite never
+// builds for itself.
 var (
 	binaryPath string
 	workDir    string
@@ -27,6 +28,15 @@ func TestMain(m *testing.M) {
 }
 
 func runTests(m *testing.M) int {
+	binaryPath = os.Getenv("ESHEEP_E2E_BINARY")
+	if binaryPath == "" {
+		fmt.Fprintln(os.Stderr, "ESHEEP_E2E_BINARY is not set; run the suite with 'mise run test'")
+		return 1
+	}
+	if _, err := os.Stat(binaryPath); err != nil {
+		fmt.Fprintf(os.Stderr, "stat e2e binary %q: %v\n", binaryPath, err)
+		return 1
+	}
 	repositoryRoot, err := filepath.Abs("..")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "resolve repository root: %v\n", err)
@@ -44,16 +54,6 @@ func runTests(m *testing.M) int {
 	}
 	defer func() { _ = os.RemoveAll(workDir) }()
 
-	binaryPath = filepath.Join(workDir, "esheep")
-	build := exec.Command("go", "build", "-trimpath", "-buildvcs=false",
-		"-ldflags", "-X github.com/jmcampanini/esheep/cmd.Version="+expectedVersion, "-o", binaryPath, ".")
-	build.Dir = repositoryRoot
-	build.Stdout = os.Stderr
-	build.Stderr = os.Stderr
-	if err := build.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "build e2e binary: %v\n", err)
-		return 1
-	}
 	return m.Run()
 }
 

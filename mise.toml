@@ -23,8 +23,13 @@ mkdir -p build
 go build -trimpath -buildvcs=false -ldflags "-X github.com/jmcampanini/esheep/cmd.Version=${version}" -o build/esheep .
 '''
 
+# The end-to-end suite drives build/esheep, so test depends on build and tells
+# the suite where the binary is. Within one mise run, build runs once for
+# both test and version-check.
 [tasks.test]
 description = "Run all tests uncached with the race detector."
+depends = ["build"]
+env = { ESHEEP_E2E_BINARY = "{{config_root}}/build/esheep" }
 run = "go test -count=1 -race ./..."
 
 [tasks.lint]
