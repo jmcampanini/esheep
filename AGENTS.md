@@ -1,10 +1,10 @@
 ## Build and verification
 
-- Use the Makefile targets for local development and verification.
-- Run `make check` before handing off changes; keep it read-only.
-- Keep formatting, dependency updates, and generation in their separate write-mode targets.
-- Keep the production build reproducible with trimpath, disabled build VCS metadata, and commit-derived version identity.
-- Use the repository-pinned Go tools through `go tool` rather than global installations.
+- This repository uses mise for tool versions and task execution. Run tasks with `mise run <task>`; do not call `go`, `golangci-lint`, or similar tools directly. `mise tasks` lists every task.
+- Run `mise run check` before handing off changes; keep it read-only.
+- Keep formatting, dependency updates, and generation in their separate write-mode tasks such as `mise run fmt` and `mise run tidy`.
+- Keep the production build reproducible with trimpath, disabled build VCS metadata, and commit-derived version identity; `mise run build` writes `build/esheep`.
+- `mise.toml` pins Go, golangci-lint, and govulncheck; `mise.lock` records their checksums. Bump a tool with `mise upgrade --bump <tool>`, run `mise lock` and `mise run check`, and commit both files.
 
 ## Repository design
 

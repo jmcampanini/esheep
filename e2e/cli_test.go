@@ -44,7 +44,9 @@ func runTests(m *testing.M) int {
 	}
 	defer func() { _ = os.RemoveAll(workDir) }()
 
-	build := exec.Command("make", "VERSION="+expectedVersion, "BUILD_DIR="+workDir, "build")
+	binaryPath = filepath.Join(workDir, "esheep")
+	build := exec.Command("go", "build", "-trimpath", "-buildvcs=false",
+		"-ldflags", "-X github.com/jmcampanini/esheep/cmd.Version="+expectedVersion, "-o", binaryPath, ".")
 	build.Dir = repositoryRoot
 	build.Stdout = os.Stderr
 	build.Stderr = os.Stderr
@@ -52,7 +54,6 @@ func runTests(m *testing.M) int {
 		fmt.Fprintf(os.Stderr, "build e2e binary: %v\n", err)
 		return 1
 	}
-	binaryPath = filepath.Join(workDir, "esheep")
 	return m.Run()
 }
 
