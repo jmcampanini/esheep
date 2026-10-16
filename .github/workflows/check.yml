@@ -1,15 +1,17 @@
-name: Check
+name: check
 
 on:
+  pull_request:
+    branches: [main]
   push:
     branches: [main]
-  pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: check-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -17,7 +19,6 @@ jobs:
     name: check
     runs-on: ubuntu-latest
     timeout-minutes: 20
-
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -25,19 +26,17 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-          cache-dependency-path: go.sum
+      - name: Set up mise
+        uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
 
       - name: Record working tree state
         run: git status --porcelain > "$RUNNER_TEMP/porcelain-before"
 
       - name: Check
-        run: make check
+        run: mise run check
 
       - name: Verify check left the working tree unchanged
+        if: always()
         run: |
           git status --porcelain > "$RUNNER_TEMP/porcelain-after"
           diff -u "$RUNNER_TEMP/porcelain-before" "$RUNNER_TEMP/porcelain-after"
