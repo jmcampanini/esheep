@@ -4,19 +4,9 @@ esheep manages Agent Skills and a global agents file from human-maintained sourc
 
 esheep also finds historical harness sessions. `esheep sessions list` and `esheep sessions search` read the session transcripts Claude Code, Pi, Codex, local ChatGPT Work tasks, and local Claude Cowork conversations leave on disk, in place and read-only. Every result points at the canonical transcript file.
 
-The `--since` and `--until` flags select activity by recorded event time. Dates are inclusive local calendar days.
+See `esheep sessions list --help` and `esheep sessions search --help` for session filters and remote queries.
 
-Use `esheep sessions list --id <id>` to locate a known session, or `esheep sessions search --id <id> 'pattern'` to search its content. IDs match exactly and case-sensitively; repeat `--id` or provide comma-separated IDs to select several sessions. Other filters still apply. Cowork accepts its full scoped ID or the complete `local_<id>` component and reports every matching scope.
-
-Use `--harness chatgpt-work` to select identified local Work tasks, `--harness codex` for Codex CLI and desktop, or `--harness codex,chatgpt-work` for both. Unfiltered queries include all harnesses. Codex and Work share `[sessions.codex].home`, reading its `sessions/` and `archived_sessions/` directories. Both locations are included by default; use `--archive-state active` or `--archive-state archived` to select one. Work results require saved messages or supported tool records; partial history qualifies, while title-only and injected-context-only records do not. Results do not imply complete remote history.
-
-Use `--harness claude-cowork` for locally saved Cowork conversations. On macOS, esheep discovers their `audit.jsonl` files under Claude's standard Application Support location. Linux requires a configured path. Missing companion metadata does not hide readable messages; conversations without an archive flag are treated as active. Primary requests to subagents and their returned results are searchable by default; `--subagents` adds child activity, including records embedded in a Cowork audit.
-
-Every session reports a `projects` array. `--project` matches any recorded folder, including Cowork's selected host folders and Codex/Work workspace roots across saved turns. Folder filtering does not read the folders themselves.
-
-Both commands can span several machines. `--remote nas,studio` adds configured machines to the local scan and `--remote all` adds every one; `--no-local` drops this machine. Each machine runs `esheep sessions query` over ssh in batch mode using its own configuration, and only results cross the wire, so every machine needs esheep installed and reachable by `ssh <host>` without a prompt. Results interleave most recent first and every session names its `machine`. A machine that cannot answer makes the report incomplete while the results that did arrive are printed. `esheep sessions list --help` describes the flags and failure codes, `esheep sessions query --help` the request schema, and `esheep config --help` the `[[machines]]` entries.
-
-`esheep memory record TEXT` appends one memory for the calling harness session. It detects the session from `CODEX_THREAD_ID`, `PI_SESSION_ID`, or `CLAUDE_CODE_SESSION_ID`, identifies the project by the git origin remote as `host/org/repo` so every clone and worktree converges, or by the directory outside git, and appends one JSON line to `<root>/<project>/memory/<session>.jsonl`. `--why` and repeatable `--source` add a reason and pointers, `-` reads the text from stdin, and `--session` records by hand. The root defaults to `$XDG_DATA_HOME/esheep/memory` or `~/.local/share/esheep/memory` and is set by `[memory].path`. `esheep memory record --help` describes the entry shape and derivation rules.
+See `esheep memory record --help` for memory recording.
 
 Command help is the canonical reference: `esheep --help` and each command's `--help` describe every user-facing contract, `esheep help skill-format` describes the authoring format, and `esheep help exit-codes` describes exit statuses.
 
@@ -75,7 +65,7 @@ To upgrade, run `git pull`, rebuild with `mise install && mise run build`, and r
 
 The typical loop after changing a source skill is `esheep sync` followed by `esheep skills status`.
 
-Set `esheep-disabled: true` in a source manifest to retain and validate it without installing it. The next `esheep sync` removes its managed copies from enabled targets. The flag applies only to the selected manifest; profile variants do not inherit it from `SKILL.md`. Remove the flag or set it to `false` to re-enable that manifest. List and status report valid selected disabled manifests as `disabled`.
+See `esheep help skill-format` for disabling source manifests.
 
 Source skill manifests declare when to invoke the skill in `esheep-trigger`. esheep renders that text as `description` for each harness and reports it as `trigger` in list/status JSON. `esheep help skill-format` documents the source requirements.
 
@@ -87,7 +77,7 @@ Each source is a container: skill directories live under `<source>/skills/`, and
 
 Profiles gate when a skill applies: a skill limited by an `esheep-only-profiles` frontmatter field or a `SKILL.<profile>.md` manifest variant installs only while one of its profiles is active. Agents file selection walks the active profiles in the same spirit. `esheep help skill-format` describes the formats.
 
-Skills and agents files can include shared instructions or vary parts by harness. A whole-line `{{esheep.include "body"}}` inserts `esheep-body.md` from the skill directory or the source's `agents-md/` directory. Use `{{esheep.include-by-harness "body"}}` to select `esheep-body-pi.md`, `esheep-body-codex.md`, or `esheep-body-claude.md` instead. The corresponding `include-optional` and `include-by-harness-optional` forms insert zero bytes when the selected file is genuinely absent, without fallback. All four forms can nest together from the same owning root, with cycle detection and a two-level nesting limit. Agents files use the same variable language throughout, without interpreted frontmatter; content outside substitutions stays byte-identical. Include fragments remain source-only. See `esheep help skill-format` for the complete include contract.
+See `esheep help skill-format` for template includes in skills and agents files.
 
 Claude, Pi, and Codex are enabled by default and have built-in skills, agents file, and session paths. A source is enough to get started:
 
