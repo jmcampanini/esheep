@@ -10,13 +10,16 @@ See `esheep memory record --help` for memory recording.
 
 Command help is the canonical reference: `esheep --help` and each command's `--help` describe every user-facing contract, `esheep help skill-format` describes the authoring format, and `esheep help exit-codes` describes exit statuses.
 
+
 ## Platform support
 
 esheep supports macOS and Linux.
 
+
 ## Install
 
 esheep distributes from HEAD only; there is no stable release channel.
+
 
 ### Homebrew
 
@@ -30,6 +33,7 @@ Upgrade to the latest commit:
 ```sh
 brew upgrade --fetch-HEAD esheep
 ```
+
 
 ### From source
 
@@ -45,6 +49,7 @@ mise run build
 ```
 
 To upgrade, run `git pull`, rebuild with `mise install && mise run build`, and replace the binary on your `PATH`.
+
 
 ## Representative commands
 
@@ -68,6 +73,7 @@ The typical loop after changing a source skill is `esheep sync` followed by `esh
 See `esheep help skill-format` for disabling source manifests.
 
 Source skill manifests declare when to invoke the skill in `esheep-trigger`. esheep renders that text as `description` for each harness and reports it as `trigger` in list/status JSON. `esheep help skill-format` documents the source requirements.
+
 
 ## Configuration
 

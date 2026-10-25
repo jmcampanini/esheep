@@ -8,6 +8,8 @@ lockfile_platforms = ["linux-x64", "macos-arm64"]
 go = "1.27.2"
 golangci-lint = "2.14.0"
 "go:golang.org/x/vuln/cmd/govulncheck" = "1.9.0"
+node = "24.21.0"
+"npm:markdownlint-cli2" = "0.24.0"
 
 [env]
 # Go's default GOTOOLCHAIN=auto lets it download and run whatever toolchain
@@ -39,6 +41,10 @@ run = "golangci-lint run ./..."
 [tasks.lint-fix]
 description = "Run static analysis with --fix."
 run = "golangci-lint run --fix ./..."
+
+[tasks.lint-markdown]
+description = "Lint tracked Markdown using the shared Markdown rules."
+run = "git ls-files -z -- '*.md' '*.markdown' | xargs -0 markdownlint-cli2"
 
 [tasks.fmt]
 description = "Format Go source files."
@@ -80,7 +86,7 @@ run = "govulncheck ./..."
 # Add report-only tasks here; fixers (fmt, lint-fix, tidy) stay out.
 [tasks.check]
 description = "Run the complete local verification contract."
-depends = ["fmt-check", "tidy-check", "lint", "test", "version-check", "vuln"]
+depends = ["fmt-check", "tidy-check", "lint", "lint-markdown", "test", "version-check", "vuln"]
 
 [tasks.clean]
 description = "Remove build artifacts and the Go test cache."
