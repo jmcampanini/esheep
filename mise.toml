@@ -82,7 +82,8 @@ description = "Check dependencies and reachable code for known vulnerabilities."
 run = "govulncheck ./..."
 
 # check is read-only: it must leave the tracked tree unchanged and create
-# nothing outside ignored paths. CI diffs `git status` before and after it.
+# nothing outside ignored paths. CI fails when it leaves a tracked change or a
+# non-ignored untracked file behind.
 # Add report-only tasks here; fixers (fmt, lint-fix, tidy) stay out.
 [tasks.check]
 description = "Run the complete local verification contract."
