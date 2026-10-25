@@ -57,7 +57,7 @@ func execute(root *cobra.Command, args []string) int {
 	var application apperr.Error
 	if errors.As(err, &application) {
 		exitCode = 1
-		if application.Silent {
+		if application.Silent() {
 			return exitCode
 		}
 	}

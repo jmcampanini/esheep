@@ -45,7 +45,7 @@ that limit manifest selection.`,
 					return apperr.Wrap(err)
 				}
 				if !report.Complete {
-					return apperr.Silent(errors.New("skills inventory is incomplete"))
+					return apperr.WrapSilent(errors.New("skills inventory is incomplete"))
 				}
 				return nil
 			}

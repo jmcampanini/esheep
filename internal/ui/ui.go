@@ -1,4 +1,5 @@
-// Package ui renders deterministic human and machine command reports.
+// Package ui renders deterministic human and machine command reports and
+// holds the help fragments that describe those reports.
 package ui
 
 import (

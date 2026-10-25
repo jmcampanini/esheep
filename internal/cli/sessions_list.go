@@ -88,7 +88,7 @@ that owns each session and diagnostic.`,
 					return apperr.Wrap(err)
 				}
 				if !report.Complete {
-					return apperr.Silent(errors.New("session inventory is incomplete"))
+					return apperr.WrapSilent(errors.New("session inventory is incomplete"))
 				}
 				return nil
 			}

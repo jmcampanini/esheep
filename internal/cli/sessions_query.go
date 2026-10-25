@@ -97,7 +97,7 @@ command: 0 complete, 1 incomplete or application failure, 2 usage.
 					return apperr.Wrap(err)
 				}
 				if !report.Complete {
-					return apperr.Silent(errors.New("session inventory is incomplete"))
+					return apperr.WrapSilent(errors.New("session inventory is incomplete"))
 				}
 				return nil
 			}
@@ -111,7 +111,7 @@ command: 0 complete, 1 incomplete or application failure, 2 usage.
 				return apperr.Wrap(err)
 			}
 			if !report.Complete {
-				return apperr.Silent(errors.New("session search is incomplete"))
+				return apperr.WrapSilent(errors.New("session search is incomplete"))
 			}
 			return nil
 		},

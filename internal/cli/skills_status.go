@@ -65,7 +65,7 @@ lists the profiles that limit manifest selection.`,
 					return apperr.Wrap(err)
 				}
 				if !report.Healthy {
-					return apperr.Silent(errors.New("skills status is unhealthy"))
+					return apperr.WrapSilent(errors.New("skills status is unhealthy"))
 				}
 				return nil
 			}

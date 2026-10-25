@@ -120,7 +120,7 @@ for known failures.`,
 					return apperr.Wrap(err)
 				}
 				if !report.Complete {
-					return apperr.Silent(errors.New("session search is incomplete"))
+					return apperr.WrapSilent(errors.New("session search is incomplete"))
 				}
 				return nil
 			}

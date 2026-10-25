@@ -44,7 +44,7 @@ discovery.
 					return apperr.Wrap(err)
 				}
 				if !report.Complete {
-					return apperr.Silent(errors.New("profiles inventory is incomplete"))
+					return apperr.WrapSilent(errors.New("profiles inventory is incomplete"))
 				}
 				return nil
 			}
