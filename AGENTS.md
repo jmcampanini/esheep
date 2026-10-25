@@ -3,7 +3,7 @@
 - Run tasks with `mise run <task>`; do not call `go`, `golangci-lint`, or similar tools directly.
 - Run `mise run check` before handing off changes; keep it read-only.
 - Keep formatting, dependency updates, and generation in their separate write-mode tasks such as `mise run fmt` and `mise run tidy`.
-- Bump a tool with `mise upgrade --bump <tool>`, run `mise lock` and `mise run check`, and commit both files.
+- Bump a tool with `mise upgrade --bump <tool>`, run `mise lock` and `mise run check`, and commit `mise.toml`, `mise.lock`, and `.mise/locks/`.
 
 
 ## Repository design
