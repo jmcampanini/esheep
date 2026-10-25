@@ -62,12 +62,12 @@ The typical loop after changing a source skill is `esheep sync` followed by `esh
 ## Required external programs
 
 - `ssh`: `esheep sessions list --remote` and `esheep sessions search --remote` run it with `BatchMode=yes`, so the connection to each machine must already work without a prompt.
-- `git`: `esheep memory record` runs it to identify the project by its origin remote or main worktree root; when git is missing, the command uses the current worktree path and reports a diagnostic.
+- `git` 2.31 or later: `esheep memory record` runs it to identify the project by its origin remote or main worktree root.
 
 
 ## Configuration
 
-esheep discovers its settings at `$XDG_CONFIG_HOME/esheep/esheep.toml`, or `$HOME/.config/esheep/esheep.toml`. `esheep config --help` describes every setting, its default, and the load order. One source is enough to get started:
+esheep discovers its settings at `$XDG_CONFIG_HOME/esheep/esheep.toml`, or `$HOME/.config/esheep/esheep.toml`. `esheep config --help` describes the load order and the target, memory, and machine settings. One source is enough to get started:
 
 ```toml
 [[sources]]
