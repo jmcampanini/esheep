@@ -1,6 +1,9 @@
-package cmd
+package cli
 
-import "github.com/spf13/cobra"
+import (
+	"github.com/jmcampanini/esheep/internal/apperr"
+	"github.com/spf13/cobra"
+)
 
 func newCompletionCommand() *cobra.Command {
 	return &cobra.Command{
@@ -26,7 +29,7 @@ configuration.`,
 			case "powershell":
 				err = root.GenPowerShellCompletion(command.OutOrStdout())
 			}
-			return appError(err)
+			return apperr.Wrap(err)
 		},
 	}
 }

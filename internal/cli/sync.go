@@ -1,9 +1,10 @@
-package cmd
+package cli
 
 import (
 	"context"
 	"fmt"
 
+	"github.com/jmcampanini/esheep/internal/apperr"
 	"github.com/jmcampanini/esheep/internal/config"
 	"github.com/jmcampanini/esheep/internal/manage"
 	"github.com/jmcampanini/esheep/internal/ui"
@@ -59,7 +60,7 @@ selection is skipped entirely while any configured source is unavailable.
 Serialize invocations: concurrent mutating esheep commands against the
 same targets are unsupported.
 
-` + streamContractHelp,
+` + ui.StreamContractHelp,
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			loaded, err := loadConfiguration(command, load)
@@ -68,13 +69,13 @@ same targets are unsupported.
 			}
 			report := synchronize(command.Context(), loaded)
 			if err := ui.WriteSync(command.OutOrStdout(), report, ui.ShouldColor(command.OutOrStdout())); err != nil {
-				return appError(err)
+				return apperr.Wrap(err)
 			}
 			if err := ui.WriteDiagnostics(command.ErrOrStderr(), report.Diagnostics); err != nil {
-				return appError(err)
+				return apperr.Wrap(err)
 			}
 			if report.Summary.Failed != 0 {
-				return appError(fmt.Errorf("sync completed with %d failure(s)", report.Summary.Failed))
+				return apperr.Wrap(fmt.Errorf("sync completed with %d failure(s)", report.Summary.Failed))
 			}
 			return nil
 		},

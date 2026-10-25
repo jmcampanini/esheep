@@ -1,8 +1,9 @@
-package cmd
+package cli
 
 import (
 	"errors"
 
+	"github.com/jmcampanini/esheep/internal/apperr"
 	"github.com/jmcampanini/esheep/internal/doctor"
 	"github.com/jmcampanini/esheep/internal/ui"
 	"github.com/spf13/cobra"
@@ -35,10 +36,10 @@ when any check fails, and each failure names the exact entry to add.`,
 			}
 			report := doctor.Run(loaded)
 			if err := ui.WriteDoctor(command.OutOrStdout(), report, ui.ShouldColor(command.OutOrStdout())); err != nil {
-				return appError(err)
+				return apperr.Wrap(err)
 			}
 			if !report.Healthy() {
-				return appError(errors.New("environment checks failed"))
+				return apperr.Wrap(errors.New("environment checks failed"))
 			}
 			return nil
 		},

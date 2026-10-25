@@ -4,9 +4,9 @@ package main
 import (
 	"os"
 
-	"github.com/jmcampanini/esheep/cmd"
+	"github.com/jmcampanini/esheep/internal/cli"
 )
 
 func main() {
-	os.Exit(cmd.Execute())
+	os.Exit(cli.Execute())
 }

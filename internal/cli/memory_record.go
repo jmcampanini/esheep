@@ -1,4 +1,4 @@
-package cmd
+package cli
 
 import (
 	"context"
@@ -9,30 +9,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jmcampanini/esheep/internal/apperr"
 	"github.com/jmcampanini/esheep/internal/memory"
+	"github.com/jmcampanini/esheep/internal/ui"
 	"github.com/spf13/cobra"
 )
-
-func newMemoryCommand(load configLoader, record func(context.Context, memory.Request) (memory.Result, error)) *cobra.Command {
-	command := &cobra.Command{
-		Use:   "memory",
-		Short: "Record memories from harness sessions",
-		Long: `Record memories that coding agents want to keep beyond one session.
-
-'memory record' appends one entry to a file named by the calling harness
-session inside a directory named by the project the session works in. The
-root defaults to $XDG_DATA_HOME/esheep/memory, or
-~/.local/share/esheep/memory, and is configured by [memory].path in TOML,
-ESHEEP_MEMORY_PATH, or --memory-path. esheep only ever appends under that
-root; reading and reviewing recorded memories is not part of this command.`,
-		Args: cobra.NoArgs,
-		RunE: func(command *cobra.Command, _ []string) error {
-			return command.Help()
-		},
-	}
-	command.AddCommand(newMemoryRecordCommand(load, record))
-	return command
-}
 
 func newMemoryRecordCommand(load configLoader, record func(context.Context, memory.Request) (memory.Result, error)) *cobra.Command {
 	var session, why string
@@ -79,7 +60,7 @@ github.com/acme/widgets becomes github.com-acme-widgets and
 The command creates missing directories and files under the memory root
 and touches nothing else. It never contacts another machine.
 
-` + streamContractHelp,
+` + ui.StreamContractHelp,
 		Example: `  esheep memory record 'Prefer merge over rebase when syncing with main' \
     --why 'the user wants one merge commit' --source README.md
   esheep memory record - <<'EOF'
@@ -108,7 +89,7 @@ and touches nothing else. It never contacts another machine.
 			}
 			cwd, err := os.Getwd()
 			if err != nil {
-				return appError(fmt.Errorf("determine working directory: %w", err))
+				return apperr.Wrap(fmt.Errorf("determine working directory: %w", err))
 			}
 			result, err := record(command.Context(), memory.Request{
 				Cwd:     cwd,
@@ -121,7 +102,7 @@ and touches nothing else. It never contacts another machine.
 				Why:     why,
 			})
 			if err != nil {
-				return appError(err)
+				return apperr.Wrap(err)
 			}
 
 			for _, diagnostic := range result.Diagnostics {
@@ -144,7 +125,7 @@ func memoryText(stdin io.Reader, operand string) (string, error) {
 	if operand == "-" {
 		data, err := io.ReadAll(stdin)
 		if err != nil {
-			return "", appError(fmt.Errorf("read text from stdin: %w", err))
+			return "", apperr.Wrap(fmt.Errorf("read text from stdin: %w", err))
 		}
 		text = string(data)
 	}

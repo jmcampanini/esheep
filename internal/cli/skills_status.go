@@ -1,89 +1,15 @@
-package cmd
+package cli
 
 import (
 	"context"
 	"errors"
 
+	"github.com/jmcampanini/esheep/internal/apperr"
 	"github.com/jmcampanini/esheep/internal/config"
 	"github.com/jmcampanini/esheep/internal/manage"
 	"github.com/jmcampanini/esheep/internal/ui"
 	"github.com/spf13/cobra"
 )
-
-func newSkillsCommand(load configLoader, operations commandOperations) *cobra.Command {
-	command := &cobra.Command{
-		Use:   "skills",
-		Short: "Inspect known skills and deployment status",
-		Long: `Inspect skills and their deployment status without changing sources or
-targets.
-
-'skills list' inventories configured sources; 'skills status' checks
-per-target deployment health.`,
-		Args: cobra.NoArgs,
-		RunE: func(command *cobra.Command, _ []string) error {
-			return command.Help()
-		},
-	}
-	command.AddCommand(
-		newSkillsListCommand(load, operations.list),
-		newSkillsStatusCommand(load, operations.status),
-	)
-	return command
-}
-
-func newSkillsListCommand(load configLoader, list func(context.Context, config.LoadResult) manage.ListReport) *cobra.Command {
-	var jsonOutput bool
-	command := &cobra.Command{
-		Use:   "list",
-		Short: "List skills known from configured sources",
-		Long: `Inventory every skill discovered in configured sources without changing
-sources or targets.
-
-Readiness is ready, disabled, invalid, collision, or conflict. Disabled
-means the selected manifest declares esheep-disabled: true; validation
-errors, collisions, and profile conflicts take precedence. Diagnostics
-do not hide known entries. The profile gate column shows when a manifest
-applies: all means every profile, and - means no manifest was loadable.
-The command exits nonzero only when configuration or filesystem failures
-prevent complete discovery.
-
-` + streamContractHelp + `
-
-` + jsonContractHelp + ` List JSON includes "complete" and
-"effective_profiles". Each skill's optional "trigger" contains its invocation
-text from esheep-trigger. Its optional "profile_gate" lists the profiles
-that limit manifest selection.`,
-		Args: cobra.NoArgs,
-		RunE: func(command *cobra.Command, _ []string) error {
-			loaded, err := loadConfiguration(command, load)
-			if err != nil {
-				return err
-			}
-			report := list(command.Context(), loaded)
-			if jsonOutput {
-				if err := ui.WriteListJSON(command.OutOrStdout(), report); err != nil {
-					return appError(err)
-				}
-				if !report.Complete {
-					return silentAppError(errors.New("skills inventory is incomplete"))
-				}
-				return nil
-			}
-			if err := ui.WriteList(command.OutOrStdout(), report, ui.ShouldColor(command.OutOrStdout())); err != nil {
-				return appError(err)
-			}
-			if err := ui.WriteDiagnostics(command.ErrOrStderr(), report.Diagnostics); err != nil {
-				return appError(err)
-			}
-			if !report.Complete {
-				return appError(errors.New("skills inventory is incomplete"))
-			}
-			return nil
-		},
-	}
-	command.Flags().BoolVar(&jsonOutput, "json", false, "emit one JSON document")
-	return command
-}
 
 func newSkillsStatusCommand(load configLoader, status func(context.Context, config.LoadResult) manage.StatusReport) *cobra.Command {
 	var jsonOutput bool
@@ -120,9 +46,9 @@ enabled target's agents file is synced. Disabled skill installations are
 not inspected individually; status can be healthy before sync removes
 their previously managed copies.
 
-` + streamContractHelp + `
+` + ui.StreamContractHelp + `
 
-` + jsonContractHelp + ` Status JSON includes "healthy",
+` + ui.JSONContractHelp + ` Status JSON includes "healthy",
 "effective_profiles", and an optional "agents_file" section naming the
 selected source file and per-target states. Each skill's optional "trigger"
 contains its invocation text from esheep-trigger. Its optional "profile_gate"
@@ -136,21 +62,21 @@ lists the profiles that limit manifest selection.`,
 			report := status(command.Context(), loaded)
 			if jsonOutput {
 				if err := ui.WriteStatusJSON(command.OutOrStdout(), report); err != nil {
-					return appError(err)
+					return apperr.Wrap(err)
 				}
 				if !report.Healthy {
-					return silentAppError(errors.New("skills status is unhealthy"))
+					return apperr.Silent(errors.New("skills status is unhealthy"))
 				}
 				return nil
 			}
 			if err := ui.WriteStatus(command.OutOrStdout(), report, ui.ShouldColor(command.OutOrStdout())); err != nil {
-				return appError(err)
+				return apperr.Wrap(err)
 			}
 			if err := ui.WriteDiagnostics(command.ErrOrStderr(), report.Diagnostics); err != nil {
-				return appError(err)
+				return apperr.Wrap(err)
 			}
 			if !report.Healthy {
-				return appError(errors.New("skills status is unhealthy"))
+				return apperr.Wrap(errors.New("skills status is unhealthy"))
 			}
 			return nil
 		},
