@@ -12,9 +12,7 @@ node = "24.21.0"
 "npm:markdownlint-cli2" = "0.24.0"
 
 [env]
-# Go's default GOTOOLCHAIN=auto lets it download and run whatever toolchain
-# go.mod asks for. local pins execution to the Go that mise installed, so
-# mise.toml is the only place the toolchain version is decided.
+# Go's default GOTOOLCHAIN=auto lets it download and run whatever toolchain go.mod asks for. local pins execution to the Go that mise installed, so mise.toml is the only place the toolchain version is decided.
 GOTOOLCHAIN = "local"
 
 [tasks.build]
@@ -25,9 +23,7 @@ mkdir -p build
 go build -trimpath -buildvcs=false -ldflags "-X github.com/jmcampanini/esheep/internal/cli.Version=${version}" -o build/esheep .
 '''
 
-# The end-to-end suite drives build/esheep, so test depends on build and tells
-# the suite where the binary is. Within one mise run, build runs once for
-# both test and version-check.
+# The end-to-end suite drives build/esheep, so test depends on build and tells the suite where the binary is. Within one mise run, build runs once for both test and version-check.
 [tasks.test]
 description = "Run all tests uncached with the race detector."
 depends = ["build"]
@@ -81,9 +77,7 @@ fi
 description = "Check dependencies and reachable code for known vulnerabilities."
 run = "govulncheck ./..."
 
-# check is read-only: it must leave the tracked tree unchanged and create
-# nothing outside ignored paths. CI diffs `git status` before and after it.
-# Add report-only tasks here; fixers (fmt, lint-fix, tidy) stay out.
+# check is read-only: it must leave the tracked tree unchanged and create nothing outside ignored paths. CI fails when it leaves a tracked change or a non-ignored untracked file behind. Add report-only tasks here; fixers (fmt, lint-fix, tidy) stay out.
 [tasks.check]
 description = "Run the complete local verification contract."
 depends = ["fmt-check", "tidy-check", "lint", "lint-markdown", "test", "version-check", "vuln"]

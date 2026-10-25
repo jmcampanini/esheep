@@ -29,14 +29,26 @@ jobs:
       - name: Set up mise
         uses: jdx/mise-action@fc42bcc7ddbf51124c30f95a877a0c5168a3bfde # v5.2.1
 
-      - name: Record working tree state
-        run: git status --porcelain > "$RUNNER_TEMP/porcelain-before"
+      - name: Verify the checkout is clean
+        run: |
+          changes=$(git status --porcelain --untracked-files=all)
+          if [ -n "$changes" ]; then
+            printf '%s\n' "$changes"
+            echo "Tool installation must leave tracked and untracked files unchanged."
+            exit 1
+          fi
 
       - name: Check
+        id: check
         run: mise run check
 
-      - name: Verify check left the working tree unchanged
-        if: always()
+      - name: Verify check left the checkout unchanged
+        if: ${{ always() && steps.check.outcome != 'skipped' }}
         run: |
-          git status --porcelain > "$RUNNER_TEMP/porcelain-after"
-          diff -u "$RUNNER_TEMP/porcelain-before" "$RUNNER_TEMP/porcelain-after"
+          changes=$(git status --porcelain --untracked-files=all)
+          if [ -n "$changes" ]; then
+            printf '%s\n' "$changes"
+            git diff
+            echo "check must leave tracked and untracked files unchanged."
+            exit 1
+          fi
