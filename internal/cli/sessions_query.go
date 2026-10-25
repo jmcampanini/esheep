@@ -1,4 +1,4 @@
-package cmd
+package cli
 
 import (
 	"bytes"
@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/jmcampanini/esheep/internal/apperr"
 	"github.com/jmcampanini/esheep/internal/remote"
 	"github.com/jmcampanini/esheep/internal/session"
 	"github.com/jmcampanini/esheep/internal/ui"
@@ -62,7 +63,7 @@ command: 0 complete, 1 incomplete or application failure, 2 usage.
 		RunE: func(command *cobra.Command, _ []string) error {
 			data, err := io.ReadAll(command.InOrStdin())
 			if err != nil {
-				return appError(fmt.Errorf("read request: %w", err))
+				return apperr.Wrap(fmt.Errorf("read request: %w", err))
 			}
 			if len(bytes.TrimSpace(data)) == 0 {
 				return errors.New("request required on stdin; see 'esheep sessions query --help' for the schema")
@@ -90,13 +91,13 @@ command: 0 complete, 1 incomplete or application failure, 2 usage.
 					return operations.sessionList(ctx, roots, filter)
 				})
 				if err != nil {
-					return appError(err)
+					return apperr.Wrap(err)
 				}
 				if err := ui.WriteSessionListJSON(command.OutOrStdout(), report); err != nil {
-					return appError(err)
+					return apperr.Wrap(err)
 				}
 				if !report.Complete {
-					return silentAppError(errors.New("session inventory is incomplete"))
+					return apperr.WrapSilent(errors.New("session inventory is incomplete"))
 				}
 				return nil
 			}
@@ -104,13 +105,13 @@ command: 0 complete, 1 incomplete or application failure, 2 usage.
 				return operations.sessionSearch(ctx, roots, filter, query)
 			})
 			if err != nil {
-				return appError(err)
+				return apperr.Wrap(err)
 			}
 			if err := ui.WriteSessionSearchJSON(command.OutOrStdout(), report); err != nil {
-				return appError(err)
+				return apperr.Wrap(err)
 			}
 			if !report.Complete {
-				return silentAppError(errors.New("session search is incomplete"))
+				return apperr.WrapSilent(errors.New("session search is incomplete"))
 			}
 			return nil
 		},

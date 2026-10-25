@@ -9,7 +9,7 @@ class Esheep < Formula
   def install
     ldflags = %W[
       -s -w
-      -X github.com/jmcampanini/esheep/cmd.Version=#{version}
+      -X github.com/jmcampanini/esheep/internal/cli.Version=#{version}
     ]
     system "go", "build", "-buildvcs=false", *std_go_args(ldflags:)
     generate_completions_from_executable(bin/"esheep", "completion")

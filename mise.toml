@@ -20,7 +20,7 @@ description = "Build build/esheep with git-derived version metadata."
 run = '''
 version="${VERSION:-$(git describe --tags --dirty --always 2>/dev/null || printf 'unknown')}"
 mkdir -p build
-go build -trimpath -buildvcs=false -ldflags "-X github.com/jmcampanini/esheep/cmd.Version=${version}" -o build/esheep .
+go build -trimpath -buildvcs=false -ldflags "-X github.com/jmcampanini/esheep/internal/cli.Version=${version}" -o build/esheep .
 '''
 
 # The end-to-end suite drives build/esheep, so test depends on build and tells

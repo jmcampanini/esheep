@@ -1,4 +1,4 @@
-package cmd
+package cli
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 	"os"
 	"runtime/debug"
 
+	"github.com/jmcampanini/esheep/internal/apperr"
 	"github.com/jmcampanini/esheep/internal/config"
 	"github.com/jmcampanini/esheep/internal/manage"
 	"github.com/jmcampanini/esheep/internal/memory"
@@ -40,28 +41,6 @@ type commandOperations struct {
 	sync          func(context.Context, config.LoadResult) manage.SyncReport
 }
 
-type applicationError struct {
-	err    error
-	silent bool
-}
-
-func (e applicationError) Error() string {
-	return e.err.Error()
-}
-
-func (e applicationError) Unwrap() error {
-	return e.err
-}
-
-// localHostname names this machine, using the operating system when no
-// hostname operation is injected.
-func (o commandOperations) localHostname() (string, error) {
-	if o.hostname == nil {
-		return os.Hostname()
-	}
-	return o.hostname()
-}
-
 // Execute runs esheep with the process arguments and streams.
 func Execute() int {
 	return execute(newRootCommand(config.Load), os.Args[1:])
@@ -75,10 +54,10 @@ func execute(root *cobra.Command, args []string) int {
 	}
 
 	exitCode := 2
-	var application applicationError
+	var application apperr.Error
 	if errors.As(err, &application) {
 		exitCode = 1
-		if application.silent {
+		if application.Silent() {
 			return exitCode
 		}
 	}
@@ -155,26 +134,4 @@ there.`,
 		newSyncCommand(load, operations.sync),
 	)
 	return root
-}
-
-func loadConfiguration(command *cobra.Command, load configLoader) (config.LoadResult, error) {
-	loaded, err := load(config.LoadOptions{Flags: command.Root().PersistentFlags()})
-	if err != nil {
-		return config.LoadResult{}, applicationError{err: err}
-	}
-	return loaded, nil
-}
-
-func appError(err error) error {
-	if err == nil {
-		return nil
-	}
-	return applicationError{err: err}
-}
-
-func silentAppError(err error) error {
-	if err == nil {
-		return nil
-	}
-	return applicationError{err: err, silent: true}
 }

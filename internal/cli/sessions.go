@@ -1,18 +1,18 @@
-package cmd
+package cli
 
 import (
-	"context"
 	"encoding/csv"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
 
+	"github.com/jmcampanini/esheep/internal/apperr"
 	"github.com/jmcampanini/esheep/internal/config"
 	"github.com/jmcampanini/esheep/internal/remote"
 	"github.com/jmcampanini/esheep/internal/session"
-	"github.com/jmcampanini/esheep/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -121,6 +121,43 @@ with --since or --until.
 
 List and search JSON always include period with resolved since and until
 instants, each null when open.`
+
+const sessionRemoteHelp = `--remote NAME[,NAME...] adds configured machines to the scan. Repeat the flag
+or separate names with commas; 'all' selects every configured machine and
+cannot combine with names. --no-local drops this machine and requires
+--remote. Every other flag keeps its meaning and is forwarded to each
+machine. Without --remote nothing leaves this machine.
+
+Machines are [[machines]] entries in esheep.toml, identified by hostname;
+'esheep config --help' describes them. The entry whose first hostname label
+matches this machine's is skipped by 'all', and naming it is a usage error,
+as is naming an unknown machine. 'all' with no other machine configured
+reports a no-machines diagnostic and scans locally.
+
+Each selected machine runs 'ssh -T -o BatchMode=yes -o ConnectTimeout=<n>
+<host> <command> sessions query' with the request on stdin, concurrently
+with the local scan and under the entry's timeout. The remote esheep reads
+its own configuration and transcripts and returns only results, so a
+remote host key or passphrase prompt cannot appear: connect to the host
+with ssh once by hand instead. Local and remote results interleave most
+recent first, and every session and diagnostic names its machine. Text
+output adds a MACHINE column or header field and prefixes stderr
+diagnostics with the machine name only when --remote is present.
+
+A machine that cannot answer makes the report incomplete and the command
+exit 1 while every result that did arrive is printed. Its diagnostic is
+machine-unreachable (ssh failed: name resolution, connection, batch-mode
+authentication, or an unknown host key), machine-timeout (no complete
+reply within the entry's timeout), machine-command (the remote command
+exited without a document, such as esheep missing from the login shell's
+PATH or an invalid remote configuration), or machine-reply (stdout was not
+one JSON document, such as a shell startup file printing to stdout). The
+message carries the last lines of the remote's stderr or the decoder error.
+
+Builds are not version-checked. Replies from a different esheep build
+decode best-effort: unknown fields are ignored and missing fields are
+zero-filled, so a stale remote can return wrong or empty results after a
+change to the request or document shape until it is upgraded.`
 
 func newSessionsCommand(load configLoader, operations commandOperations) *cobra.Command {
 	command := &cobra.Command{
@@ -241,7 +278,7 @@ type sessionScope struct {
 func resolveSessionScope(operations commandOperations, loaded config.LoadResult, names remote.Names) (sessionScope, error) {
 	hostname, err := operations.localHostname()
 	if err != nil {
-		return sessionScope{}, appError(fmt.Errorf("determine hostname: %w", err))
+		return sessionScope{}, apperr.Wrap(fmt.Errorf("determine hostname: %w", err))
 	}
 	selection, diagnostics, err := names.Select(loaded.ResolvedMachines, hostname)
 	if err != nil {
@@ -252,239 +289,17 @@ func resolveSessionScope(operations commandOperations, loaded config.LoadResult,
 	if len(selection.Machines) != 0 {
 		scope.ssh, err = exec.LookPath("ssh")
 		if err != nil {
-			return sessionScope{}, appError(fmt.Errorf("locate ssh client: %w", err))
+			return sessionScope{}, apperr.Wrap(fmt.Errorf("locate ssh client: %w", err))
 		}
 	}
 	return scope, nil
 }
 
-func newSessionsListCommand(load configLoader, operations commandOperations) *cobra.Command {
-	var filterFlags sessionFilterFlags
-	var jsonOutput bool
-	command := &cobra.Command{
-		Use:   "list",
-		Short: "List historical sessions, most recent first",
-		Long: `List historical sessions under the configured session roots, most
-recently started first. Claude Code, Pi, and Cowork usually need only a short
-metadata read. Codex and Work transcripts are read in full to collect workspace
-roots across saved turns. Cowork audits are read until a supported conversation
-event and a start time are found, or the end of the file. With a period,
-each candidate transcript is also scanned until its first event in the period
-or the end of the file.
-
-Each row carries the harness, session ID, recorded start time (or file
-modification time when unavailable), archive state, project directories, title where the grammar
-records one, and the canonical transcript path. Subagent and
-sidechain transcripts are excluded unless --subagents is set. --since and
---until keep sessions with at least one recorded event in the period.
-Best-effort fields a grammar does not record appear as -.
-
-The command exits nonzero only when filesystem failures prevent a complete
-inventory; a missing session root merely skips that location with a
-diagnostic.
-
-` + sessionHarnessHelp + `
-
-` + sessionIDHelp + `
-
-` + sessionRemoteHelp + `
-
-` + streamContractHelp + `
-
-` + sessionPeriodHelp + `
-
-` + jsonContractHelp + ` List JSON includes "complete" and "period"; timestamps are
-RFC 3339, "projects" is an array of paths, "archived" marks archive state,
-"subagent" marks non-primary transcripts, and "machine" names the machine
-that owns each session and diagnostic.`,
-		Args: cobra.NoArgs,
-		RunE: func(command *cobra.Command, _ []string) error {
-			names, err := remote.ParseNames(filterFlags.remote, filterFlags.noLocal)
-			if err != nil {
-				return err
-			}
-			requestFilter, err := filterFlags.requestFilter(time.Now())
-			if err != nil {
-				return err
-			}
-			request := session.Request{Filter: requestFilter, Mode: session.ModeList}
-			filter, _, err := request.Resolve()
-			if err != nil {
-				return err
-			}
-
-			loaded, err := loadConfiguration(command, load)
-			if err != nil {
-				return err
-			}
-			scope, err := resolveSessionScope(operations, loaded, names)
-			if err != nil {
-				return err
-			}
-			report, err := remote.List(command.Context(), scope.ssh, scope.selection, request, func(ctx context.Context) session.ListReport {
-				return operations.sessionList(ctx, sessionRoots(loaded), filter)
-			})
-			if err != nil {
-				return appError(err)
-			}
-			report.Diagnostics = append(scope.diagnostics, report.Diagnostics...)
-
-			if jsonOutput {
-				if err := ui.WriteSessionListJSON(command.OutOrStdout(), report); err != nil {
-					return appError(err)
-				}
-				if !report.Complete {
-					return silentAppError(errors.New("session inventory is incomplete"))
-				}
-				return nil
-			}
-			machines := len(filterFlags.remote) != 0
-			if err := ui.WriteSessionList(command.OutOrStdout(), report, ui.ShouldColor(command.OutOrStdout()), machines); err != nil {
-				return appError(err)
-			}
-			if err := ui.WriteSessionDiagnostics(command.ErrOrStderr(), report.Diagnostics, machines); err != nil {
-				return appError(err)
-			}
-			if !report.Complete {
-				return appError(errors.New("session inventory is incomplete"))
-			}
-			return nil
-		},
+// localHostname names this machine, using the operating system when no
+// hostname operation is injected.
+func (o commandOperations) localHostname() (string, error) {
+	if o.hostname == nil {
+		return os.Hostname()
 	}
-	registerSessionFilterFlags(command, &filterFlags)
-	command.Flags().BoolVar(&jsonOutput, "json", false, "emit one JSON document")
-	return command
-}
-
-func newSessionsSearchCommand(load configLoader, operations commandOperations) *cobra.Command {
-	var errorsOnly bool
-	var filterFlags sessionFilterFlags
-	var jsonOutput bool
-	var raw bool
-	var role string
-	var tool string
-	command := &cobra.Command{
-		Use:   "search [pattern]",
-		Short: "Search session transcripts in their native files",
-		Long: `Search historical session transcripts for matching events, reading each
-harness's native grammar in place and printing hits as line numbers within
-the canonical transcript file.
-
-esheep decodes every transcript line before matching, so the pattern runs
-against what was actually said or done, not escaped JSON: user text,
-assistant text, and tool calls and results (tool arguments and output). The
-pattern is a case-insensitive Go regular expression and is optional when
---tool or --errors already select events. An empty pattern is a usage error;
-use '.' to select every event, for example 'sessions search . --id <id>' to
-print one session's events with their line numbers.
-
---id limits which sessions are searched; it does not select events. A pattern,
---tool, or --errors is still required. Use 'sessions list --id <id>' to locate
-a session without searching its content.
-
---role limits matching to user, assistant, or tool events. --tool limits to
-calls of and results from one tool. --errors keeps only tool results whose
-grammar flags a failure; Codex and ChatGPT Work transcripts flag errors only
-on MCP calls, so other failing tool calls in those transcripts cannot match.
---raw drops to byte-level
-matching against the undecoded lines and cannot combine with --role, --tool,
---errors, --since, or --until.
-
-Codex and ChatGPT Work limitations: decoded search omits web-search events
-and may report one MCP call twice under different tool names. Use --raw to
-inspect those records in qualifying transcripts.
-
-Cowork decoded search supports user and assistant text, tool_use inputs,
-and tool_result text. Thinking, images, documents, system events, rate-limit
-events, and result summaries are not decoded search events. Only tool_result
-is_error flags match --errors; a session-level result.is_error is not a tool
-failure. Unknown tool names remain unset when the call is absent from the
-saved history. Use --raw to inspect other records in qualifying audits.
-
-` + sessionHarnessHelp + `
-
-` + sessionIDHelp + `
-
-` + sessionRemoteHelp + `
-
-Unparseable transcript lines are skipped and reported as diagnostics without
-failing the search. The command exits nonzero only when filesystem failures
-prevent a complete search.
-
-` + streamContractHelp + `
-
-` + sessionPeriodHelp + `
-
-With a period, hits are matching events within that period. A session that
-started earlier contributes its qualifying events.
-
-` + jsonContractHelp + ` Search JSON includes "complete" and "period"; each session
-carries "machine", "projects", an "archived" boolean, and a "hits" array. Each hit carries "line", "role",
-and "excerpt"; "tool" and "timestamp" appear when known, and "error" appears
-for known failures.`,
-		Args: cobra.MaximumNArgs(1),
-		RunE: func(command *cobra.Command, args []string) error {
-			names, err := remote.ParseNames(filterFlags.remote, filterFlags.noLocal)
-			if err != nil {
-				return err
-			}
-			requestFilter, err := filterFlags.requestFilter(time.Now())
-			if err != nil {
-				return err
-			}
-			request := session.Request{
-				Filter: requestFilter,
-				Mode:   session.ModeSearch,
-				Query:  session.RequestQuery{Errors: errorsOnly, Pattern: strings.Join(args, ""), Raw: raw, Role: role, Tool: tool},
-			}
-			filter, query, err := request.Resolve()
-			if err != nil {
-				return err
-			}
-
-			loaded, err := loadConfiguration(command, load)
-			if err != nil {
-				return err
-			}
-			scope, err := resolveSessionScope(operations, loaded, names)
-			if err != nil {
-				return err
-			}
-			report, err := remote.Search(command.Context(), scope.ssh, scope.selection, request, func(ctx context.Context) session.SearchReport {
-				return operations.sessionSearch(ctx, sessionRoots(loaded), filter, query)
-			})
-			if err != nil {
-				return appError(err)
-			}
-			report.Diagnostics = append(scope.diagnostics, report.Diagnostics...)
-
-			if jsonOutput {
-				if err := ui.WriteSessionSearchJSON(command.OutOrStdout(), report); err != nil {
-					return appError(err)
-				}
-				if !report.Complete {
-					return silentAppError(errors.New("session search is incomplete"))
-				}
-				return nil
-			}
-			machines := len(filterFlags.remote) != 0
-			if err := ui.WriteSessionSearch(command.OutOrStdout(), report, machines); err != nil {
-				return appError(err)
-			}
-			if err := ui.WriteSessionDiagnostics(command.ErrOrStderr(), report.Diagnostics, machines); err != nil {
-				return appError(err)
-			}
-			if !report.Complete {
-				return appError(errors.New("session search is incomplete"))
-			}
-			return nil
-		},
-	}
-	registerSessionFilterFlags(command, &filterFlags)
-	command.Flags().BoolVar(&errorsOnly, "errors", false, "keep only tool results flagged as failures")
-	command.Flags().BoolVar(&jsonOutput, "json", false, "emit one JSON document")
-	command.Flags().BoolVar(&raw, "raw", false, "match the pattern against undecoded transcript lines")
-	command.Flags().StringVar(&role, "role", "", "limit to events by role (user, assistant, tool)")
-	command.Flags().StringVar(&tool, "tool", "", "limit to calls of and results from one tool")
-	return command
+	return o.hostname()
 }

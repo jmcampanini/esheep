@@ -1,6 +1,7 @@
-package cmd
+package cli
 
 import (
+	"github.com/jmcampanini/esheep/internal/apperr"
 	"github.com/jmcampanini/esheep/internal/config"
 	"github.com/spf13/cobra"
 )
@@ -73,7 +74,7 @@ processing when configuration is invalid.`,
 			if err != nil {
 				return err
 			}
-			return appError(config.WriteReport(
+			return apperr.Wrap(config.WriteReport(
 				command.OutOrStdout(),
 				loaded,
 				config.ReportOptions{Provenance: provenance, Redact: redactConfig},
@@ -87,3 +88,17 @@ processing when configuration is invalid.`,
 func redactConfig(loaded config.LoadResult) config.LoadResult {
 	return loaded
 }
+
+const configResolutionHelp = `Settings load in this order, with later sources taking precedence: built-in
+target, session, and memory defaults (CODEX_HOME supplies the Codex session
+home default and XDG_DATA_HOME the memory root default when set);
+$XDG_CONFIG_HOME/esheep/esheep.toml, or
+$HOME/.config/esheep/esheep.toml; ESHEEP_PROFILES, ESHEEP_<TARGET>_ENABLED,
+ESHEEP_<TARGET>_SKILLS_PATH, ESHEEP_<TARGET>_AGENTS_MD_PATH,
+ESHEEP_CLAUDE_SESSIONS_PATH, ESHEEP_CLAUDE_COWORK_SESSIONS_PATH,
+ESHEEP_PI_SESSIONS_PATH, ESHEEP_CODEX_HOME, and ESHEEP_MEMORY_PATH
+variables; then the profile, target, session, and memory flags.
+--config PATH replaces automatic discovery and requires a
+loadable file. Source directories and env_profiles are configured only in
+the TOML file; every environment variable named by env_profiles appends its
+comma-separated profiles to the effective list.`
