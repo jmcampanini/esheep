@@ -1,0 +1,82 @@
+version: 2
+
+project_name: esheep
+
+builds:
+  - id: esheep
+    main: .
+    binary: esheep
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+      - -buildvcs=false
+    ldflags:
+      # Keep the v prefix so a release binary reports the same string as `mise run build` on the tagged commit.
+      - -s -w -X github.com/jmcampanini/esheep/internal/cli.Version=v{{ .Version }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: default
+    formats:
+      - tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: "{{ .ProjectName }}_{{ .Version }}_checksums.txt"
+  algorithm: sha256
+
+changelog:
+  use: github-native
+
+release:
+  github:
+    owner: jmcampanini
+    name: esheep
+  draft: false
+  prerelease: auto
+
+homebrew_casks:
+  - name: esheep
+    homepage: https://github.com/jmcampanini/esheep
+    description: Manage local Agent Skills and find historical harness sessions
+    binaries:
+      - esheep
+    directory: Casks
+    commit_msg_template: "Update esheep to {{ .Tag }}"
+    commit_author:
+      name: github-actions[bot]
+      email: 41898282+github-actions[bot]@users.noreply.github.com
+    skip_upload: auto
+    # Pushed over SSH with a deploy key on homebrew-tap, since the workflow token cannot write to another repository.
+    repository:
+      owner: jmcampanini
+      name: homebrew-tap
+      branch: main
+      git:
+        url: ssh://git@github.com/jmcampanini/homebrew-tap.git
+        private_key: "{{ envOrDefault \"HOMEBREW_TAP_DEPLOY_KEY\" \"\" }}"
+    hooks:
+      pre:
+        # The binary is not notarized. Homebrew quarantines cask downloads, so remove the attribute before Homebrew runs completion generation, which happens before any postflight hook.
+        install_steps: |
+          on_macos do
+            run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{ .StagedPath }}/esheep"]
+          end
+    generate_completions_from_executable:
+      executable: esheep
+      args:
+        - completion
+      shells:
+        - bash
+        - zsh
+        - fish

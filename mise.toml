@@ -7,6 +7,7 @@ lockfile_platforms = ["linux-x64", "macos-arm64"]
 [tools]
 go = "1.27.3"
 golangci-lint = "2.14.0"
+goreleaser = "2.19.0"
 "go:golang.org/x/vuln/cmd/govulncheck" = "1.9.0"
 node = "24.21.0"
 "npm:markdownlint-cli2" = "0.24.0"
@@ -80,11 +81,28 @@ run = "govulncheck ./..."
 # check is read-only: it must leave the tracked tree unchanged and create nothing outside ignored paths. CI fails when it leaves a tracked change or a non-ignored untracked file behind. Add report-only tasks here; fixers (fmt, lint-fix, tidy) stay out.
 [tasks.check]
 description = "Run the complete local verification contract."
-depends = ["fmt-check", "tidy-check", "lint", "lint-markdown", "test", "version-check", "vuln"]
+depends = ["fmt-check", "tidy-check", "lint", "lint-markdown", "test", "version-check", "vuln", "release-snapshot"]
+
+[tasks.release-snapshot]
+description = "Build release archives into dist/ with GoReleaser without publishing."
+run = [
+  "goreleaser check",
+  "goreleaser release --snapshot --clean",
+]
+
+[tasks.release]
+description = "Build and publish the release for the checked-out tag (release workflow only)."
+run = """
+if [ "${GITHUB_ACTIONS:-}" != "true" ] || [ "${GITHUB_WORKFLOW:-}" != "release" ] || [ "${GITHUB_REF_TYPE:-}" != "tag" ] || [ "${GITHUB_EVENT_NAME:-}" != "push" ]; then
+  echo "release publishes artifacts and runs only from the release workflow on a tag; use 'mise run release-snapshot' locally" >&2
+  exit 1
+fi
+goreleaser release --clean
+"""
 
 [tasks.clean]
 description = "Remove build artifacts and the Go test cache."
 run = [
-  "rm -rf build",
+  "rm -rf build dist",
   "go clean -testcache",
 ]
