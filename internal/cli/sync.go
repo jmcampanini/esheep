@@ -26,21 +26,26 @@ recording its source, skill, and target. Synchronization never modifies an
 unmarked, mismatched, or symlinked destination, prunes only validly marked
 stale output, and leaves disabled targets entirely untouched. Replacements
 are staged on the target filesystem and committed atomically; invalid,
-colliding, conflicting, or unavailable configured source skills protect
-existing output. Skills whose profiles are not active are reported
-inactive and their previously installed output is pruned.
+colliding, or unavailable configured source skills protect existing
+output. Skills with no manifest applying under the effective layers are
+reported inactive and their previously installed output is pruned.
 When the selected manifest declares esheep-disabled: true, the skill is
 reported disabled and its previously managed copies are pruned from
 enabled targets. Disabling does not bypass source validation or ownership
 protections, and disabled targets remain untouched.
 
 The global agents file has positional ownership instead of a marker.
-Candidates are the AGENTS.md and AGENTS.<profile>.md files inside each
-source's agents-md/ directory; container-root files are ignored.
-Selection walks the active profiles in order and then the unprofiled name:
-each tier may match at most one candidate across all sources, the first
-tier with exactly one file wins, an empty tier falls through, and a tier
-with several files is an error that blocks agents file synchronization.
+Candidates are the AGENTS.md, AGENTS.<layer>.md, and AGENTS.local.md
+files inside each source's agents-md/ directory; container-root files are
+ignored. Selection walks the layer order: AGENTS.md as the base layer, the
+effective layers in order, then AGENTS.local.md as the automatic local
+layer. The last tier with a file wins and an empty tier contributes
+nothing, so AGENTS.local.md overrides every other candidate whenever it
+is present. Each tier in the order may hold at most one file across all
+sources; a tier with several files is an error that blocks agents file
+synchronization even when a later tier would win. Files for layers
+outside the order are ignored.
+
 The selected file is rendered for every enabled target and installed
 atomically at its non-symlink agents_md_path, overwriting any existing
 regular file there. The entire agents file uses the same variables as skill

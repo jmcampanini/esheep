@@ -37,12 +37,45 @@ func TestDefaultsAndLocation(t *testing.T) {
 	if got.Targets.Claude.AgentsMDPath != "~/.claude/CLAUDE.md" || got.Targets.Pi.AgentsMDPath != "~/.pi/agent/AGENTS.md" || got.Targets.Codex.AgentsMDPath != "~/.codex/AGENTS.md" {
 		t.Fatalf("default target agents md paths = %#v", got.Targets)
 	}
-	location, err := locationsFromEnv(testEnv(home, configHome), home)
+	location := locationsFromEnv(testEnv(home, configHome), home)
+	if location.ConfigFile != filepath.Join(configHome, "esheep", "config.toml") {
+		t.Fatalf("location = %#v", location)
+	}
+}
+
+func TestDiscoveredConfigFallsBackToHomeConfigDirectory(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "home")
+	if err := os.Mkdir(home, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	home, err := filepath.EvalSymlinks(home)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if location.ConfigFile != filepath.Join(configHome, "esheep", "esheep.toml") {
-		t.Fatalf("location = %#v", location)
+	tests := []struct {
+		name       string
+		configHome string
+	}{
+		{name: "unset"},
+		{name: "relative", configHome: "config"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			env := testEnv(home, test.configHome)
+			if test.configHome == "" {
+				delete(env, "XDG_CONFIG_HOME")
+			}
+
+			result, err := Load(LoadOptions{Env: env})
+			if err != nil {
+				t.Fatalf("Load() error = %v", err)
+			}
+
+			want := filepath.Join(home, ".config", "esheep", "config.toml")
+			if result.Locations.ConfigFile != want {
+				t.Errorf("Load().Locations.ConfigFile = %q, want %q", result.Locations.ConfigFile, want)
+			}
+		})
 	}
 }
 
@@ -54,7 +87,7 @@ func TestEnvironmentBoundariesFailLoudly(t *testing.T) {
 	}{
 		{name: "missing home", env: map[string]string{}},
 		{name: "relative home", env: map[string]string{"HOME": "home"}},
-		{name: "relative xdg", env: map[string]string{"HOME": absoluteHome, "XDG_CONFIG_HOME": "config"}},
+		{name: "relative data home", env: map[string]string{"HOME": absoluteHome, "XDG_DATA_HOME": "data"}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -75,7 +108,7 @@ func TestLoadDoesNotDiscoverCwdConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chdir(old) })
-	if err := os.WriteFile(filepath.Join(cwd, "esheep.toml"), []byte("[targets.claude]\nenabled = false\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(cwd, "config.toml"), []byte("[targets.claude]\nenabled = false\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	env := testEnv(filepath.Join(t.TempDir(), "home"), filepath.Join(t.TempDir(), "config"))
@@ -100,7 +133,7 @@ func TestSourcesLoadOnlyFromTOMLAndResolve(t *testing.T) {
 		}
 	}
 	settings := "[[sources]]\nname = \"personal\"\npath = \"" + first + "\"\n\n[[sources]]\nname = \"work\"\npath = \"" + second + "\"\n"
-	path := filepath.Join(configHome, "esheep", "esheep.toml")
+	path := filepath.Join(configHome, "esheep", "config.toml")
 	if err := os.WriteFile(path, []byte(settings), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +210,7 @@ func TestExplicitConfigIsRequiredAndReplacesDiscovery(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(configHome, "esheep"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	discovered := filepath.Join(configHome, "esheep", "esheep.toml")
+	discovered := filepath.Join(configHome, "esheep", "config.toml")
 	if err := os.WriteFile(discovered, []byte("[targets.claude]\nenabled = false\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -224,7 +257,7 @@ func TestEnabledAgentsMDPathMustNotBeSettingsFile(t *testing.T) {
 			root := t.TempDir()
 			home := filepath.Join(root, "home")
 			configHome := filepath.Join(root, "config")
-			settingsPath := filepath.Join(configHome, "esheep", "esheep.toml")
+			settingsPath := filepath.Join(configHome, "esheep", "config.toml")
 			if test.explicit {
 				settingsPath = filepath.Join(root, "settings.toml")
 			}
@@ -443,11 +476,11 @@ func TestUnknownTOMLKeyFails(t *testing.T) {
 	}
 }
 
-func TestProfilesResolveWithPrecedenceEnvProfilesAndDedupe(t *testing.T) {
+func TestLayersResolveWithPrecedenceEnvLayersAndKeepLastDedupe(t *testing.T) {
 	env := testEnv(filepath.Join(t.TempDir(), "home"), filepath.Join(t.TempDir(), "config"))
-	env["MACHINE_PROFILES"] = " client ,alpha,"
-	path := filepath.Join(t.TempDir(), "esheep.toml")
-	if err := os.WriteFile(path, []byte("profiles = [\"file-profile\"]\nenv_profiles = [\"MACHINE_PROFILES\", \"UNSET_PROFILES\"]\n"), 0o600); err != nil {
+	env["MACHINE_LAYERS"] = " client ,alpha,"
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte("layers = [\"file-layer\"]\nenv_layers = [\"MACHINE_LAYERS\", \"UNSET_LAYERS\"]\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	flags := pflag.NewFlagSet("test", pflag.ContinueOnError)
@@ -455,7 +488,7 @@ func TestProfilesResolveWithPrecedenceEnvProfilesAndDedupe(t *testing.T) {
 	if err := RegisterFlags(flags); err != nil {
 		t.Fatal(err)
 	}
-	if err := flags.Parse([]string{"--profiles=alpha,beta", "--profile", "gamma"}); err != nil {
+	if err := flags.Parse([]string{"--layers=alpha,beta", "--layer", "gamma"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -464,15 +497,30 @@ func TestProfilesResolveWithPrecedenceEnvProfilesAndDedupe(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	want := []string{"alpha", "beta", "gamma", "client"}
-	if !reflect.DeepEqual(result.EffectiveProfiles, want) {
-		t.Fatalf("EffectiveProfiles = %#v, want %#v", result.EffectiveProfiles, want)
+	want := []string{"beta", "gamma", "client", "alpha"}
+	if !reflect.DeepEqual(result.EffectiveLayers, want) {
+		t.Fatalf("EffectiveLayers = %#v, want %#v", result.EffectiveLayers, want)
 	}
 }
 
-func TestProfilesLoadFromEnvironmentVariable(t *testing.T) {
+func TestLayersKeepLastOccurrenceInOrder(t *testing.T) {
 	env := testEnv(filepath.Join(t.TempDir(), "home"), filepath.Join(t.TempDir(), "config"))
-	env["ESHEEP_PROFILES"] = "work,client"
+	env["ESHEEP_LAYERS"] = "work,laptop,work"
+
+	result, err := Load(LoadOptions{Env: env})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := []string{"laptop", "work"}
+	if !reflect.DeepEqual(result.EffectiveLayers, want) {
+		t.Fatalf("EffectiveLayers = %#v, want %#v", result.EffectiveLayers, want)
+	}
+}
+
+func TestLayersLoadFromEnvironmentVariable(t *testing.T) {
+	env := testEnv(filepath.Join(t.TempDir(), "home"), filepath.Join(t.TempDir(), "config"))
+	env["ESHEEP_LAYERS"] = "work,client"
 
 	result, err := Load(LoadOptions{Env: env})
 	if err != nil {
@@ -480,22 +528,24 @@ func TestProfilesLoadFromEnvironmentVariable(t *testing.T) {
 	}
 
 	want := []string{"work", "client"}
-	if !reflect.DeepEqual(result.EffectiveProfiles, want) {
-		t.Fatalf("EffectiveProfiles = %#v, want %#v", result.EffectiveProfiles, want)
+	if !reflect.DeepEqual(result.EffectiveLayers, want) {
+		t.Fatalf("EffectiveLayers = %#v, want %#v", result.EffectiveLayers, want)
 	}
 }
 
-func TestProfilesRejectInvalidAndReservedNames(t *testing.T) {
+func TestLayersRejectInvalidAndReservedNames(t *testing.T) {
 	tests := []struct {
 		name string
 		toml string
 		env  map[string]string
 	}{
-		{name: "reserved profile", toml: "profiles = [\"base\"]\n"},
-		{name: "invalid grammar", toml: "profiles = [\"Work\"]\n"},
-		{name: "padded env_profiles entry", toml: "env_profiles = [\" MACHINE\"]\n"},
-		{name: "blank env_profiles entry", toml: "env_profiles = [\"\"]\n"},
-		{name: "invalid appended profile", toml: "env_profiles = [\"MACHINE\"]\n", env: map[string]string{"MACHINE": "no.dots"}},
+		{name: "reserved base", toml: "layers = [\"base\"]\n"},
+		{name: "reserved local", toml: "layers = [\"local\"]\n"},
+		{name: "invalid grammar", toml: "layers = [\"Work\"]\n"},
+		{name: "padded env_layers entry", toml: "env_layers = [\" MACHINE\"]\n"},
+		{name: "blank env_layers entry", toml: "env_layers = [\"\"]\n"},
+		{name: "invalid appended layer", toml: "env_layers = [\"MACHINE\"]\n", env: map[string]string{"MACHINE": "no.dots"}},
+		{name: "reserved appended layer", toml: "env_layers = [\"MACHINE\"]\n", env: map[string]string{"MACHINE": "local"}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -503,20 +553,20 @@ func TestProfilesRejectInvalidAndReservedNames(t *testing.T) {
 			for key, value := range test.env {
 				env[key] = value
 			}
-			path := filepath.Join(t.TempDir(), "esheep.toml")
+			path := filepath.Join(t.TempDir(), "config.toml")
 			if err := os.WriteFile(path, []byte(test.toml), 0o600); err != nil {
 				t.Fatal(err)
 			}
 			if _, err := Load(LoadOptions{Env: env, ConfigPath: path}); err == nil {
-				t.Fatal("Load accepted an invalid profile configuration")
+				t.Fatal("Load accepted an invalid layer configuration")
 			}
 		})
 	}
 }
 
-func TestRenderReportsEffectiveProfiles(t *testing.T) {
+func TestRenderReportsEffectiveLayers(t *testing.T) {
 	env := testEnv(filepath.Join(t.TempDir(), "home"), filepath.Join(t.TempDir(), "config"))
-	env["ESHEEP_PROFILES"] = "work"
+	env["ESHEEP_LAYERS"] = "work"
 	result, err := Load(LoadOptions{Env: env})
 	if err != nil {
 		t.Fatal(err)
@@ -525,7 +575,7 @@ func TestRenderReportsEffectiveProfiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(output), "# effective_profiles = [\"work\"]") {
+	if !strings.Contains(string(output), "# effective_layers = [\"work\"]") {
 		t.Fatalf("report = %s", output)
 	}
 }
@@ -570,7 +620,7 @@ func TestRenderIsValidTOMLAndSanitizesProvenance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(output), "sensitive-value") || !strings.Contains(string(output), "# targets.claude.skills_path = \"REDACTED\"") || !strings.Contains(string(output), "# targets.claude.agents_md_path = \"REDACTED\"") || !strings.Contains(string(output), "# Resolved paths") || strings.Contains(string(output), "source\r\n") || strings.Contains(string(output), "skillspath") || strings.Contains(string(output), "agentsmdpath") || strings.Contains(string(output), "# envprofiles") {
+	if strings.Contains(string(output), "sensitive-value") || !strings.Contains(string(output), "# targets.claude.skills_path = \"REDACTED\"") || !strings.Contains(string(output), "# targets.claude.agents_md_path = \"REDACTED\"") || !strings.Contains(string(output), "# Resolved paths") || strings.Contains(string(output), "source\r\n") || strings.Contains(string(output), "skillspath") || strings.Contains(string(output), "agentsmdpath") || strings.Contains(string(output), "# envlayers") {
 		t.Fatalf("report = %s", output)
 	}
 	var decoded Config
@@ -586,7 +636,7 @@ func TestMachinesLoadFromTOMLWithDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 	settings := "[[machines]]\nname = \"nas\"\n\n[[machines]]\nname = \"studio\"\nhost = \"javier@studio.example\"\ncommand = \"/opt/homebrew/bin/esheep\"\ntimeout = \"2m\"\n"
-	if err := os.WriteFile(filepath.Join(configHome, "esheep", "esheep.toml"), []byte(settings), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(configHome, "esheep", "config.toml"), []byte(settings), 0o600); err != nil {
 		t.Fatal(err)
 	}
 

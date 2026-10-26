@@ -19,19 +19,20 @@ func newSkillsListCommand(load configLoader, list func(context.Context, config.L
 		Long: `Inventory every skill discovered in configured sources without changing
 sources or targets.
 
-Readiness is ready, disabled, invalid, collision, or conflict. Disabled
-means the selected manifest declares esheep-disabled: true; validation
-errors, collisions, and profile conflicts take precedence. Diagnostics
-do not hide known entries. The profile gate column shows when a manifest
-applies: all means every profile, and - means no manifest was loadable.
+Readiness is ready, disabled, invalid, or collision. Disabled means the
+selected manifest declares esheep-disabled: true; validation errors and
+collisions take precedence. Diagnostics do not hide known entries. The
+layer gate column shows the layer names that limit when any manifest
+applies: all means some manifest applies under any effective layers, and
+- means no manifest was loadable.
 The command exits nonzero only when configuration or filesystem failures
 prevent complete discovery.
 
 ` + ui.StreamContractHelp + `
 
 ` + ui.JSONContractHelp + ` List JSON includes "complete" and
-"effective_profiles". Each skill's optional "trigger" contains its invocation
-text from esheep-trigger. Its optional "profile_gate" lists the profiles
+"effective_layers". Each skill's optional "trigger" contains its invocation
+text from esheep-trigger. Its optional "layer_gate" lists the layers
 that limit manifest selection.`,
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {

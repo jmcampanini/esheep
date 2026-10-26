@@ -157,18 +157,18 @@ func TestRenderExcludedTargetLeavesStagingUntouched(t *testing.T) {
 	tests := []struct {
 		name     string
 		document skill.Document
-		profiles []string
+		layers   []string
 	}{
 		{name: "unlisted target", document: skill.Document{Targets: skill.Targets{Pi: skill.TargetOptions{Listed: true}}}},
 		{name: "disabled manifest", document: skill.Document{Disabled: true, Targets: allTargetsListed()}},
-		{name: "gate without active profile", document: skill.Document{Targets: skill.Targets{Codex: skill.TargetOptions{Listed: true, OnlyProfiles: []string{"work"}}}}},
-		{name: "gate misses active profiles", document: skill.Document{Targets: skill.Targets{Codex: skill.TargetOptions{Listed: true, OnlyProfiles: []string{"work"}}}}, profiles: []string{"personal"}},
+		{name: "gate without active layer", document: skill.Document{Targets: skill.Targets{Codex: skill.TargetOptions{Listed: true, OnlyLayers: []string{"work"}}}}},
+		{name: "gate misses active layers", document: skill.Document{Targets: skill.Targets{Codex: skill.TargetOptions{Listed: true, OnlyLayers: []string{"work"}}}}, layers: []string{"personal"}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			staging := t.TempDir()
-			rendered, err := Render(staging, skill.Package{}, test.document, TargetCodex, test.profiles, expansion.Variables{})
+			rendered, err := Render(staging, skill.Package{}, test.document, TargetCodex, test.layers, expansion.Variables{})
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -11,12 +11,12 @@ import (
 	"github.com/jmcampanini/esheep/internal/install"
 )
 
-func TestAgentsIncludesRenderSelectedProfilePerTargetAndTrackIncludeDrift(t *testing.T) {
+func TestAgentsIncludesRenderSelectedLayerPerTargetAndTrackIncludeDrift(t *testing.T) {
 	t.Parallel()
 	loaded, source := agentsIncludeConfig(t)
-	loaded.EffectiveProfiles = []string{"client", "work"}
+	loaded.EffectiveLayers = []string{"client", "work"}
 	writeSourceAgentsFile(t, source, "AGENTS.md", "base\n{{esheep.include-by-harness \"body\"}}")
-	writeSourceAgentsFile(t, source, "AGENTS.work.md", "profile\n{{esheep.sources}}\n{{esheep.include-by-harness \"body\"}}")
+	writeSourceAgentsFile(t, source, "AGENTS.work.md", "layer\n{{esheep.sources}}\n{{esheep.include-by-harness \"body\"}}")
 	writeSourceAgentsFile(t, source, "esheep-body-claude.md", "Claude\n{{esheep.include-by-harness \"nested\"}}")
 	writeSourceAgentsFile(t, source, "esheep-body-pi.md", "Pi\n{{esheep.include-by-harness \"nested\"}}")
 	writeSourceAgentsFile(t, source, "esheep-nested-claude.md", "{{esheep.sources}}")
@@ -29,12 +29,12 @@ func TestAgentsIncludesRenderSelectedProfilePerTargetAndTrackIncludeDrift(t *tes
 	if report.Summary.Installed != 2 || report.Summary.Failed != 0 {
 		t.Fatalf("initial sync summary = %#v", report.Summary)
 	}
-	assertAgentsIncludeContent(t, loaded.ResolvedTargets.Claude.AgentsMD, "profile\n- "+source+"\nClaude\n- "+source)
-	assertAgentsIncludeContent(t, loaded.ResolvedTargets.Pi.AgentsMD, "profile\n- "+source+"\nPi\ninstructions")
+	assertAgentsIncludeContent(t, loaded.ResolvedTargets.Claude.AgentsMD, "layer\n- "+source+"\nClaude\n- "+source)
+	assertAgentsIncludeContent(t, loaded.ResolvedTargets.Pi.AgentsMD, "layer\n- "+source+"\nPi\ninstructions")
 	status := Status(t.Context(), loaded)
-	if !status.Healthy || status.AgentsFile == nil || status.AgentsFile.Profile != "work" ||
+	if !status.Healthy || status.AgentsFile == nil || status.AgentsFile.Layer != "work" ||
 		status.AgentsFile.Source != "source" || status.AgentsFile.Path != filepath.Join(source, agentsfile.DirName, "AGENTS.work.md") {
-		t.Fatalf("selected profile status = %#v", status)
+		t.Fatalf("selected layer status = %#v", status)
 	}
 
 	writeSourceAgentsFile(t, source, "esheep-nested-pi.md", "revised instructions")
@@ -46,9 +46,9 @@ func TestAgentsIncludesRenderSelectedProfilePerTargetAndTrackIncludeDrift(t *tes
 	if report.Summary.Repaired != 1 || report.Summary.Unchanged != 1 || report.Summary.Failed != 0 {
 		t.Fatalf("include repair summary = %#v", report.Summary)
 	}
-	assertAgentsIncludeContent(t, loaded.ResolvedTargets.Pi.AgentsMD, "profile\n- "+source+"\nPi\nrevised instructions")
+	assertAgentsIncludeContent(t, loaded.ResolvedTargets.Pi.AgentsMD, "layer\n- "+source+"\nPi\nrevised instructions")
 
-	loaded.EffectiveProfiles = nil
+	loaded.EffectiveLayers = nil
 	report = Sync(t.Context(), loaded)
 	if report.Summary.Repaired != 2 || report.Summary.Failed != 0 {
 		t.Fatalf("base selection sync summary = %#v", report.Summary)

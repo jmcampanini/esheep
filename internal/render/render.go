@@ -28,8 +28,8 @@ const (
 )
 
 // Disabled reports whether the manifest disables installation or its
-// esheep-targets list excludes a target under the active profiles.
-func Disabled(document skill.Document, target Target, profiles []string) (bool, error) {
+// esheep-targets list excludes a target under the effective layers.
+func Disabled(document skill.Document, target Target, layers []string) (bool, error) {
 	var options skill.TargetOptions
 	switch target {
 	case TargetClaude:
@@ -41,15 +41,15 @@ func Disabled(document skill.Document, target Target, profiles []string) (bool, 
 	default:
 		return false, fmt.Errorf("render: unsupported target %q", target)
 	}
-	return document.Disabled || !options.Applies(profiles), nil
+	return document.Disabled || !options.Applies(layers), nil
 }
 
 // Render writes a skill into an existing empty staging directory using the
 // selected manifest document, replacing esheep variables in the manifest body
 // with the supplied values. A false result means the document disabled this
-// target under the active profiles and the directory was untouched.
-func Render(staging string, source skill.Package, document skill.Document, target Target, profiles []string, variables expansion.Variables) (bool, error) {
-	disabled, err := Disabled(document, target, profiles)
+// target under the effective layers and the directory was untouched.
+func Render(staging string, source skill.Package, document skill.Document, target Target, layers []string, variables expansion.Variables) (bool, error) {
+	disabled, err := Disabled(document, target, layers)
 	if err != nil {
 		return false, err
 	}

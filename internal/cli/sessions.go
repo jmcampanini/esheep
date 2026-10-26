@@ -128,7 +128,7 @@ cannot combine with names. --no-local drops this machine and requires
 --remote. Every other flag keeps its meaning and is forwarded to each
 machine. Without --remote nothing leaves this machine.
 
-Machines are [[machines]] entries in esheep.toml, identified by hostname;
+Machines are [[machines]] entries in config.toml, identified by hostname;
 'esheep config --help' describes them. The entry whose first hostname label
 matches this machine's is skipped by 'all', and naming it is a usage error,
 as is naming an unknown machine. 'all' with no other machine configured

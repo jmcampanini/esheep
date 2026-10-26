@@ -38,10 +38,10 @@ func WriteList(writer io.Writer, report manage.ListReport, color bool) error {
 	rows := make([][]string, 0, len(report.Skills))
 	for _, known := range report.Skills {
 		rows = append(rows, []string{
-			clean(known.Source), clean(known.Directory), string(known.Readiness), profileGateCell(known.ProfileGate, known.HasManifest), clean(known.Trigger),
+			clean(known.Source), clean(known.Directory), string(known.Readiness), layerGateCell(known.LayerGate, known.HasManifest), clean(known.Trigger),
 		})
 	}
-	return writeTable(writer, []string{"SOURCE", "SKILL", "READINESS", "PROFILE GATE", "TRIGGER"}, rows, color)
+	return writeTable(writer, []string{"SOURCE", "SKILL", "READINESS", "LAYER GATE", "TRIGGER"}, rows, color)
 }
 
 // WriteListJSON writes one complete known-skill JSON document.
@@ -49,8 +49,8 @@ func WriteListJSON(writer io.Writer, report manage.ListReport) error {
 	if report.Diagnostics == nil {
 		report.Diagnostics = []manage.Diagnostic{}
 	}
-	if report.EffectiveProfiles == nil {
-		report.EffectiveProfiles = []string{}
+	if report.EffectiveLayers == nil {
+		report.EffectiveLayers = []string{}
 	}
 	if report.Skills == nil {
 		report.Skills = []manage.KnownSkill{}
@@ -59,9 +59,9 @@ func WriteListJSON(writer io.Writer, report manage.ListReport) error {
 }
 
 // WriteStatus writes a human deployment-status table headed by the effective
-// profile list.
+// layer list.
 func WriteStatus(writer io.Writer, report manage.StatusReport, color bool) error {
-	if _, err := fmt.Fprintf(writer, "Effective profiles: %s\n\n", profilesLine(report.EffectiveProfiles)); err != nil {
+	if _, err := fmt.Fprintf(writer, "Effective layers: %s\n\n", layersLine(report.EffectiveLayers)); err != nil {
 		return err
 	}
 	rows := make([][]string, 0, len(report.Skills))
@@ -70,13 +70,13 @@ func WriteStatus(writer io.Writer, report manage.StatusReport, color bool) error
 			clean(status.Source),
 			clean(status.Directory),
 			string(status.Readiness),
-			profileGateCell(status.ProfileGate, status.HasManifest),
+			layerGateCell(status.LayerGate, status.HasManifest),
 			targetState(status, "claude"),
 			targetState(status, "pi"),
 			targetState(status, "codex"),
 		})
 	}
-	if err := writeTable(writer, []string{"SOURCE", "SKILL", "READINESS", "PROFILE GATE", "CLAUDE", "PI", "CODEX"}, rows, color); err != nil {
+	if err := writeTable(writer, []string{"SOURCE", "SKILL", "READINESS", "LAYER GATE", "CLAUDE", "PI", "CODEX"}, rows, color); err != nil {
 		return err
 	}
 	if report.AgentsFile == nil {
@@ -97,8 +97,8 @@ func WriteStatusJSON(writer io.Writer, report manage.StatusReport) error {
 	if report.Diagnostics == nil {
 		report.Diagnostics = []manage.Diagnostic{}
 	}
-	if report.EffectiveProfiles == nil {
-		report.EffectiveProfiles = []string{}
+	if report.EffectiveLayers == nil {
+		report.EffectiveLayers = []string{}
 	}
 	if report.Skills == nil {
 		report.Skills = []manage.SkillStatus{}
@@ -106,14 +106,14 @@ func WriteStatusJSON(writer io.Writer, report manage.StatusReport) error {
 	return writeJSON(writer, report)
 }
 
-// WriteProfiles writes the effective and referenced profile lists.
-func WriteProfiles(writer io.Writer, report manage.ProfilesReport) error {
-	_, err := fmt.Fprintf(writer, "Effective: %s\nReferenced: %s\n", profilesLine(report.Effective), profilesLine(report.Referenced))
+// WriteLayers writes the effective and referenced layer lists.
+func WriteLayers(writer io.Writer, report manage.LayersReport) error {
+	_, err := fmt.Fprintf(writer, "Effective: %s\nReferenced: %s\n", layersLine(report.Effective), layersLine(report.Referenced))
 	return err
 }
 
-// WriteProfilesJSON writes one complete profiles JSON document.
-func WriteProfilesJSON(writer io.Writer, report manage.ProfilesReport) error {
+// WriteLayersJSON writes one complete layers JSON document.
+func WriteLayersJSON(writer io.Writer, report manage.LayersReport) error {
 	if report.Diagnostics == nil {
 		report.Diagnostics = []manage.Diagnostic{}
 	}
@@ -378,7 +378,7 @@ func tableStyles(color bool, rows [][]string) table.StyleFunc {
 		switch rows[row][column] {
 		case string(doctor.StatusPass), string(install.ActionInstalled), string(install.ActionPruned), string(install.ActionRepaired), string(install.StateSynced), string(manage.ReadinessReady):
 			return style.Foreground(lipgloss.Color("42"))
-		case string(doctor.StatusFail), string(install.ActionBlocked), string(install.ActionFailed), string(manage.ReadinessCollision), string(manage.ReadinessConflict), string(manage.ReadinessInvalid):
+		case string(doctor.StatusFail), string(install.ActionBlocked), string(install.ActionFailed), string(manage.ReadinessCollision), string(manage.ReadinessInvalid):
 			return style.Foreground(lipgloss.Color("196"))
 		case string(install.StateDrifted), string(install.StateMissing), string(agentsfile.StateStale):
 			return style.Foreground(lipgloss.Color("214"))
@@ -413,21 +413,21 @@ func agentsFileState(status *manage.AgentsFileStatus, target string) string {
 	return string(state)
 }
 
-func profileGateCell(profiles []string, hasManifest bool) string {
+func layerGateCell(layers []string, hasManifest bool) string {
 	if !hasManifest {
 		return "-"
 	}
-	if len(profiles) == 0 {
+	if len(layers) == 0 {
 		return "all"
 	}
-	return clean(strings.Join(profiles, ", "))
+	return clean(strings.Join(layers, ", "))
 }
 
-func profilesLine(profiles []string) string {
-	if len(profiles) == 0 {
+func layersLine(layers []string) string {
+	if len(layers) == 0 {
 		return "(none)"
 	}
-	return clean(strings.Join(profiles, ", "))
+	return clean(strings.Join(layers, ", "))
 }
 
 func clean(value string) string {

@@ -15,6 +15,7 @@ import (
 	"github.com/jmcampanini/esheep/internal/discovery"
 	"github.com/jmcampanini/esheep/internal/expansion"
 	"github.com/jmcampanini/esheep/internal/install"
+	"github.com/jmcampanini/esheep/internal/naming"
 	"github.com/jmcampanini/esheep/internal/render"
 	"github.com/jmcampanini/esheep/internal/skill"
 )
@@ -25,7 +26,6 @@ type Readiness string
 // Source readiness states.
 const (
 	ReadinessCollision Readiness = "collision"
-	ReadinessConflict  Readiness = "conflict"
 	ReadinessDisabled  Readiness = "disabled"
 	ReadinessInvalid   Readiness = "invalid"
 	ReadinessReady     Readiness = "ready"
@@ -43,13 +43,14 @@ type Diagnostic struct {
 	Target  string `json:"target,omitempty"`
 }
 
-// KnownSkill is one discovered source skill. ProfileGate limits when the skill
-// applies; an absent gate means every profile when HasManifest is true.
+// KnownSkill is one discovered source skill. LayerGate limits when the skill
+// applies; an absent gate means the skill applies under any effective layers
+// when HasManifest is true.
 type KnownSkill struct {
 	Directory   string    `json:"directory"`
 	HasManifest bool      `json:"-"`
 	Path        string    `json:"path"`
-	ProfileGate []string  `json:"profile_gate,omitempty"`
+	LayerGate   []string  `json:"layer_gate,omitempty"`
 	Readiness   Readiness `json:"readiness"`
 	Source      string    `json:"source"`
 	Trigger     string    `json:"trigger,omitempty"`
@@ -57,10 +58,10 @@ type KnownSkill struct {
 
 // ListReport is the complete known-skill inventory.
 type ListReport struct {
-	Complete          bool         `json:"complete"`
-	Diagnostics       []Diagnostic `json:"diagnostics"`
-	EffectiveProfiles []string     `json:"effective_profiles"`
-	Skills            []KnownSkill `json:"skills"`
+	Complete        bool         `json:"complete"`
+	Diagnostics     []Diagnostic `json:"diagnostics"`
+	EffectiveLayers []string     `json:"effective_layers"`
+	Skills          []KnownSkill `json:"skills"`
 }
 
 // SkillStatus contains source readiness and available target states.
@@ -68,7 +69,7 @@ type SkillStatus struct {
 	Directory   string                   `json:"directory"`
 	HasManifest bool                     `json:"-"`
 	Path        string                   `json:"path"`
-	ProfileGate []string                 `json:"profile_gate,omitempty"`
+	LayerGate   []string                 `json:"layer_gate,omitempty"`
 	Readiness   Readiness                `json:"readiness"`
 	Source      string                   `json:"source"`
 	Targets     map[string]install.State `json:"targets"`
@@ -79,7 +80,7 @@ type SkillStatus struct {
 // deployed state.
 type AgentsFileStatus struct {
 	Path    string                      `json:"path"`
-	Profile string                      `json:"profile,omitempty"`
+	Layer   string                      `json:"layer,omitempty"`
 	Source  string                      `json:"source"`
 	Targets map[string]agentsfile.State `json:"targets"`
 }
@@ -87,16 +88,16 @@ type AgentsFileStatus struct {
 // StatusReport is a deployment health report for known skills and the
 // selected agents file.
 type StatusReport struct {
-	AgentsFile        *AgentsFileStatus `json:"agents_file,omitempty"`
-	Diagnostics       []Diagnostic      `json:"diagnostics"`
-	EffectiveProfiles []string          `json:"effective_profiles"`
-	Healthy           bool              `json:"healthy"`
-	Skills            []SkillStatus     `json:"skills"`
+	AgentsFile      *AgentsFileStatus `json:"agents_file,omitempty"`
+	Diagnostics     []Diagnostic      `json:"diagnostics"`
+	EffectiveLayers []string          `json:"effective_layers"`
+	Healthy         bool              `json:"healthy"`
+	Skills          []SkillStatus     `json:"skills"`
 }
 
-// ProfilesReport describes the effective profile list and every valid profile
+// LayersReport describes the effective layer list and every valid layer
 // referenced by discovered skills.
-type ProfilesReport struct {
+type LayersReport struct {
 	Complete    bool         `json:"complete"`
 	Diagnostics []Diagnostic `json:"diagnostics"`
 	Effective   []string     `json:"effective"`
@@ -141,21 +142,22 @@ type targetSpec struct {
 func List(ctx context.Context, loaded config.LoadResult) ListReport {
 	catalog := buildCatalog(ctx, loaded)
 	return ListReport{
-		Complete:          catalog.complete,
-		Diagnostics:       catalog.diagnostics,
-		EffectiveProfiles: loaded.EffectiveProfiles,
-		Skills:            catalog.skills,
+		Complete:        catalog.complete,
+		Diagnostics:     catalog.diagnostics,
+		EffectiveLayers: loaded.EffectiveLayers,
+		Skills:          catalog.skills,
 	}
 }
 
-// Profiles reports the effective profile list and every valid profile
-// referenced by discovered skills and agents file variants.
-func Profiles(ctx context.Context, loaded config.LoadResult) ProfilesReport {
+// Layers reports the effective layer list and every valid layer referenced
+// by discovered skills and agents file variants. The automatic base and
+// local layers are never referenced.
+func Layers(ctx context.Context, loaded config.LoadResult) LayersReport {
 	catalog := buildCatalog(ctx, loaded)
 	union := make(map[string]struct{})
 	for _, candidate := range catalog.catalog.Candidates {
-		for _, profile := range candidate.Package.ReferencedProfiles() {
-			union[profile] = struct{}{}
+		for _, layer := range candidate.Package.ReferencedLayers() {
+			union[layer] = struct{}{}
 		}
 	}
 	diagnostics := catalog.diagnostics
@@ -163,20 +165,20 @@ func Profiles(ctx context.Context, loaded config.LoadResult) ProfilesReport {
 		candidates, agentsDiagnostics := agentsfile.Discover(agentsSources(loaded))
 		diagnostics = append(diagnostics, convertAgentsDiagnostics(agentsDiagnostics)...)
 		for _, candidate := range candidates {
-			if candidate.Profile != "" {
-				union[candidate.Profile] = struct{}{}
+			if naming.ValidateLayerName(candidate.Layer) == nil {
+				union[candidate.Layer] = struct{}{}
 			}
 		}
 	}
 	referenced := make([]string, 0, len(union))
-	for profile := range union {
-		referenced = append(referenced, profile)
+	for layer := range union {
+		referenced = append(referenced, layer)
 	}
 	sort.Strings(referenced)
-	return ProfilesReport{
+	return LayersReport{
 		Complete:    catalog.complete,
 		Diagnostics: diagnostics,
-		Effective:   loaded.EffectiveProfiles,
+		Effective:   loaded.EffectiveLayers,
 		Referenced:  referenced,
 	}
 }
@@ -184,7 +186,7 @@ func Profiles(ctx context.Context, loaded config.LoadResult) ProfilesReport {
 // Status inspects source readiness and per-target deployment state.
 func Status(ctx context.Context, loaded config.LoadResult) StatusReport {
 	catalog := buildCatalog(ctx, loaded)
-	report := StatusReport{Diagnostics: catalog.diagnostics, EffectiveProfiles: loaded.EffectiveProfiles, Healthy: catalog.complete}
+	report := StatusReport{Diagnostics: catalog.diagnostics, EffectiveLayers: loaded.EffectiveLayers, Healthy: catalog.complete}
 	targets := configuredTargets(loaded)
 	variables := sourceVariables(loaded)
 	blockedTargets, targetDiagnostics := inspectTargets(ctx, targets)
@@ -200,7 +202,7 @@ func Status(ctx context.Context, loaded config.LoadResult) StatusReport {
 			Directory:   known.Directory,
 			HasManifest: known.HasManifest,
 			Path:        known.Path,
-			ProfileGate: known.ProfileGate,
+			LayerGate:   known.LayerGate,
 			Readiness:   known.Readiness,
 			Source:      known.Source,
 			Targets:     make(map[string]install.State),
@@ -230,7 +232,7 @@ func Status(ctx context.Context, loaded config.LoadResult) StatusReport {
 				Document:  selection.Manifest.Document,
 				Identity:  install.Identity{Skill: known.Directory, Source: known.Source, Target: target.name},
 				Package:   candidate.Package,
-				Profiles:  loaded.EffectiveProfiles,
+				Layers:    loaded.EffectiveLayers,
 				Root:      target.skillsPath,
 				Variables: variables,
 			})
@@ -285,13 +287,9 @@ func Sync(ctx context.Context, loaded config.LoadResult) SyncReport {
 		known := catalog.skills[index]
 		selection := catalog.selections[index]
 		if known.Readiness != ReadinessReady && known.Readiness != ReadinessDisabled {
-			detail := "source skill is " + string(known.Readiness)
-			if known.Readiness == ReadinessConflict {
-				detail = "active profiles select multiple manifests"
-			}
 			record(&report, install.Result{
 				Action:   install.ActionFailed,
-				Detail:   detail,
+				Detail:   "source skill is " + string(known.Readiness),
 				Identity: install.Identity{Skill: known.Directory, Source: known.Source},
 			}, nil)
 			continue
@@ -312,7 +310,7 @@ func Sync(ctx context.Context, loaded config.LoadResult) SyncReport {
 			if !selection.Active {
 				record(&report, install.Result{
 					Action:   install.ActionInactive,
-					Detail:   "profile not active",
+					Detail:   "layer not active",
 					Identity: install.Identity{Skill: known.Directory, Source: known.Source, Target: target.name},
 				}, nil)
 				continue
@@ -322,7 +320,7 @@ func Sync(ctx context.Context, loaded config.LoadResult) SyncReport {
 				Document:  selection.Manifest.Document,
 				Identity:  install.Identity{Skill: known.Directory, Source: known.Source, Target: target.name},
 				Package:   candidate.Package,
-				Profiles:  loaded.EffectiveProfiles,
+				Layers:    loaded.EffectiveLayers,
 				Root:      target.skillsPath,
 				Variables: variables,
 			})
@@ -371,7 +369,7 @@ func buildCatalog(ctx context.Context, loaded config.LoadResult) catalogResult {
 		}
 	}
 	for _, candidate := range result.catalog.Candidates {
-		selection := candidate.Package.Select(loaded.EffectiveProfiles)
+		selection := candidate.Package.Select(loaded.EffectiveLayers)
 		result.selections = append(result.selections, selection)
 		readiness := ReadinessReady
 		switch {
@@ -379,25 +377,14 @@ func buildCatalog(ctx context.Context, loaded config.LoadResult) catalogResult {
 			readiness = ReadinessInvalid
 		case candidate.Colliding:
 			readiness = ReadinessCollision
-		case len(selection.Conflicts) != 0:
-			readiness = ReadinessConflict
 		case selection.Active && selection.Manifest.Document.Disabled:
 			readiness = ReadinessDisabled
-		}
-		if readiness == ReadinessConflict {
-			result.diagnostics = append(result.diagnostics, Diagnostic{
-				Code:    "profile-conflict",
-				Message: "active profiles select multiple manifests: " + strings.Join(selection.Conflicts, ", "),
-				Path:    candidate.Location.Path,
-				Skill:   candidate.Location.RelativePath,
-				Source:  candidate.Location.Source,
-			})
 		}
 		result.skills = append(result.skills, KnownSkill{
 			Directory:   candidate.Location.RelativePath,
 			HasManifest: len(candidate.Package.Manifests) != 0,
 			Path:        candidate.Location.Path,
-			ProfileGate: candidate.Package.Gate(),
+			LayerGate:   candidate.Package.Gate(),
 			Readiness:   readiness,
 			Source:      candidate.Location.Source,
 			Trigger:     skillTrigger(candidate, selection),
@@ -407,7 +394,7 @@ func buildCatalog(ctx context.Context, loaded config.LoadResult) catalogResult {
 }
 
 // skillTrigger prefers the selected manifest's trigger so reports reflect
-// what would render under the active profiles.
+// what would render under the effective layers.
 func skillTrigger(candidate discovery.Candidate, selection skill.Selection) string {
 	if selection.Active {
 		return selection.Manifest.Document.Trigger
@@ -442,7 +429,7 @@ type agentsFilePlan struct {
 	selection   agentsfile.Selection
 }
 
-// planAgentsFile selects the agents file for the active profiles. It skips
+// planAgentsFile selects the agents file for the effective layers. It skips
 // selection entirely while any configured source is unavailable so a partial
 // view can never pick the wrong file.
 func planAgentsFile(loaded config.LoadResult, catalog catalogResult) agentsFilePlan {
@@ -454,7 +441,7 @@ func planAgentsFile(loaded config.LoadResult, catalog catalogResult) agentsFileP
 	if len(plan.diagnostics) != 0 {
 		return plan
 	}
-	selection, err := agentsfile.Select(candidates, loaded.EffectiveProfiles)
+	selection, err := agentsfile.Select(candidates, loaded.EffectiveLayers)
 	if err != nil {
 		plan.diagnostics = append(plan.diagnostics, Diagnostic{Code: "agents-file-selection", Message: err.Error()})
 		return plan
@@ -557,7 +544,7 @@ func statusAgentsFile(ctx context.Context, loaded config.LoadResult, catalog cat
 	variables := sourceVariables(loaded)
 	row := &AgentsFileStatus{
 		Path:    candidate.Path,
-		Profile: candidate.Profile,
+		Layer:   candidate.Layer,
 		Source:  candidate.Source,
 		Targets: make(map[string]agentsfile.State),
 	}
@@ -682,13 +669,13 @@ func pruneStale(
 			if !found {
 				return true
 			}
-			if !entry.candidate.Valid() || len(entry.selection.Conflicts) != 0 {
+			if !entry.candidate.Valid() {
 				return false
 			}
 			if !entry.selection.Active {
 				return true
 			}
-			disabled, disabledErr := render.Disabled(entry.selection.Manifest.Document, target.name, loaded.EffectiveProfiles)
+			disabled, disabledErr := render.Disabled(entry.selection.Manifest.Document, target.name, loaded.EffectiveLayers)
 			return disabledErr == nil && disabled
 		})
 		for _, result := range results {

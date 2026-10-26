@@ -16,14 +16,15 @@ import (
 // files.
 const DirName = "agents-md"
 
-// BaseName is the unprofiled agents file name inside a container's agents
+// BaseName is the base-layer agents file name inside a container's agents
 // directory.
 const BaseName = "AGENTS.md"
 
 // ParseName classifies a filename inside the agents directory. It reports
-// the profile named by a variant agents file ("" for AGENTS.md), whether the
-// name is an agents file at all, and an error when the name sits in the
-// reserved AGENTS.<profile>.md namespace with an invalid profile segment.
+// the layer named by a variant agents file ("" for the base AGENTS.md,
+// "local" for AGENTS.local.md), whether the name is an agents file at all,
+// and an error when the name sits in the reserved AGENTS.<layer>.md
+// namespace with an invalid layer segment.
 func ParseName(name string) (string, bool, error) {
 	if name == BaseName {
 		return "", true, nil
@@ -32,7 +33,7 @@ func ParseName(name string) (string, bool, error) {
 	if len(parts) != 3 || parts[0] != "AGENTS" || parts[2] != "md" {
 		return "", false, nil
 	}
-	if err := naming.ValidateProfileName(parts[1]); err != nil {
+	if err := naming.ValidateLayerSegment(parts[1]); err != nil {
 		return "", false, err
 	}
 	return parts[1], true, nil
@@ -46,9 +47,9 @@ type Source struct {
 
 // Candidate is one discovered agents file.
 type Candidate struct {
-	Path    string
-	Profile string
-	Source  string
+	Path   string
+	Layer  string
+	Source string
 }
 
 // FileName returns the candidate's name inside its agents directory.
@@ -66,7 +67,7 @@ type Diagnostic struct {
 // Discover inspects the agents directory of each source container for
 // agents files, following symlinks wherever they resolve. A container
 // without an agents directory provides no agents files. Names in the
-// reserved namespace that carry an invalid profile or do not resolve to a
+// reserved namespace that carry an invalid layer or do not resolve to a
 // regular file are diagnostics, not candidates.
 func Discover(sources []Source) ([]Candidate, []Diagnostic) {
 	var candidates []Candidate
@@ -81,7 +82,7 @@ func Discover(sources []Source) ([]Candidate, []Diagnostic) {
 		for _, entry := range entries {
 			name := entry.Name()
 			path := filepath.Join(directory, name)
-			profile, ok, nameErr := ParseName(name)
+			layer, ok, nameErr := ParseName(name)
 			if nameErr != nil {
 				diagnostics = append(diagnostics, Diagnostic{Err: nameErr, Path: path, Source: source.Name})
 				continue
@@ -98,7 +99,7 @@ func Discover(sources []Source) ([]Candidate, []Diagnostic) {
 				diagnostics = append(diagnostics, Diagnostic{Err: fmt.Errorf("not a regular file"), Path: path, Source: source.Name})
 				continue
 			}
-			candidates = append(candidates, Candidate{Path: path, Profile: profile, Source: source.Name})
+			candidates = append(candidates, Candidate{Path: path, Layer: layer, Source: source.Name})
 		}
 	}
 	return candidates, diagnostics
@@ -124,21 +125,27 @@ func readAgentsDir(directory string) ([]os.DirEntry, error) {
 	return os.ReadDir(directory)
 }
 
-// Selection is the agents file chosen under the active profiles.
+// Selection is the agents file chosen under the effective layers.
 type Selection struct {
 	Candidate Candidate
 	Found     bool
 }
 
-// Select walks the active profiles in order and then the unprofiled tier.
-// The first tier with exactly one candidate across all sources wins, an
-// empty tier falls through, and a tier with several candidates is an error.
-func Select(candidates []Candidate, profiles []string) (Selection, error) {
-	tiers := append(append([]string(nil), profiles...), "")
+// Select walks the layer order: the base tier, the effective layers in
+// order, then the local tier. The last tier with a candidate wins, an empty
+// tier contributes nothing, and any tier in the order with several
+// candidates across sources is an error even when a later tier would win.
+// Candidates for layers outside the order are ignored.
+func Select(candidates []Candidate, layers []string) (Selection, error) {
+	tiers := make([]string, 0, len(layers)+2)
+	tiers = append(tiers, "")
+	tiers = append(tiers, layers...)
+	tiers = append(tiers, naming.LocalLayer)
+	var selection Selection
 	for _, tier := range tiers {
 		var matches []Candidate
 		for _, candidate := range candidates {
-			if candidate.Profile == tier {
+			if candidate.Layer == tier {
 				matches = append(matches, candidate)
 			}
 		}
@@ -150,10 +157,10 @@ func Select(candidates []Candidate, profiles []string) (Selection, error) {
 			return Selection{}, fmt.Errorf("multiple sources provide %s: %s", matches[0].FileName(), strings.Join(paths, ", "))
 		}
 		if len(matches) == 1 {
-			return Selection{Candidate: matches[0], Found: true}, nil
+			selection = Selection{Candidate: matches[0], Found: true}
 		}
 	}
-	return Selection{}, nil
+	return selection, nil
 }
 
 // State describes one deployed agents file.

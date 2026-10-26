@@ -180,7 +180,7 @@ func sourceDiagnostic(source Source, err error) Diagnostic {
 }
 
 // containsManifest reports whether any entry occupies the manifest namespace,
-// including invalid profile variants that must surface as skill diagnostics.
+// including invalid layer variants that must surface as skill diagnostics.
 func containsManifest(entries []os.DirEntry) bool {
 	for _, entry := range entries {
 		if _, ok, err := skill.ParseManifestName(entry.Name()); ok || err != nil {

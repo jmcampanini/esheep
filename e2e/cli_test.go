@@ -82,7 +82,7 @@ func TestMilestoneWorkflow(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(personal, "AGENTS.md"), []byte("# Repository-local instructions\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	settingsPath := filepath.Join(configHome, "esheep", "esheep.toml")
+	settingsPath := filepath.Join(configHome, "esheep", "config.toml")
 	writeSyncSettings(t, settingsPath, personal, work, claude, pi, codex, true)
 	environment := map[string]string{"HOME": home, "XDG_CONFIG_HOME": configHome}
 
@@ -259,8 +259,8 @@ func TestMilestoneWorkflow(t *testing.T) {
 	assertStatusHealth(t, finalStatus.stdout, true)
 }
 
-func TestProfileWorkflow(t *testing.T) {
-	root := filepath.Join(workDir, "profiles")
+func TestLayerWorkflow(t *testing.T) {
+	root := filepath.Join(workDir, "layers")
 	home := filepath.Join(root, "home")
 	configHome := filepath.Join(root, "config")
 	skills := filepath.Join(root, "skills")
@@ -273,13 +273,13 @@ func TestProfileWorkflow(t *testing.T) {
 	const baseGuidance = "# Base guidance\n"
 	const workGuidance = "# Work guidance\n"
 	writeE2ESkill(t, filepath.Join(skills, "skills"), "everywhere", "Everywhere skill", "", nil)
-	writeE2ESkill(t, filepath.Join(skills, "skills"), "gated", "Gated skill", "esheep-only-profiles: [work]\n", nil)
+	writeE2ESkill(t, filepath.Join(skills, "skills"), "gated", "Gated skill", "esheep-only-layers: [work]\n", nil)
 	writeE2ESkill(t, filepath.Join(skills, "skills"), "target-gated", "Target gated skill", "esheep-targets: [claude: [work]]\n", nil)
 	writeE2ESkill(t, filepath.Join(skills, "skills"), "variant", "Base variant", "", nil)
 	writeE2EVariantManifest(t, filepath.Join(skills, "skills"), "variant", "work", "Work variant")
 	writeE2EAgentsFile(t, skills, "AGENTS.md", baseGuidance)
 	writeE2EAgentsFile(t, skills, "AGENTS.work.md", workGuidance)
-	settingsPath := filepath.Join(configHome, "esheep", "esheep.toml")
+	settingsPath := filepath.Join(configHome, "esheep", "config.toml")
 	settings := fmt.Sprintf(`[[sources]]
 name = "skills"
 path = %q
@@ -301,84 +301,84 @@ enabled = false
 		t.Fatal(err)
 	}
 	baseEnvironment := map[string]string{"HOME": home, "XDG_CONFIG_HOME": configHome}
-	workEnvironment := map[string]string{"HOME": home, "XDG_CONFIG_HOME": configHome, "ESHEEP_PROFILES": "work"}
+	workEnvironment := map[string]string{"HOME": home, "XDG_CONFIG_HOME": configHome, "ESHEEP_LAYERS": "work"}
 
-	withoutProfiles := runEsheep(t, baseEnvironment, "sync")
-	assertSuccess(t, withoutProfiles)
-	if !strings.Contains(withoutProfiles.stdout, "inactive=1") || !strings.Contains(withoutProfiles.stdout, "failed=0") {
-		t.Fatalf("profile-less sync stdout = %s", withoutProfiles.stdout)
+	withoutLayers := runEsheep(t, baseEnvironment, "sync")
+	assertSuccess(t, withoutLayers)
+	if !strings.Contains(withoutLayers.stdout, "inactive=1") || !strings.Contains(withoutLayers.stdout, "failed=0") {
+		t.Fatalf("layer-less sync stdout = %s", withoutLayers.stdout)
 	}
 	if _, err := os.Stat(filepath.Join(claude, "gated")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("inactive gated skill was installed: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(claude, "target-gated")); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("target-gated skill was installed without its profile: %v", err)
+		t.Fatalf("target-gated skill was installed without its layer: %v", err)
 	}
 	assertManifestMetadata(t, filepath.Join(claude, "variant", "SKILL.md"), "Base variant", true)
 	claudeAgentsMD := filepath.Join(home, ".claude", "CLAUDE.md")
 	assertFileContent(t, claudeAgentsMD, baseGuidance)
 
-	profilesReport := runEsheep(t, baseEnvironment, "profiles")
-	assertSuccess(t, profilesReport)
-	if profilesReport.stdout != "Effective: (none)\nReferenced: work\n" {
-		t.Fatalf("profiles stdout = %q", profilesReport.stdout)
+	layersReport := runEsheep(t, baseEnvironment, "layers")
+	assertSuccess(t, layersReport)
+	if layersReport.stdout != "Effective: (none)\nReferenced: work\n" {
+		t.Fatalf("layers stdout = %q", layersReport.stdout)
 	}
-	profilesJSON := runEsheep(t, baseEnvironment, "profiles", "--json")
-	assertSuccess(t, profilesJSON)
-	var profilesDocument struct {
+	layersJSON := runEsheep(t, baseEnvironment, "layers", "--json")
+	assertSuccess(t, layersJSON)
+	var layersDocument struct {
 		Complete   bool     `json:"complete"`
 		Effective  []string `json:"effective"`
 		Referenced []string `json:"referenced"`
 	}
-	if err := json.Unmarshal([]byte(profilesJSON.stdout), &profilesDocument); err != nil {
-		t.Fatalf("decode profiles JSON: %v\n%s", err, profilesJSON.stdout)
+	if err := json.Unmarshal([]byte(layersJSON.stdout), &layersDocument); err != nil {
+		t.Fatalf("decode layers JSON: %v\n%s", err, layersJSON.stdout)
 	}
-	if !profilesDocument.Complete || len(profilesDocument.Effective) != 0 || len(profilesDocument.Referenced) != 1 || profilesDocument.Referenced[0] != "work" {
-		t.Fatalf("profiles document = %#v", profilesDocument)
+	if !layersDocument.Complete || len(layersDocument.Effective) != 0 || len(layersDocument.Referenced) != 1 || layersDocument.Referenced[0] != "work" {
+		t.Fatalf("layers document = %#v", layersDocument)
 	}
 
-	withProfiles := runEsheep(t, workEnvironment, "sync")
-	assertSuccess(t, withProfiles)
-	if !strings.Contains(withProfiles.stdout, "installed=2") || !strings.Contains(withProfiles.stdout, "repaired=2") {
-		t.Fatalf("work-profile sync stdout = %s", withProfiles.stdout)
+	withLayers := runEsheep(t, workEnvironment, "sync")
+	assertSuccess(t, withLayers)
+	if !strings.Contains(withLayers.stdout, "installed=2") || !strings.Contains(withLayers.stdout, "repaired=2") {
+		t.Fatalf("work-layer sync stdout = %s", withLayers.stdout)
 	}
 	assertMarker(t, claude, "claude", "skills", "gated")
 	assertMarker(t, claude, "claude", "skills", "target-gated")
-	assertManifestMetadata(t, filepath.Join(claude, "gated", "SKILL.md"), "esheep-only-profiles", false)
+	assertManifestMetadata(t, filepath.Join(claude, "gated", "SKILL.md"), "esheep-only-layers", false)
 	assertManifestMetadata(t, filepath.Join(claude, "target-gated", "SKILL.md"), "esheep-targets", false)
 	assertManifestMetadata(t, filepath.Join(claude, "variant", "SKILL.md"), "Work variant", true)
 	assertFileContent(t, claudeAgentsMD, workGuidance)
 
 	status := runEsheep(t, workEnvironment, "skills", "status")
 	assertSuccess(t, status)
-	if !strings.HasPrefix(status.stdout, "Effective profiles: work\n") || !strings.Contains(status.stdout, "PROFILE GATE") ||
+	if !strings.HasPrefix(status.stdout, "Effective layers: work\n") || !strings.Contains(status.stdout, "LAYER GATE") ||
 		!strings.Contains(status.stdout, "AGENTS FILE") || !strings.Contains(status.stdout, "AGENTS.work.md") {
 		t.Fatalf("status stdout = %s", status.stdout)
 	}
 	statusJSON := runEsheep(t, workEnvironment, "skills", "status", "--json")
 	assertSuccess(t, statusJSON)
 	var statusDocument struct {
-		EffectiveProfiles []string `json:"effective_profiles"`
-		Skills            []struct {
-			Directory   string   `json:"directory"`
-			ProfileGate []string `json:"profile_gate"`
+		EffectiveLayers []string `json:"effective_layers"`
+		Skills          []struct {
+			Directory string   `json:"directory"`
+			LayerGate []string `json:"layer_gate"`
 		} `json:"skills"`
 	}
 	if err := json.Unmarshal([]byte(statusJSON.stdout), &statusDocument); err != nil {
 		t.Fatalf("decode status JSON: %v\n%s", err, statusJSON.stdout)
 	}
-	var foundGatedProfile bool
+	var foundGatedLayer bool
 	for _, skill := range statusDocument.Skills {
-		if skill.Directory == "gated" && len(skill.ProfileGate) == 1 && skill.ProfileGate[0] == "work" {
-			foundGatedProfile = true
+		if skill.Directory == "gated" && len(skill.LayerGate) == 1 && skill.LayerGate[0] == "work" {
+			foundGatedLayer = true
 		}
 	}
-	if len(statusDocument.EffectiveProfiles) != 1 || statusDocument.EffectiveProfiles[0] != "work" || !foundGatedProfile {
+	if len(statusDocument.EffectiveLayers) != 1 || statusDocument.EffectiveLayers[0] != "work" || !foundGatedLayer {
 		t.Fatalf("status document = %#v", statusDocument)
 	}
 	configuration := runEsheep(t, workEnvironment, "config")
 	assertSuccess(t, configuration)
-	if !strings.Contains(configuration.stdout, "# effective_profiles = [\"work\"]") {
+	if !strings.Contains(configuration.stdout, "# effective_layers = [\"work\"]") {
 		t.Fatalf("config stdout = %s", configuration.stdout)
 	}
 
@@ -427,7 +427,7 @@ func TestCubbyOverlayWorkflow(t *testing.T) {
 	if err := os.Symlink("../../overlay/whole", filepath.Join(skills, "skills", "whole")); err != nil {
 		t.Fatal(err)
 	}
-	settingsPath := filepath.Join(configHome, "esheep", "esheep.toml")
+	settingsPath := filepath.Join(configHome, "esheep", "config.toml")
 	settings := fmt.Sprintf(`[[sources]]
 name = "skills"
 path = %q
@@ -499,7 +499,7 @@ func TestSourcesVariableWorkflow(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(alpha, "skills", "locator", "SKILL.md"), []byte(manifest), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	settingsPath := filepath.Join(configHome, "esheep", "esheep.toml")
+	settingsPath := filepath.Join(configHome, "esheep", "config.toml")
 	writeVariablesSettings(t, settingsPath, [][2]string{{"alpha", alpha}}, claude)
 	environment := map[string]string{"HOME": home, "XDG_CONFIG_HOME": configHome}
 	resolvedAlpha := resolvePath(t, alpha)
@@ -606,7 +606,7 @@ func TestFoundationConfigurationWorkflow(t *testing.T) {
 		"XDG_CONFIG_HOME":   configHome,
 		"ESHEEP_PI_ENABLED": "false",
 	}
-	settingsPath := filepath.Join(configHome, "esheep", "esheep.toml")
+	settingsPath := filepath.Join(configHome, "esheep", "config.toml")
 
 	configuration := runEsheep(t, environment, "--claude-enabled=false", "config", "--provenance")
 	assertSuccess(t, configuration)
@@ -703,8 +703,10 @@ enabled = false
 		t.Fatalf("missing HOME result = %#v", noHome)
 	}
 	relativeXDG := runEsheep(t, map[string]string{"HOME": home, "XDG_CONFIG_HOME": "relative"}, "config")
-	if relativeXDG.exitCode != 1 || relativeXDG.stdout != "" || relativeXDG.stderr == "" {
-		t.Fatalf("relative XDG result = %#v", relativeXDG)
+	assertSuccess(t, relativeXDG)
+	fallbackLine := fmt.Sprintf("# config_file = %q", filepath.Join(home, ".config", "esheep", "config.toml"))
+	if !strings.Contains(relativeXDG.stdout, fallbackLine) {
+		t.Fatalf("relative XDG config stdout = %s, want %s", relativeXDG.stdout, fallbackLine)
 	}
 }
 
@@ -733,14 +735,14 @@ func writeE2ESkill(t *testing.T, source, name, trigger, extra string, support ma
 	}
 }
 
-func writeE2EVariantManifest(t *testing.T, source, name, profile, trigger string) {
+func writeE2EVariantManifest(t *testing.T, source, name, layer, trigger string) {
 	t.Helper()
 	root := filepath.Join(source, name)
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	manifest := "---\nname: " + name + "\nesheep-trigger: '" + trigger + "'\nesheep-targets: [claude, pi, codex]\n---\n# Body\n"
-	if err := os.WriteFile(filepath.Join(root, "SKILL."+profile+".md"), []byte(manifest), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "SKILL."+layer+".md"), []byte(manifest), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }

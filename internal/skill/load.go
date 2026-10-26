@@ -16,10 +16,11 @@ import (
 
 const manifestName = "SKILL.md"
 
-// ParseManifestName classifies a skill-root filename. It reports the profile
-// named by a variant manifest ("" for SKILL.md), whether the name is a
-// manifest at all, and an error when the name sits in the reserved
-// SKILL.<profile>.md namespace with an invalid profile segment.
+// ParseManifestName classifies a skill-root filename. It reports the layer
+// named by a variant manifest ("" for the base SKILL.md, "local" for
+// SKILL.local.md), whether the name is a manifest at all, and an error when
+// the name sits in the reserved SKILL.<layer>.md namespace with an invalid
+// layer segment.
 func ParseManifestName(name string) (string, bool, error) {
 	if name == manifestName {
 		return "", true, nil
@@ -28,7 +29,7 @@ func ParseManifestName(name string) (string, bool, error) {
 	if len(parts) != 3 || parts[0] != "SKILL" || parts[2] != "md" {
 		return "", false, nil
 	}
-	if err := naming.ValidateProfileName(parts[1]); err != nil {
+	if err := naming.ValidateLayerSegment(parts[1]); err != nil {
 		return "", false, err
 	}
 	return parts[1], true, nil
@@ -62,9 +63,9 @@ func loadManifests(root string, entries []os.DirEntry, directoryName string) ([]
 	var diagnostics []Diagnostic
 	for _, entry := range entries {
 		name := entry.Name()
-		profile, ok, nameErr := ParseManifestName(name)
+		layer, ok, nameErr := ParseManifestName(name)
 		if nameErr != nil {
-			diagnostics = append(diagnostics, Diagnostic{Code: CodeInvalidProfile, Path: name, Err: nameErr})
+			diagnostics = append(diagnostics, Diagnostic{Code: CodeInvalidLayer, Path: name, Err: nameErr})
 			continue
 		}
 		if !ok {
@@ -77,19 +78,33 @@ func loadManifests(root string, entries []os.DirEntry, directoryName string) ([]
 		}
 		document, parseErr := Parse(data, directoryName, name)
 		diagnostics = append(diagnostics, ErrorDiagnostics(parseErr)...)
-		manifests = append(manifests, Manifest{FileName: name, Profile: profile, Document: document})
+		manifests = append(manifests, Manifest{FileName: name, Layer: layer, Document: document})
 	}
 	if len(manifests) == 0 && len(diagnostics) == 0 {
 		diagnostics = append(diagnostics, Diagnostic{Code: CodeUnreadable, Path: manifestName, Err: fs.ErrNotExist})
 	}
 
 	sort.Slice(manifests, func(left, right int) bool {
-		if (manifests[left].Profile == "") != (manifests[right].Profile == "") {
-			return manifests[left].Profile == ""
+		leftRank, rightRank := layerRank(manifests[left].Layer), layerRank(manifests[right].Layer)
+		if leftRank != rightRank {
+			return leftRank < rightRank
 		}
-		return manifests[left].Profile < manifests[right].Profile
+		return manifests[left].Layer < manifests[right].Layer
 	})
 	return manifests, diagnostics
+}
+
+// layerRank orders manifests base first, named variants next, and the
+// automatic local variant last, so Manifests[0] is the base-most manifest.
+func layerRank(layer string) int {
+	switch layer {
+	case "":
+		return 0
+	case naming.LocalLayer:
+		return 2
+	default:
+		return 1
+	}
 }
 
 func readManifest(root, name string) ([]byte, error) {

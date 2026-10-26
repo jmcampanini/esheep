@@ -34,7 +34,7 @@ type commandOperations struct {
 	hostname      func() (string, error)
 	list          func(context.Context, config.LoadResult) manage.ListReport
 	memoryRecord  func(context.Context, memory.Request) (memory.Result, error)
-	profiles      func(context.Context, config.LoadResult) manage.ProfilesReport
+	layers        func(context.Context, config.LoadResult) manage.LayersReport
 	sessionList   func(context.Context, session.Roots, session.Filter) session.ListReport
 	sessionSearch func(context.Context, session.Roots, session.Filter, session.SearchQuery) session.SearchReport
 	status        func(context.Context, config.LoadResult) manage.StatusReport
@@ -73,7 +73,7 @@ func newRootCommand(load configLoader) *cobra.Command {
 		hostname:      os.Hostname,
 		list:          manage.List,
 		memoryRecord:  memory.Record,
-		profiles:      manage.Profiles,
+		layers:        manage.Layers,
 		sessionList:   session.List,
 		sessionSearch: session.Search,
 		status:        manage.Status,
@@ -127,7 +127,7 @@ there.`,
 		newDoctorCommand(load),
 		newExitCodesTopic(),
 		newMemoryCommand(load, operations.memoryRecord),
-		newProfilesCommand(load, operations.profiles),
+		newLayersCommand(load, operations.layers),
 		newSessionsCommand(load, operations),
 		newSkillFormatTopic(),
 		newSkillsCommand(load, operations),

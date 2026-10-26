@@ -138,14 +138,14 @@ func TestSyncPrintsAggregateActionsAndReturnsApplicationFailure(t *testing.T) {
 	}
 }
 
-func TestProfilesReportsEffectiveAndReferencedInHumanAndJSONModes(t *testing.T) {
+func TestLayersReportsEffectiveAndReferencedInHumanAndJSONModes(t *testing.T) {
 	t.Parallel()
 	operations := stubOperations()
-	operations.profiles = func(context.Context, config.LoadResult) manage.ProfilesReport {
-		return manage.ProfilesReport{Complete: true, Effective: []string{"work"}, Referenced: []string{"client", "work"}}
+	operations.layers = func(context.Context, config.LoadResult) manage.LayersReport {
+		return manage.LayersReport{Complete: true, Effective: []string{"work"}, Referenced: []string{"client", "work"}}
 	}
 
-	code, stdout, stderr := runCommandWithOperations(t, successfulLoad, operations, "profiles")
+	code, stdout, stderr := runCommandWithOperations(t, successfulLoad, operations, "layers")
 	if code != 0 || stderr != "" {
 		t.Fatalf("human result: code=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
@@ -153,11 +153,11 @@ func TestProfilesReportsEffectiveAndReferencedInHumanAndJSONModes(t *testing.T) 
 		t.Fatalf("stdout = %q", stdout)
 	}
 
-	code, stdout, stderr = runCommandWithOperations(t, successfulLoad, operations, "profiles", "--json")
+	code, stdout, stderr = runCommandWithOperations(t, successfulLoad, operations, "layers", "--json")
 	if code != 0 || stderr != "" {
 		t.Fatalf("JSON result: code=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
-	var document manage.ProfilesReport
+	var document manage.LayersReport
 	if err := json.Unmarshal([]byte(stdout), &document); err != nil {
 		t.Fatalf("stdout is not JSON: %v", err)
 	}
@@ -166,18 +166,18 @@ func TestProfilesReportsEffectiveAndReferencedInHumanAndJSONModes(t *testing.T) 
 	}
 }
 
-func TestProfilesExitsNonzeroWhenDiscoveryIsIncomplete(t *testing.T) {
+func TestLayersExitsNonzeroWhenDiscoveryIsIncomplete(t *testing.T) {
 	t.Parallel()
 	operations := stubOperations()
-	operations.profiles = func(context.Context, config.LoadResult) manage.ProfilesReport {
-		return manage.ProfilesReport{Diagnostics: []manage.Diagnostic{{Code: "source-unavailable", Message: "not found", Path: "/source", Source: "local"}}}
+	operations.layers = func(context.Context, config.LoadResult) manage.LayersReport {
+		return manage.LayersReport{Diagnostics: []manage.Diagnostic{{Code: "source-unavailable", Message: "not found", Path: "/source", Source: "local"}}}
 	}
 
-	code, stdout, stderr := runCommandWithOperations(t, successfulLoad, operations, "profiles")
+	code, stdout, stderr := runCommandWithOperations(t, successfulLoad, operations, "layers")
 	if code != 1 {
 		t.Fatalf("exit code = %d, want 1: stdout=%q stderr=%q", code, stdout, stderr)
 	}
-	if !strings.Contains(stderr, "source-unavailable") || !strings.Contains(stderr, "Error: profiles inventory is incomplete") {
+	if !strings.Contains(stderr, "source-unavailable") || !strings.Contains(stderr, "Error: layers inventory is incomplete") {
 		t.Fatalf("stderr = %q", stderr)
 	}
 }
@@ -191,8 +191,8 @@ func stubOperations() commandOperations {
 		list: func(context.Context, config.LoadResult) manage.ListReport {
 			return manage.ListReport{Complete: true}
 		},
-		profiles: func(context.Context, config.LoadResult) manage.ProfilesReport {
-			return manage.ProfilesReport{Complete: true}
+		layers: func(context.Context, config.LoadResult) manage.LayersReport {
+			return manage.LayersReport{Complete: true}
 		},
 		status: func(context.Context, config.LoadResult) manage.StatusReport {
 			return manage.StatusReport{Healthy: true}

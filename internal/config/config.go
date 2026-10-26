@@ -21,7 +21,7 @@ import (
 
 const (
 	appName         = "esheep"
-	configName      = "esheep.toml"
+	configName      = "config.toml"
 	configFlag      = "config"
 	envPrefix       = "esheep"
 	configHelp      = "path to the configuration file (replaces discovered files)"
@@ -109,13 +109,13 @@ type Memory struct {
 
 // Config is the complete human-owned esheep configuration.
 type Config struct {
-	Profiles    []string  `toml:"profiles" config:"profiles" pflag_singular:"profile" help:"active profiles; --profiles accepts comma-separated values."`
-	EnvProfiles []string  `toml:"env_profiles"`
-	Sources     []Source  `toml:"sources"`
-	Targets     Targets   `toml:"targets"`
-	Sessions    Sessions  `toml:"sessions"`
-	Memory      Memory    `toml:"memory"`
-	Machines    []Machine `toml:"machines"`
+	Layers    []string  `toml:"layers" config:"layers" pflag_singular:"layer" help:"selected layers; --layers accepts comma-separated values."`
+	EnvLayers []string  `toml:"env_layers"`
+	Sources   []Source  `toml:"sources"`
+	Targets   Targets   `toml:"targets"`
+	Sessions  Sessions  `toml:"sessions"`
+	Memory    Memory    `toml:"memory"`
+	Machines  []Machine `toml:"machines"`
 }
 
 // Locations contains the discovered or explicit settings path.
@@ -175,16 +175,16 @@ type ResolvedMachine struct {
 
 // LoadResult is an effective configuration together with provenance and resolved paths.
 type LoadResult struct {
-	Config            Config
-	EffectiveProfiles []string
-	Home              string
-	Locations         Locations
-	ResolvedMachines  []ResolvedMachine
-	ResolvedMemory    string
-	ResolvedSessions  ResolvedSessions
-	ResolvedSources   []ResolvedSource
-	ResolvedTargets   ResolvedTargets
-	Report            configloader.LoadReport
+	Config           Config
+	EffectiveLayers  []string
+	Home             string
+	Locations        Locations
+	ResolvedMachines []ResolvedMachine
+	ResolvedMemory   string
+	ResolvedSessions ResolvedSessions
+	ResolvedSources  []ResolvedSource
+	ResolvedTargets  ResolvedTargets
+	Report           configloader.LoadReport
 }
 
 // RegisterFlags registers the config file flag and configuration-backed target flags.
@@ -210,10 +210,7 @@ func Load(options LoadOptions) (LoadResult, error) {
 	if err != nil {
 		return LoadResult{}, err
 	}
-	locations, err := locationsFromEnv(env, home)
-	if err != nil {
-		return LoadResult{}, err
-	}
+	locations := locationsFromEnv(env, home)
 	defaults := defaults()
 
 	var fileLoader configloader.ConfigLoader[flagConfig]
@@ -277,7 +274,7 @@ func Load(options LoadOptions) (LoadResult, error) {
 		return LoadResult{}, err
 	}
 	cfg := Config(loaded)
-	effectiveProfiles, err := resolveProfiles(cfg, env)
+	effectiveLayers, err := resolveLayers(cfg, env)
 	if err != nil {
 		return LoadResult{}, err
 	}
@@ -294,50 +291,51 @@ func Load(options LoadOptions) (LoadResult, error) {
 		return LoadResult{}, err
 	}
 	return LoadResult{
-		Config:            cfg,
-		EffectiveProfiles: effectiveProfiles,
-		Home:              home,
-		Locations:         locations,
-		ResolvedMachines:  resolvedMachines,
-		ResolvedMemory:    resolvedMemory,
-		ResolvedSessions:  resolvedSessions,
-		ResolvedSources:   resolvedSources,
-		ResolvedTargets:   resolvedTargets,
-		Report:            report,
+		Config:           cfg,
+		EffectiveLayers:  effectiveLayers,
+		Home:             home,
+		Locations:        locations,
+		ResolvedMachines: resolvedMachines,
+		ResolvedMemory:   resolvedMemory,
+		ResolvedSessions: resolvedSessions,
+		ResolvedSources:  resolvedSources,
+		ResolvedTargets:  resolvedTargets,
+		Report:           report,
 	}, nil
 }
 
-// resolveProfiles appends the comma-separated values of each env_profiles
-// variable to the loaded profile list, dedupes preserving first-seen order,
-// and validates every name.
-func resolveProfiles(cfg Config, env map[string]string) ([]string, error) {
-	for _, name := range cfg.EnvProfiles {
+// resolveLayers appends the comma-separated values of each env_layers
+// variable to the loaded layer list, validates every name, and dedupes by
+// keeping the last occurrence of each name in its relative order.
+func resolveLayers(cfg Config, env map[string]string) ([]string, error) {
+	for _, name := range cfg.EnvLayers {
 		trimmed := strings.TrimSpace(name)
 		if trimmed == "" || trimmed != name {
-			return nil, fmt.Errorf("config: env_profiles entry %q must be a nonblank environment variable name", name)
+			return nil, fmt.Errorf("config: env_layers entry %q must be a nonblank environment variable name", name)
 		}
 	}
 
-	profiles := append([]string(nil), cfg.Profiles...)
-	for _, name := range cfg.EnvProfiles {
+	layers := append([]string(nil), cfg.Layers...)
+	for _, name := range cfg.EnvLayers {
 		for _, value := range strings.Split(env[name], ",") {
 			if value = strings.TrimSpace(value); value != "" {
-				profiles = append(profiles, value)
+				layers = append(layers, value)
 			}
 		}
 	}
 
-	seen := make(map[string]struct{}, len(profiles))
-	effective := make([]string, 0, len(profiles))
-	for _, profile := range profiles {
-		if err := naming.ValidateProfileName(profile); err != nil {
+	last := make(map[string]int, len(layers))
+	for index, layer := range layers {
+		if err := naming.ValidateLayerName(layer); err != nil {
 			return nil, fmt.Errorf("config: %w", err)
 		}
-		if _, duplicate := seen[profile]; duplicate {
-			continue
+		last[layer] = index
+	}
+	effective := make([]string, 0, len(last))
+	for index, layer := range layers {
+		if last[layer] == index {
+			effective = append(effective, layer)
 		}
-		seen[profile] = struct{}{}
-		effective = append(effective, profile)
 	}
 	return effective, nil
 }
@@ -372,11 +370,11 @@ func Render(result LoadResult, options ReportOptions) ([]byte, error) {
 		b.WriteByte('\n')
 	}
 	writeResolved("config_file", result.Locations.ConfigFile)
-	quoted := make([]string, 0, len(result.EffectiveProfiles))
-	for _, profile := range result.EffectiveProfiles {
-		quoted = append(quoted, strconv.Quote(sanitizeCommentValue(profile)))
+	quoted := make([]string, 0, len(result.EffectiveLayers))
+	for _, layer := range result.EffectiveLayers {
+		quoted = append(quoted, strconv.Quote(sanitizeCommentValue(layer)))
 	}
-	b.WriteString("# effective_profiles = [")
+	b.WriteString("# effective_layers = [")
 	b.WriteString(strings.Join(quoted, ", "))
 	b.WriteString("]\n")
 	for _, source := range result.ResolvedSources {
@@ -403,7 +401,7 @@ func Render(result LoadResult, options ReportOptions) ([]byte, error) {
 	if options.Provenance {
 		b.WriteString("\n# Provenance\n")
 		for _, row := range reporter.ProvenanceRows() {
-			path := strings.NewReplacer("envprofiles", "env_profiles", "skillspath", "skills_path", "agentsmdpath", "agents_md_path").Replace(row[0])
+			path := strings.NewReplacer("envlayers", "env_layers", "skillspath", "skills_path", "agentsmdpath", "agents_md_path").Replace(row[0])
 			b.WriteString("# ")
 			b.WriteString(sanitizeCommentValue(path))
 			b.WriteString(" = ")
@@ -467,14 +465,16 @@ func homeFromEnv(env map[string]string) (string, error) {
 	return resolved, nil
 }
 
-func locationsFromEnv(env map[string]string, home string) (Locations, error) {
+// locationsFromEnv places the discovered configuration file under
+// XDG_CONFIG_HOME, falling back to ~/.config when the variable is unset,
+// empty, or relative, which the XDG Base Directory specification treats as
+// invalid.
+func locationsFromEnv(env map[string]string, home string) Locations {
 	configHome := env["XDG_CONFIG_HOME"]
-	if configHome == "" {
+	if !filepath.IsAbs(configHome) {
 		configHome = filepath.Join(home, ".config")
-	} else if !filepath.IsAbs(configHome) {
-		return Locations{}, fmt.Errorf("config: XDG_CONFIG_HOME must be absolute")
 	}
-	return Locations{ConfigFile: filepath.Join(filepath.Clean(configHome), appName, configName)}, nil
+	return Locations{ConfigFile: filepath.Join(filepath.Clean(configHome), appName, configName)}
 }
 
 // resolvePaths resolves every path esheep reads from or writes to and

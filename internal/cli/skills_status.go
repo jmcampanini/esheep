@@ -17,12 +17,12 @@ func newSkillsStatusCommand(load configLoader, status func(context.Context, conf
 		Use:   "status",
 		Short: "Report per-target deployment health",
 		Long: `Report source readiness and per-target deployment health under the
-effective profiles.
+effective layers.
 
 Each ready or disabled skill is synced, drifted, missing, inactive, disabled, or
 blocked for every target; blocked means source rendering failed or a
 destination or target cannot be inspected or managed safely.
-Inactive means no manifest applies under the active profiles, and disabled
+Inactive means no manifest applies under the effective layers, and disabled
 means esheep-disabled, target configuration, or esheep-targets excludes
 installation. Disabled readiness identifies a selected manifest with
 esheep-disabled: true. Every enabled target is inspected even when no skills
@@ -49,10 +49,10 @@ their previously managed copies.
 ` + ui.StreamContractHelp + `
 
 ` + ui.JSONContractHelp + ` Status JSON includes "healthy",
-"effective_profiles", and an optional "agents_file" section naming the
+"effective_layers", and an optional "agents_file" section naming the
 selected source file and per-target states. Each skill's optional "trigger"
-contains its invocation text from esheep-trigger. Its optional "profile_gate"
-lists the profiles that limit manifest selection.`,
+contains its invocation text from esheep-trigger. Its optional "layer_gate"
+lists the layers that limit manifest selection.`,
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			loaded, err := loadConfiguration(command, load)

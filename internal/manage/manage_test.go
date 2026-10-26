@@ -276,19 +276,19 @@ func TestSyncPrunesSkillDisabledForEnabledTarget(t *testing.T) {
 	}
 }
 
-func TestSyncSelectsVariantsAndPrunesInactiveProfileSkills(t *testing.T) {
+func TestSyncSelectsVariantsAndPrunesInactiveLayerSkills(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	source := filepath.Join(root, "source")
 	writeSourceSkill(t, source, "everywhere", "Everywhere", "")
-	writeSourceSkill(t, source, "gated", "Gated", "esheep-only-profiles: [work]\n")
+	writeSourceSkill(t, source, "gated", "Gated", "esheep-only-layers: [work]\n")
 	writeSourceSkill(t, source, "variant", "Base", "")
 	writeVariantManifest(t, source, "variant", "work", "Work")
 	claude := filepath.Join(root, "claude")
 	loaded := testConfig(source, "", claude, filepath.Join(root, "pi"), filepath.Join(root, "codex"))
 	loaded.Config.Targets.Pi.Enabled = false
 	loaded.ResolvedSources = []config.ResolvedSource{{Name: "source", Path: source}}
-	loaded.EffectiveProfiles = []string{"work"}
+	loaded.EffectiveLayers = []string{"work"}
 
 	report := Sync(context.Background(), loaded)
 	if report.Summary.Installed != 3 || report.Summary.Failed != 0 || report.Summary.Inactive != 0 {
@@ -302,7 +302,7 @@ func TestSyncSelectsVariantsAndPrunesInactiveProfileSkills(t *testing.T) {
 		t.Fatalf("status trigger = %q, want selected variant", got)
 	}
 
-	loaded.EffectiveProfiles = nil
+	loaded.EffectiveLayers = nil
 	report = Sync(context.Background(), loaded)
 	if report.Summary.Pruned != 1 || report.Summary.Inactive != 1 || report.Summary.Repaired != 1 ||
 		report.Summary.Unchanged != 1 || report.Summary.Failed != 0 {
@@ -314,35 +314,41 @@ func TestSyncSelectsVariantsAndPrunesInactiveProfileSkills(t *testing.T) {
 	assertManifestContains(t, filepath.Join(claude, "variant", "SKILL.md"), "Base")
 }
 
-func TestSyncBlocksProfileConflictAndProtectsInstalledOutput(t *testing.T) {
+func TestSyncInstallsLatestLayerVariantAndLocalOverridesIt(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	source := filepath.Join(root, "source")
 	writeVariantManifest(t, source, "both", "work", "Work")
 	writeVariantManifest(t, source, "both", "client", "Client")
 	claude := filepath.Join(root, "claude")
-	writeOwnedSkill(t, claude, install.Marker{Source: "source", Skill: "both", Target: render.TargetClaude})
 	loaded := testConfig(source, "", claude, filepath.Join(root, "pi"), filepath.Join(root, "codex"))
 	loaded.Config.Targets.Pi.Enabled = false
 	loaded.ResolvedSources = []config.ResolvedSource{{Name: "source", Path: source}}
-	loaded.EffectiveProfiles = []string{"client", "work"}
+	loaded.EffectiveLayers = []string{"client", "work"}
 
 	report := Sync(context.Background(), loaded)
-
-	if report.Summary.Failed != 1 || report.Summary.Pruned != 0 {
+	if report.Summary.Installed != 1 || report.Summary.Failed != 0 {
 		t.Fatalf("summary = %#v", report.Summary)
 	}
-	var conflictDetail string
-	for _, action := range report.Actions {
-		if action.Action == install.ActionFailed && action.Identity.Skill == "both" {
-			conflictDetail = action.Detail
-		}
+	assertManifestContains(t, filepath.Join(claude, "both", "SKILL.md"), "Work")
+	if got := findKnownSkill(t, List(context.Background(), loaded), "source", "both").Readiness; got != ReadinessReady {
+		t.Errorf("list readiness = %q, want ready", got)
 	}
-	if conflictDetail != "active profiles select multiple manifests" {
-		t.Fatalf("conflict detail = %q", conflictDetail)
+
+	writeVariantManifest(t, source, "both", "local", "Local")
+	report = Sync(context.Background(), loaded)
+	if report.Summary.Repaired != 1 || report.Summary.Failed != 0 {
+		t.Fatalf("local summary = %#v", report.Summary)
 	}
-	if _, err := os.Stat(filepath.Join(claude, "both")); err != nil {
-		t.Fatalf("conflicting skill output was not protected: %v", err)
+	assertManifestContains(t, filepath.Join(claude, "both", "SKILL.md"), "Local")
+
+	loaded.EffectiveLayers = nil
+	report = Sync(context.Background(), loaded)
+	if report.Summary.Unchanged != 1 || report.Summary.Failed != 0 {
+		t.Fatalf("no-layer summary = %#v", report.Summary)
+	}
+	if got := findKnownSkill(t, List(context.Background(), loaded), "source", "both").LayerGate; got != nil {
+		t.Errorf("list layer gate = %v, want none for a local variant", got)
 	}
 }
 
@@ -358,7 +364,7 @@ func TestListTracksWhetherAnyManifestLoaded(t *testing.T) {
 	report := List(context.Background(), loaded)
 
 	everywhere := findKnownSkill(t, report, "source", "everywhere")
-	if !everywhere.HasManifest || len(everywhere.ProfileGate) != 0 {
+	if !everywhere.HasManifest || len(everywhere.LayerGate) != 0 {
 		t.Fatalf("universal skill = %#v, want loaded manifest and empty gate", everywhere)
 	}
 	invalid := findKnownSkill(t, report, "source", "invalid")
@@ -371,7 +377,7 @@ func TestStatusReportsInactiveSkillsAsHealthy(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	source := filepath.Join(root, "source")
-	writeSourceSkill(t, source, "gated", "Gated", "esheep-only-profiles: [work]\n")
+	writeSourceSkill(t, source, "gated", "Gated", "esheep-only-layers: [work]\n")
 	loaded := testConfig(source, "", filepath.Join(root, "claude"), filepath.Join(root, "pi"), filepath.Join(root, "codex"))
 	loaded.Config.Targets.Pi.Enabled = false
 	loaded.ResolvedSources = []config.ResolvedSource{{Name: "source", Path: source}}
@@ -385,26 +391,28 @@ func TestStatusReportsInactiveSkillsAsHealthy(t *testing.T) {
 	if status.Readiness != ReadinessReady || status.Targets["claude"] != install.StateInactive {
 		t.Fatalf("status = %#v", status)
 	}
-	if len(status.ProfileGate) != 1 || status.ProfileGate[0] != "work" {
-		t.Fatalf("profile gate = %#v, want [work]", status.ProfileGate)
+	if len(status.LayerGate) != 1 || status.LayerGate[0] != "work" {
+		t.Fatalf("layer gate = %#v, want [work]", status.LayerGate)
 	}
 }
 
-func TestProfilesUnionsReferencedGates(t *testing.T) {
+func TestLayersUnionsReferencedGates(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	source := filepath.Join(root, "source")
 	writeSourceSkill(t, source, "everywhere", "Everywhere", "")
-	writeSourceSkill(t, source, "gated", "Gated", "esheep-only-profiles: [client]\n")
-	writeSourceSkill(t, source, "invalid", "Invalid", "esheep-only-profiles: [Work]\n")
+	writeSourceSkill(t, source, "gated", "Gated", "esheep-only-layers: [client]\n")
+	writeSourceSkill(t, source, "invalid", "Invalid", "esheep-only-layers: [Work]\n")
 	writeSourceSkill(t, source, "variant", "Base", "")
 	writeVariantManifest(t, source, "variant", "work", "Work")
+	writeVariantManifest(t, source, "variant", "local", "Local")
 	writeSourceAgentsFile(t, source, "AGENTS.ops.md", "ops instructions\n")
+	writeSourceAgentsFile(t, source, "AGENTS.local.md", "local instructions\n")
 	loaded := testConfig(source, "", filepath.Join(root, "claude"), filepath.Join(root, "pi"), filepath.Join(root, "codex"))
 	loaded.ResolvedSources = []config.ResolvedSource{{Name: "source", Path: source}}
-	loaded.EffectiveProfiles = []string{"work"}
+	loaded.EffectiveLayers = []string{"work"}
 
-	report := Profiles(context.Background(), loaded)
+	report := Layers(context.Background(), loaded)
 
 	if !report.Complete {
 		t.Fatalf("report = %#v, want complete", report)
@@ -415,8 +423,8 @@ func TestProfilesUnionsReferencedGates(t *testing.T) {
 	if len(report.Referenced) != 3 || report.Referenced[0] != "client" || report.Referenced[1] != "ops" || report.Referenced[2] != "work" {
 		t.Fatalf("referenced = %#v, want [client ops work]", report.Referenced)
 	}
-	if len(report.Diagnostics) != 1 || report.Diagnostics[0].Code != "invalid-profile" {
-		t.Fatalf("diagnostics = %#v, want invalid-profile", report.Diagnostics)
+	if len(report.Diagnostics) != 1 || report.Diagnostics[0].Code != "invalid-layer" {
+		t.Fatalf("diagnostics = %#v, want invalid-layer", report.Diagnostics)
 	}
 }
 
@@ -463,7 +471,7 @@ func TestSyncDeploysAgentsFileWriteOnly(t *testing.T) {
 	assertManifestContains(t, destination, "global instructions")
 }
 
-func TestSyncSelectsAgentsFileByProfileOrder(t *testing.T) {
+func TestSyncSelectsAgentsFileByLayerOrder(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	source := filepath.Join(root, "source")
@@ -472,7 +480,7 @@ func TestSyncSelectsAgentsFileByProfileOrder(t *testing.T) {
 	loaded := testConfig(source, "", filepath.Join(root, "claude"), filepath.Join(root, "pi"), filepath.Join(root, "codex"))
 	loaded.Config.Targets.Pi.Enabled = false
 	loaded.ResolvedSources = []config.ResolvedSource{{Name: "source", Path: source}}
-	loaded.EffectiveProfiles = []string{"client", "work"}
+	loaded.EffectiveLayers = []string{"client", "work"}
 	destination := loaded.ResolvedTargets.Claude.AgentsMD
 
 	report := Sync(context.Background(), loaded)
@@ -481,12 +489,22 @@ func TestSyncSelectsAgentsFileByProfileOrder(t *testing.T) {
 	}
 	assertManifestContains(t, destination, "work instructions")
 
-	loaded.EffectiveProfiles = nil
+	loaded.EffectiveLayers = nil
 	report = Sync(context.Background(), loaded)
 	if report.Summary.Repaired != 1 || report.Summary.Failed != 0 {
 		t.Fatalf("base summary = %#v", report.Summary)
 	}
 	assertManifestContains(t, destination, "base instructions")
+
+	writeSourceAgentsFile(t, source, "AGENTS.local.md", "local instructions\n")
+	report = Sync(context.Background(), loaded)
+	if report.Summary.Repaired != 1 || report.Summary.Failed != 0 {
+		t.Fatalf("local summary = %#v", report.Summary)
+	}
+	assertManifestContains(t, destination, "local instructions")
+	if status := Status(context.Background(), loaded); status.AgentsFile == nil || status.AgentsFile.Layer != "local" {
+		t.Errorf("status agents file = %#v, want the local layer", status.AgentsFile)
+	}
 }
 
 func TestSyncFailsAgentsFileTierCollisionWithoutWriting(t *testing.T) {
@@ -542,7 +560,7 @@ func TestStatusReportsAgentsFileStates(t *testing.T) {
 		t.Fatalf("report = %#v, want unhealthy with agents file section", report)
 	}
 	row := report.AgentsFile
-	if row.Source != "source" || row.Profile != "" || row.Path != filepath.Join(source, agentsfile.DirName, "AGENTS.md") {
+	if row.Source != "source" || row.Layer != "" || row.Path != filepath.Join(source, agentsfile.DirName, "AGENTS.md") {
 		t.Fatalf("agents file row = %#v", row)
 	}
 	if row.Targets["claude"] != agentsfile.StateMissing || row.Targets["pi"] != agentsfile.StateDisabled ||
@@ -635,14 +653,14 @@ func writeSourceSkill(t *testing.T, source, name, trigger, extra string) {
 	}
 }
 
-func writeVariantManifest(t *testing.T, source, name, profile, trigger string) {
+func writeVariantManifest(t *testing.T, source, name, layer, trigger string) {
 	t.Helper()
 	root := filepath.Join(source, "skills", name)
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	manifest := "---\nname: " + name + "\nesheep-trigger: '" + trigger + "'\nesheep-targets: [claude, pi, codex]\n---\nbody\n"
-	if err := os.WriteFile(filepath.Join(root, "SKILL."+profile+".md"), []byte(manifest), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "SKILL."+layer+".md"), []byte(manifest), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }
