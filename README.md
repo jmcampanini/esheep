@@ -5,10 +5,28 @@ esheep manages Agent Skills and a global agents file from human-maintained sourc
 
 ## Install
 
-esheep supports macOS and Linux. It distributes from HEAD only; there is no stable release channel.
+esheep supports macOS and Linux on amd64 and arm64. Versioned releases will provide prebuilt archives and a Homebrew cask in the shared tap. The first release has not been published; until then, use the HEAD formula or build from source.
 
 
-### Homebrew
+### Versioned releases
+
+After the first stable release, install and upgrade with [mise](https://mise.jdx.dev) or the shared Homebrew tap:
+
+```sh
+mise use -g github:jmcampanini/esheep
+mise upgrade github:jmcampanini/esheep
+brew install --cask jmcampanini/tap/esheep
+brew upgrade --cask jmcampanini/tap/esheep
+```
+
+Alternatively, download the archive for your OS and architecture from the [releases page](https://github.com/jmcampanini/esheep/releases), extract it, and copy `esheep` onto your `PATH`. To upgrade, download the new archive and replace the binary. Archives include `README.md` and `LICENSE`; releases include SHA-256 checksums and GitHub build provenance attestations.
+
+For a browser-downloaded archive on macOS, remove quarantine from the extracted binary with `xattr -d com.apple.quarantine esheep` before running it. The Homebrew cask handles this before generating bash, zsh, and fish completions.
+
+
+### Homebrew HEAD alternative
+
+The existing HEAD formula remains available for installation from the latest source commit:
 
 ```sh
 brew tap jmcampanini/esheep https://github.com/jmcampanini/esheep
@@ -18,7 +36,7 @@ brew install --HEAD jmcampanini/esheep/esheep
 Upgrade to the latest commit:
 
 ```sh
-brew upgrade --fetch-HEAD esheep
+brew upgrade --fetch-HEAD jmcampanini/esheep/esheep
 ```
 
 
