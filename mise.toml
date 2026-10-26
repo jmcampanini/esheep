@@ -5,7 +5,7 @@ lockfile = true
 lockfile_platforms = ["linux-x64", "macos-arm64"]
 
 [tools]
-go = "1.27.2"
+go = "1.27.3"
 golangci-lint = "2.14.0"
 "go:golang.org/x/vuln/cmd/govulncheck" = "1.9.0"
 node = "24.21.0"
