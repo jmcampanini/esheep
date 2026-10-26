@@ -35,8 +35,6 @@ mise run build
 # then copy ./build/esheep to a directory on your PATH
 ```
 
-To upgrade, run `git pull`, rebuild with `mise install && mise run build`, and replace the binary on your `PATH`.
-
 
 ## Representative commands
 
