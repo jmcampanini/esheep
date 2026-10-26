@@ -60,7 +60,7 @@ mise run build
 |---|---|
 | `esheep --version` | Print the build version. |
 | `esheep completion zsh` | Write Zsh completion; bash, fish, and powershell work the same way. |
-| `esheep profiles [--json]` | Report effective and referenced profiles. |
+| `esheep layers [--json]` | Report effective and referenced layers. |
 | `esheep sessions list [--json]` | List historical harness sessions with their canonical transcript paths. |
 | `esheep sessions search [pattern] [--json]` | Search session transcripts in place; hits address transcript lines. |
 | `esheep sessions query` | Answer a list or search request read from stdin; the endpoint `--remote` runs over ssh. |
@@ -83,7 +83,7 @@ The typical loop after changing a source skill is `esheep sync` followed by `esh
 
 ## Configuration
 
-esheep discovers its settings at `$XDG_CONFIG_HOME/esheep/esheep.toml`, or `$HOME/.config/esheep/esheep.toml`. `esheep config --help` describes the load order and the target, memory, and machine settings. One source is enough to get started:
+esheep discovers its settings at `$XDG_CONFIG_HOME/esheep/config.toml`, or `$HOME/.config/esheep/config.toml`. `esheep config --help` describes the load order and the target, memory, and machine settings. One source is enough to get started:
 
 ```toml
 [[sources]]

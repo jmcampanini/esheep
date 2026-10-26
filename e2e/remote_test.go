@@ -31,7 +31,7 @@ func TestRemoteSessionsWorkflow(t *testing.T) {
 		`{"type":"message","id":"m1","parentId":null,"timestamp":"2026-08-22T08:00:05Z","message":{"role":"user","content":[{"type":"text","text":"remote timeout question"}]}}`,
 	)
 	settings := "[[machines]]\nname = \"e2e-remote\"\ncommand = \"" + binaryPath + "\"\n\n[[machines]]\nname = \"e2e-down\"\n"
-	if err := os.WriteFile(filepath.Join(localConfig, "esheep", "esheep.toml"), []byte(settings), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(localConfig, "esheep", "config.toml"), []byte(settings), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	// The fake ssh answers e2e-remote by running the received command line

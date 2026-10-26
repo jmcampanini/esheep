@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"syscall"
@@ -15,7 +16,7 @@ import (
 func TestParsePreservesCRLFBodyAndOptionalPresence(t *testing.T) {
 	t.Parallel()
 	body := []byte("# Hello\r\n\x00tail")
-	input := append([]byte("---\r\nname: demo-skill\r\nesheep-trigger: ' useful '\r\nlicense: ''\r\ncompatibility: ''\r\nmetadata: {}\r\nesheep-targets: [claude, pi: [work]]\r\nesheep-only-profiles: [work]\r\n---\r\n"), body...)
+	input := append([]byte("---\r\nname: demo-skill\r\nesheep-trigger: ' useful '\r\nlicense: ''\r\ncompatibility: ''\r\nmetadata: {}\r\nesheep-targets: [claude, pi: [work]]\r\nesheep-only-layers: [work]\r\n---\r\n"), body...)
 	document, err := Parse(input, "demo-skill", "SKILL.md")
 	if err != nil {
 		t.Fatal(err)
@@ -35,14 +36,14 @@ func TestParsePreservesCRLFBodyAndOptionalPresence(t *testing.T) {
 	if !document.Targets.Claude.Listed || !document.Targets.Pi.Listed || document.Targets.Codex.Listed {
 		t.Fatalf("targets = %#v", document.Targets)
 	}
-	if document.Targets.Claude.OnlyProfiles != nil {
-		t.Fatalf("claude gate = %#v, want none", document.Targets.Claude.OnlyProfiles)
+	if document.Targets.Claude.OnlyLayers != nil {
+		t.Fatalf("claude gate = %#v, want none", document.Targets.Claude.OnlyLayers)
 	}
-	if len(document.Targets.Pi.OnlyProfiles) != 1 || document.Targets.Pi.OnlyProfiles[0] != "work" {
-		t.Fatalf("pi gate = %#v, want [work]", document.Targets.Pi.OnlyProfiles)
+	if len(document.Targets.Pi.OnlyLayers) != 1 || document.Targets.Pi.OnlyLayers[0] != "work" {
+		t.Fatalf("pi gate = %#v, want [work]", document.Targets.Pi.OnlyLayers)
 	}
-	if len(document.OnlyProfiles) != 1 || document.OnlyProfiles[0] != "work" {
-		t.Fatalf("only profiles = %#v, want [work]", document.OnlyProfiles)
+	if len(document.OnlyLayers) != 1 || document.OnlyLayers[0] != "work" {
+		t.Fatalf("only layers = %#v, want [work]", document.OnlyLayers)
 	}
 }
 
@@ -52,7 +53,7 @@ func TestParseDistinguishesAbsentOptionalFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if document.License != nil || document.Compatibility != nil || document.Metadata != nil || document.OnlyProfiles != nil {
+	if document.License != nil || document.Compatibility != nil || document.Metadata != nil || document.OnlyLayers != nil {
 		t.Fatalf("absent fields became present: %#v", document)
 	}
 }
@@ -111,7 +112,7 @@ func TestParseRejectsInvalidDeclarativeFormat(t *testing.T) {
 		{name: "missing frontmatter", dir: "demo", yaml: "name: demo\n", code: CodeFrontmatter},
 		{name: "duplicate common key", dir: "demo", yaml: "name: demo\nname: demo\nesheep-trigger: ok\nesheep-targets: [claude]\n", code: CodeYAML},
 		{name: "duplicate uninterpreted key", dir: "demo", yaml: "name: demo\nesheep-trigger: ok\nesheep-targets: [claude]\nextra: 1\nextra: 2\n", code: CodeInvalidValue},
-		{name: "unknown esheep key", dir: "demo", yaml: "name: demo\nesheep-trigger: ok\nesheep-targets: [claude]\nesheep-only-profile: [work]\n", code: CodeUnknownField},
+		{name: "unknown esheep key", dir: "demo", yaml: "name: demo\nesheep-trigger: ok\nesheep-targets: [claude]\nesheep-only-layer: [work]\n", code: CodeUnknownField},
 		{name: "invocation toggle is string", dir: "demo", yaml: "name: demo\nesheep-trigger: ok\nesheep-targets: [claude]\ndisable-model-invocation: 'yes'\n", code: CodeInvalidValue},
 		{name: "disabled toggle is string", dir: "demo", yaml: "name: demo\nesheep-trigger: ok\nesheep-targets: [claude]\nesheep-disabled: 'true'\n", code: CodeInvalidValue},
 		{name: "disabled toggle is null", dir: "demo", yaml: "name: demo\nesheep-trigger: ok\nesheep-targets: [claude]\nesheep-disabled: null\n", code: CodeInvalidValue},
@@ -131,15 +132,17 @@ func TestParseRejectsInvalidDeclarativeFormat(t *testing.T) {
 		{name: "target gate is scalar", dir: "demo", yaml: "name: demo\nesheep-trigger: ok\nesheep-targets: [claude: work]\n", code: CodeInvalidValue},
 		{name: "target gate is empty", dir: "demo", yaml: "name: demo\nesheep-trigger: ok\nesheep-targets: [claude: []]\n", code: CodeInvalidValue},
 		{name: "target gate item is number", dir: "demo", yaml: "name: demo\nesheep-trigger: ok\nesheep-targets: [claude: [3]]\n", code: CodeInvalidValue},
-		{name: "target gate bad grammar", dir: "demo", yaml: "name: demo\nesheep-trigger: ok\nesheep-targets: [claude: [Work]]\n", code: CodeInvalidProfile},
-		{name: "target gate reserved name", dir: "demo", yaml: "name: demo\nesheep-trigger: ok\nesheep-targets: [claude: [base]]\n", code: CodeInvalidProfile},
+		{name: "target gate bad grammar", dir: "demo", yaml: "name: demo\nesheep-trigger: ok\nesheep-targets: [claude: [Work]]\n", code: CodeInvalidLayer},
+		{name: "target gate reserved name", dir: "demo", yaml: "name: demo\nesheep-trigger: ok\nesheep-targets: [claude: [base]]\n", code: CodeInvalidLayer},
+		{name: "target gate local name", dir: "demo", yaml: "name: demo\nesheep-trigger: ok\nesheep-targets: [claude: [local]]\n", code: CodeInvalidLayer},
 		{name: "target gate duplicate", dir: "demo", yaml: "name: demo\nesheep-trigger: ok\nesheep-targets: [claude: [work, work]]\n", code: CodeInvalidValue},
-		{name: "only-profiles is scalar", dir: "demo", yaml: "name: demo\nesheep-trigger: ok\nesheep-targets: [claude]\nesheep-only-profiles: work\n", code: CodeInvalidValue},
-		{name: "only-profiles is empty", dir: "demo", yaml: "name: demo\nesheep-trigger: ok\nesheep-targets: [claude]\nesheep-only-profiles: []\n", code: CodeInvalidValue},
-		{name: "only-profiles item is number", dir: "demo", yaml: "name: demo\nesheep-trigger: ok\nesheep-targets: [claude]\nesheep-only-profiles: [3]\n", code: CodeInvalidValue},
-		{name: "only-profiles bad grammar", dir: "demo", yaml: "name: demo\nesheep-trigger: ok\nesheep-targets: [claude]\nesheep-only-profiles: [Work]\n", code: CodeInvalidProfile},
-		{name: "only-profiles reserved name", dir: "demo", yaml: "name: demo\nesheep-trigger: ok\nesheep-targets: [claude]\nesheep-only-profiles: [base]\n", code: CodeInvalidProfile},
-		{name: "only-profiles duplicate", dir: "demo", yaml: "name: demo\nesheep-trigger: ok\nesheep-targets: [claude]\nesheep-only-profiles: [work, work]\n", code: CodeInvalidValue},
+		{name: "only-layers is scalar", dir: "demo", yaml: "name: demo\nesheep-trigger: ok\nesheep-targets: [claude]\nesheep-only-layers: work\n", code: CodeInvalidValue},
+		{name: "only-layers is empty", dir: "demo", yaml: "name: demo\nesheep-trigger: ok\nesheep-targets: [claude]\nesheep-only-layers: []\n", code: CodeInvalidValue},
+		{name: "only-layers item is number", dir: "demo", yaml: "name: demo\nesheep-trigger: ok\nesheep-targets: [claude]\nesheep-only-layers: [3]\n", code: CodeInvalidValue},
+		{name: "only-layers bad grammar", dir: "demo", yaml: "name: demo\nesheep-trigger: ok\nesheep-targets: [claude]\nesheep-only-layers: [Work]\n", code: CodeInvalidLayer},
+		{name: "only-layers reserved name", dir: "demo", yaml: "name: demo\nesheep-trigger: ok\nesheep-targets: [claude]\nesheep-only-layers: [base]\n", code: CodeInvalidLayer},
+		{name: "only-layers local name", dir: "demo", yaml: "name: demo\nesheep-trigger: ok\nesheep-targets: [claude]\nesheep-only-layers: [local]\n", code: CodeInvalidLayer},
+		{name: "only-layers duplicate", dir: "demo", yaml: "name: demo\nesheep-trigger: ok\nesheep-targets: [claude]\nesheep-only-layers: [work, work]\n", code: CodeInvalidValue},
 		{name: "invalid name", dir: "bad_name", yaml: "name: bad_name\nesheep-trigger: ok\nesheep-targets: [claude]\n", code: CodeInvalidName},
 		{name: "directory mismatch", dir: "other", yaml: "name: demo\nesheep-trigger: ok\nesheep-targets: [claude]\n", code: CodeNameMismatch},
 		{name: "blank trigger", dir: "demo", yaml: "name: demo\nesheep-trigger: '  '\nesheep-targets: [claude]\n", code: CodeRequiredField},
@@ -573,159 +576,181 @@ func TestParseManifestNameClassifiesRootFiles(t *testing.T) {
 	tests := []struct {
 		name        string
 		fileName    string
-		profile     string
+		layer       string
 		ok          bool
 		invalidName bool
 	}{
-		{name: "base", fileName: "SKILL.md", profile: "", ok: true},
-		{name: "variant", fileName: "SKILL.work.md", profile: "work", ok: true},
-		{name: "hyphenated variant", fileName: "SKILL.work-laptop.md", profile: "work-laptop", ok: true},
+		{name: "base", fileName: "SKILL.md", layer: "", ok: true},
+		{name: "variant", fileName: "SKILL.work.md", layer: "work", ok: true},
+		{name: "hyphenated variant", fileName: "SKILL.work-laptop.md", layer: "work-laptop", ok: true},
+		{name: "local variant", fileName: "SKILL.local.md", layer: "local", ok: true},
 		{name: "supporting file", fileName: "notes.work.md", ok: false},
 		{name: "lowercase stem", fileName: "skill.work.md", ok: false},
 		{name: "extra segments", fileName: "SKILL.work.extra.md", ok: false},
-		{name: "uppercase profile", fileName: "SKILL.Work.md", invalidName: true},
-		{name: "empty profile", fileName: "SKILL..md", invalidName: true},
-		{name: "reserved profile", fileName: "SKILL.base.md", invalidName: true},
+		{name: "uppercase layer", fileName: "SKILL.Work.md", invalidName: true},
+		{name: "empty layer", fileName: "SKILL..md", invalidName: true},
+		{name: "reserved layer", fileName: "SKILL.base.md", invalidName: true},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			profile, ok, err := ParseManifestName(test.fileName)
+			layer, ok, err := ParseManifestName(test.fileName)
 			if test.invalidName {
 				if err == nil {
-					t.Fatalf("ParseManifestName(%q) accepted an invalid profile", test.fileName)
+					t.Fatalf("ParseManifestName(%q) accepted an invalid layer", test.fileName)
 				}
 				return
 			}
-			if err != nil || ok != test.ok || profile != test.profile {
-				t.Fatalf("ParseManifestName(%q) = %q, %v, %v, want %q, %v, nil", test.fileName, profile, ok, err, test.profile, test.ok)
+			if err != nil || ok != test.ok || layer != test.layer {
+				t.Fatalf("ParseManifestName(%q) = %q, %v, %v, want %q, %v, nil", test.fileName, layer, ok, err, test.layer, test.ok)
 			}
 		})
 	}
 }
 
-func TestSelectResolvesManifestsAgainstActiveProfiles(t *testing.T) {
+func TestSelectFollowsLayerOrder(t *testing.T) {
 	t.Parallel()
 	base := Manifest{FileName: "SKILL.md"}
-	gatedBase := Manifest{FileName: "SKILL.md", Document: Document{OnlyProfiles: []string{"client"}}}
-	work := Manifest{FileName: "SKILL.work.md", Profile: "work"}
-	client := Manifest{FileName: "SKILL.client.md", Profile: "client"}
+	gatedBase := Manifest{FileName: "SKILL.md", Document: Document{OnlyLayers: []string{"client"}}}
+	work := Manifest{FileName: "SKILL.work.md", Layer: "work"}
+	client := Manifest{FileName: "SKILL.client.md", Layer: "client"}
+	local := Manifest{FileName: "SKILL.local.md", Layer: "local"}
+	narrowedWork := Manifest{FileName: "SKILL.work.md", Layer: "work", Document: Document{OnlyLayers: []string{"laptop"}}}
 	tests := []struct {
 		name      string
 		manifests []Manifest
-		profiles  []string
-		active    bool
+		layers    []string
 		selected  string
-		conflicts []string
 	}{
-		{name: "base applies without profiles", manifests: []Manifest{base}, active: true, selected: "SKILL.md"},
-		{name: "base applies under any profile", manifests: []Manifest{base}, profiles: []string{"work"}, active: true, selected: "SKILL.md"},
-		{name: "gated base inactive", manifests: []Manifest{gatedBase}, profiles: []string{"work"}},
-		{name: "gated base active", manifests: []Manifest{gatedBase}, profiles: []string{"client"}, active: true, selected: "SKILL.md"},
-		{name: "variant inactive without profile", manifests: []Manifest{work}},
-		{name: "variant beats base", manifests: []Manifest{base, work}, profiles: []string{"work"}, active: true, selected: "SKILL.work.md"},
-		{name: "inactive variant leaves base", manifests: []Manifest{base, work}, profiles: []string{"client"}, active: true, selected: "SKILL.md"},
-		{name: "two active variants conflict", manifests: []Manifest{base, client, work}, profiles: []string{"client", "work"}, conflicts: []string{"SKILL.client.md", "SKILL.work.md"}},
-		{name: "frontmatter union activates variant", manifests: []Manifest{{FileName: "SKILL.work.md", Profile: "work", Document: Document{OnlyProfiles: []string{"client"}}}}, profiles: []string{"client"}, active: true, selected: "SKILL.work.md"},
+		{name: "base applies without layers", manifests: []Manifest{base}, selected: "SKILL.md"},
+		{name: "base applies under any layer", manifests: []Manifest{base}, layers: []string{"work"}, selected: "SKILL.md"},
+		{name: "gated base inactive", manifests: []Manifest{gatedBase}, layers: []string{"work"}},
+		{name: "gated base active", manifests: []Manifest{gatedBase}, layers: []string{"client"}, selected: "SKILL.md"},
+		{name: "variant inactive without layer", manifests: []Manifest{work}},
+		{name: "variant beats base", manifests: []Manifest{base, work}, layers: []string{"work"}, selected: "SKILL.work.md"},
+		{name: "inactive variant leaves base", manifests: []Manifest{base, work}, layers: []string{"client"}, selected: "SKILL.md"},
+		{name: "latest effective layer wins", manifests: []Manifest{base, client, work}, layers: []string{"client", "work"}, selected: "SKILL.work.md"},
+		{name: "effective order decides not file order", manifests: []Manifest{base, client, work}, layers: []string{"work", "client"}, selected: "SKILL.client.md"},
+		{name: "local applies without layers", manifests: []Manifest{base, local}, selected: "SKILL.local.md"},
+		{name: "local alone applies", manifests: []Manifest{local}, selected: "SKILL.local.md"},
+		{name: "local wins over effective layers", manifests: []Manifest{base, work, local}, layers: []string{"work"}, selected: "SKILL.local.md"},
+		{name: "gated local inactive", manifests: []Manifest{base, {FileName: "SKILL.local.md", Layer: "local", Document: Document{OnlyLayers: []string{"work"}}}}, selected: "SKILL.md"},
+		{name: "narrowed variant inactive under gate alone", manifests: []Manifest{narrowedWork}, layers: []string{"laptop"}},
+		{name: "narrowed variant inactive under filename layer alone", manifests: []Manifest{narrowedWork}, layers: []string{"work"}},
+		{name: "narrowed variant active under both", manifests: []Manifest{narrowedWork}, layers: []string{"work", "laptop"}, selected: "SKILL.work.md"},
+		{name: "narrowed variant keeps filename position", manifests: []Manifest{narrowedWork, client}, layers: []string{"work", "client", "laptop"}, selected: "SKILL.client.md"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			selection := Package{Manifests: test.manifests}.Select(test.profiles)
-			if selection.Active != test.active {
-				t.Fatalf("Select(%v).Active = %v, want %v", test.profiles, selection.Active, test.active)
+			selection := Package{Manifests: test.manifests}.Select(test.layers)
+			if selection.Active != (test.selected != "") {
+				t.Fatalf("Select(%v).Active = %v, want %v", test.layers, selection.Active, test.selected != "")
 			}
-			if test.active && selection.Manifest.FileName != test.selected {
-				t.Fatalf("Select(%v) selected %q, want %q", test.profiles, selection.Manifest.FileName, test.selected)
-			}
-			if len(selection.Conflicts) != len(test.conflicts) {
-				t.Fatalf("Select(%v).Conflicts = %v, want %v", test.profiles, selection.Conflicts, test.conflicts)
-			}
-			for index := range test.conflicts {
-				if selection.Conflicts[index] != test.conflicts[index] {
-					t.Fatalf("Select(%v).Conflicts = %v, want %v", test.profiles, selection.Conflicts, test.conflicts)
-				}
+			if selection.Manifest.FileName != test.selected {
+				t.Errorf("Select(%v) selected %q, want %q", test.layers, selection.Manifest.FileName, test.selected)
 			}
 		})
 	}
 }
 
-func TestGateAndReferencedProfilesUnionManifestGates(t *testing.T) {
+func TestGateAndReferencedLayersUnionManifestGates(t *testing.T) {
 	t.Parallel()
 	universal := Package{Manifests: []Manifest{
 		{FileName: "SKILL.md"},
-		{FileName: "SKILL.work.md", Profile: "work"},
+		{FileName: "SKILL.work.md", Layer: "work"},
 	}}
 	gated := Package{Manifests: []Manifest{
-		{FileName: "SKILL.md", Document: Document{OnlyProfiles: []string{"client"}}},
-		{FileName: "SKILL.work.md", Profile: "work"},
+		{FileName: "SKILL.md", Document: Document{OnlyLayers: []string{"client"}}},
+		{FileName: "SKILL.work.md", Layer: "work"},
 	}}
 	invalid := Package{Manifests: []Manifest{
-		{FileName: "SKILL.md", Document: Document{OnlyProfiles: []string{"Work", "client"}}},
+		{FileName: "SKILL.md", Document: Document{OnlyLayers: []string{"Work", "client"}}},
+	}}
+	localOnly := Package{Manifests: []Manifest{
+		{FileName: "SKILL.local.md", Layer: "local"},
+	}}
+	localGated := Package{Manifests: []Manifest{
+		{FileName: "SKILL.local.md", Layer: "local", Document: Document{OnlyLayers: []string{"work"}}},
+	}}
+	narrowed := Package{Manifests: []Manifest{
+		{FileName: "SKILL.work.md", Layer: "work", Document: Document{OnlyLayers: []string{"laptop"}}},
 	}}
 
 	if gate := universal.Gate(); gate != nil {
-		t.Fatalf("universal Gate() = %v, want nil", gate)
+		t.Errorf("universal Gate() = %v, want nil", gate)
 	}
-	if referenced := universal.ReferencedProfiles(); len(referenced) != 1 || referenced[0] != "work" {
-		t.Fatalf("universal ReferencedProfiles() = %v, want [work]", referenced)
+	if referenced := universal.ReferencedLayers(); len(referenced) != 1 || referenced[0] != "work" {
+		t.Errorf("universal ReferencedLayers() = %v, want [work]", referenced)
 	}
 	gate := gated.Gate()
 	if len(gate) != 2 || gate[0] != "client" || gate[1] != "work" {
-		t.Fatalf("gated Gate() = %v, want [client work]", gate)
+		t.Errorf("gated Gate() = %v, want [client work]", gate)
 	}
-	if referenced := invalid.ReferencedProfiles(); len(referenced) != 1 || referenced[0] != "client" {
-		t.Fatalf("invalid ReferencedProfiles() = %v, want [client]", referenced)
+	if referenced := invalid.ReferencedLayers(); len(referenced) != 1 || referenced[0] != "client" {
+		t.Errorf("invalid ReferencedLayers() = %v, want [client]", referenced)
+	}
+	if gate := localOnly.Gate(); gate != nil {
+		t.Errorf("local-only Gate() = %v, want nil", gate)
+	}
+	if referenced := localOnly.ReferencedLayers(); referenced != nil {
+		t.Errorf("local-only ReferencedLayers() = %v, want nil", referenced)
+	}
+	if gate := localGated.Gate(); len(gate) != 1 || gate[0] != "work" {
+		t.Errorf("local gated Gate() = %v, want [work]", gate)
+	}
+	if gate := narrowed.Gate(); !reflect.DeepEqual(gate, []string{"laptop", "work"}) {
+		t.Errorf("narrowed Gate() = %v, want [laptop work]", gate)
 	}
 }
 
-func TestReferencedProfilesIncludeTargetGates(t *testing.T) {
+func TestReferencedLayersIncludeTargetGates(t *testing.T) {
 	t.Parallel()
 	source := Package{Manifests: []Manifest{{
 		FileName: "SKILL.md",
 		Document: Document{Targets: Targets{
-			Claude: TargetOptions{Listed: true, OnlyProfiles: []string{"work", "Bad"}},
+			Claude: TargetOptions{Listed: true, OnlyLayers: []string{"work", "Bad"}},
 			Pi:     TargetOptions{Listed: true},
 		}},
 	}}}
 
-	referenced := source.ReferencedProfiles()
+	referenced := source.ReferencedLayers()
 
 	if len(referenced) != 1 || referenced[0] != "work" {
-		t.Fatalf("ReferencedProfiles() = %v, want [work]", referenced)
+		t.Fatalf("ReferencedLayers() = %v, want [work]", referenced)
 	}
 	if gate := source.Gate(); gate != nil {
 		t.Fatalf("Gate() = %v, want nil for an ungated manifest", gate)
 	}
 }
 
-func TestTargetOptionsAppliesHonorsProfileGate(t *testing.T) {
+func TestTargetOptionsAppliesHonorsLayerGate(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name     string
-		options  TargetOptions
-		profiles []string
-		want     bool
+		name    string
+		options TargetOptions
+		layers  []string
+		want    bool
 	}{
-		{name: "unlisted never applies", options: TargetOptions{}, profiles: []string{"work"}, want: false},
-		{name: "ungated applies without profiles", options: TargetOptions{Listed: true}, want: true},
-		{name: "ungated applies under any profile", options: TargetOptions{Listed: true}, profiles: []string{"personal"}, want: true},
-		{name: "gated needs a matching profile", options: TargetOptions{Listed: true, OnlyProfiles: []string{"work"}}, want: false},
-		{name: "gated rejects other profiles", options: TargetOptions{Listed: true, OnlyProfiles: []string{"work"}}, profiles: []string{"personal"}, want: false},
-		{name: "gated matches an active profile", options: TargetOptions{Listed: true, OnlyProfiles: []string{"work"}}, profiles: []string{"work"}, want: true},
-		{name: "any active profile matches", options: TargetOptions{Listed: true, OnlyProfiles: []string{"work", "client"}}, profiles: []string{"client"}, want: true},
+		{name: "unlisted never applies", options: TargetOptions{}, layers: []string{"work"}, want: false},
+		{name: "ungated applies without layers", options: TargetOptions{Listed: true}, want: true},
+		{name: "ungated applies under any layer", options: TargetOptions{Listed: true}, layers: []string{"personal"}, want: true},
+		{name: "gated needs a matching layer", options: TargetOptions{Listed: true, OnlyLayers: []string{"work"}}, want: false},
+		{name: "gated rejects other layers", options: TargetOptions{Listed: true, OnlyLayers: []string{"work"}}, layers: []string{"personal"}, want: false},
+		{name: "gated matches an active layer", options: TargetOptions{Listed: true, OnlyLayers: []string{"work"}}, layers: []string{"work"}, want: true},
+		{name: "any active layer matches", options: TargetOptions{Listed: true, OnlyLayers: []string{"work", "client"}}, layers: []string{"client"}, want: true},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			if got := test.options.Applies(test.profiles); got != test.want {
-				t.Fatalf("Applies(%v) = %v, want %v", test.profiles, got, test.want)
+			if got := test.options.Applies(test.layers); got != test.want {
+				t.Fatalf("Applies(%v) = %v, want %v", test.layers, got, test.want)
 			}
 		})
 	}
 }
 
-func TestLoadReadsProfileVariantManifests(t *testing.T) {
+func TestLoadReadsLayerVariantManifests(t *testing.T) {
 	t.Parallel()
 	root := filepath.Join(t.TempDir(), "demo")
 	if err := os.Mkdir(root, 0o755); err != nil {
@@ -737,8 +762,10 @@ func TestLoadReadsProfileVariantManifests(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	writeManifest("SKILL.md", "base")
+	writeManifest("SKILL.local.md", "local variant")
 	writeManifest("SKILL.work.md", "work variant")
+	writeManifest("SKILL.client.md", "client variant")
+	writeManifest("SKILL.md", "base")
 	if err := os.WriteFile(filepath.Join(root, "reference.md"), []byte("data"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -748,21 +775,21 @@ func TestLoadReadsProfileVariantManifests(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(loaded.Manifests) != 2 {
-		t.Fatalf("manifests = %#v, want base and work", loaded.Manifests)
+	var order []string
+	for _, manifest := range loaded.Manifests {
+		order = append(order, manifest.FileName+":"+manifest.Layer)
 	}
-	if loaded.Manifests[0].FileName != "SKILL.md" || loaded.Manifests[0].Profile != "" {
-		t.Fatalf("first manifest = %#v, want base first", loaded.Manifests[0])
+	want := []string{"SKILL.md:", "SKILL.client.md:client", "SKILL.work.md:work", "SKILL.local.md:local"}
+	if !reflect.DeepEqual(order, want) {
+		t.Fatalf("manifest order = %v, want %v", order, want)
 	}
-	if loaded.Manifests[1].FileName != "SKILL.work.md" || loaded.Manifests[1].Profile != "work" {
-		t.Fatalf("second manifest = %#v, want the work variant", loaded.Manifests[1])
-	}
+
 	if len(loaded.Files) != 1 || loaded.Files[0].Path != "reference.md" {
 		t.Fatalf("files = %#v, want only reference.md", loaded.Files)
 	}
 }
 
-func TestLoadRejectsInvalidVariantProfileSegment(t *testing.T) {
+func TestLoadRejectsInvalidVariantLayerSegment(t *testing.T) {
 	t.Parallel()
 	root := filepath.Join(t.TempDir(), "demo")
 	if err := os.Mkdir(root, 0o755); err != nil {
@@ -775,7 +802,7 @@ func TestLoadRejectsInvalidVariantProfileSegment(t *testing.T) {
 	_, err := Load(root)
 
 	diagnostics := ErrorDiagnostics(err)
-	if len(diagnostics) != 1 || diagnostics[0].Code != CodeInvalidProfile || diagnostics[0].Path != "SKILL.Work.md" {
+	if len(diagnostics) != 1 || diagnostics[0].Code != CodeInvalidLayer || diagnostics[0].Path != "SKILL.Work.md" {
 		t.Fatalf("diagnostics = %#v", diagnostics)
 	}
 }

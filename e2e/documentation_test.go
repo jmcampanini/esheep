@@ -30,7 +30,7 @@ func TestDocumentedCommandsMatchBinaryHelp(t *testing.T) {
 		{documentation: "esheep config", help: rootHelp.stdout, name: "config"},
 		{documentation: "esheep doctor", help: rootHelp.stdout, name: "doctor"},
 		{documentation: "esheep memory record", help: memoryHelp.stdout, name: "record"},
-		{documentation: "esheep profiles", help: rootHelp.stdout, name: "profiles"},
+		{documentation: "esheep layers", help: rootHelp.stdout, name: "layers"},
 		{documentation: "esheep sessions list", help: sessionsHelp.stdout, name: "list"},
 		{documentation: "esheep sessions query", help: sessionsHelp.stdout, name: "query"},
 		{documentation: "esheep sessions search", help: sessionsHelp.stdout, name: "search"},

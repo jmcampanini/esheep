@@ -13,13 +13,14 @@ import (
 func TestParseName(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name        string
-		wantProfile string
-		wantOK      bool
-		wantErr     bool
+		name      string
+		wantLayer string
+		wantOK    bool
+		wantErr   bool
 	}{
-		{name: "AGENTS.md", wantProfile: "", wantOK: true},
-		{name: "AGENTS.work.md", wantProfile: "work", wantOK: true},
+		{name: "AGENTS.md", wantLayer: "", wantOK: true},
+		{name: "AGENTS.work.md", wantLayer: "work", wantOK: true},
+		{name: "AGENTS.local.md", wantLayer: "local", wantOK: true},
 		{name: "AGENTS.Bad.md", wantErr: true},
 		{name: "AGENTS.base.md", wantErr: true},
 		{name: "AGENTS.md.bak", wantOK: false},
@@ -29,9 +30,9 @@ func TestParseName(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			profile, ok, err := ParseName(test.name)
-			if (err != nil) != test.wantErr || ok != test.wantOK || profile != test.wantProfile {
-				t.Fatalf("ParseName(%q) = %q, %t, %v, want %q, %t, error=%t", test.name, profile, ok, err, test.wantProfile, test.wantOK, test.wantErr)
+			layer, ok, err := ParseName(test.name)
+			if (err != nil) != test.wantErr || ok != test.wantOK || layer != test.wantLayer {
+				t.Fatalf("ParseName(%q) = %q, %t, %v, want %q, %t, error=%t", test.name, layer, ok, err, test.wantLayer, test.wantOK, test.wantErr)
 			}
 		})
 	}
@@ -52,8 +53,8 @@ func TestDiscoverFindsAgentsFilesAndReportsInvalidNames(t *testing.T) {
 	candidates, diagnostics := Discover([]Source{{Name: "first", Path: first}, {Name: "second", Path: second}})
 
 	want := []Candidate{
-		{Path: filepath.Join(first, DirName, "AGENTS.md"), Profile: "", Source: "first"},
-		{Path: filepath.Join(first, DirName, "AGENTS.work.md"), Profile: "work", Source: "first"},
+		{Path: filepath.Join(first, DirName, "AGENTS.md"), Layer: "", Source: "first"},
+		{Path: filepath.Join(first, DirName, "AGENTS.work.md"), Layer: "work", Source: "first"},
 	}
 	if !reflect.DeepEqual(candidates, want) {
 		t.Fatalf("Discover candidates = %#v, want %#v", candidates, want)
@@ -155,37 +156,43 @@ func TestDiscoverFollowsResolvableSymlinks(t *testing.T) {
 
 	candidates, diagnostics := Discover([]Source{{Name: "source", Path: source}})
 
-	if len(diagnostics) != 0 || len(candidates) != 1 || candidates[0].Profile != "" {
+	if len(diagnostics) != 0 || len(candidates) != 1 || candidates[0].Layer != "" {
 		t.Fatalf("Discover = %#v, %#v, want the linked candidate", candidates, diagnostics)
 	}
 }
 
-func TestSelectWalksProfilesThenBaseWithUniquenessPerTier(t *testing.T) {
+func TestSelectTakesLastTierInLayerOrderWithUniquenessPerTier(t *testing.T) {
 	t.Parallel()
 	base := Candidate{Path: "/one/AGENTS.md", Source: "one"}
-	work := Candidate{Path: "/one/AGENTS.work.md", Profile: "work", Source: "one"}
-	client := Candidate{Path: "/two/AGENTS.client.md", Profile: "client", Source: "two"}
-	duplicate := Candidate{Path: "/two/AGENTS.work.md", Profile: "work", Source: "two"}
+	work := Candidate{Path: "/one/AGENTS.work.md", Layer: "work", Source: "one"}
+	client := Candidate{Path: "/two/AGENTS.client.md", Layer: "client", Source: "two"}
+	local := Candidate{Path: "/two/AGENTS.local.md", Layer: "local", Source: "two"}
+	duplicate := Candidate{Path: "/two/AGENTS.work.md", Layer: "work", Source: "two"}
 	tests := []struct {
 		name       string
 		candidates []Candidate
-		profiles   []string
+		layers     []string
 		want       Candidate
 		wantFound  bool
 		wantErr    bool
 	}{
 		{name: "no candidates", wantFound: false},
 		{name: "base only", candidates: []Candidate{base}, want: base, wantFound: true},
-		{name: "first active profile wins", candidates: []Candidate{base, work, client}, profiles: []string{"work", "client"}, want: work, wantFound: true},
-		{name: "empty tier falls through", candidates: []Candidate{base, client}, profiles: []string{"work", "client"}, want: client, wantFound: true},
-		{name: "all tiers empty falls to base", candidates: []Candidate{base}, profiles: []string{"work"}, want: base, wantFound: true},
+		{name: "last effective layer wins", candidates: []Candidate{base, work, client}, layers: []string{"work", "client"}, want: client, wantFound: true},
+		{name: "effective order decides not file order", candidates: []Candidate{base, work, client}, layers: []string{"client", "work"}, want: work, wantFound: true},
+		{name: "empty later tier keeps earlier winner", candidates: []Candidate{base, work}, layers: []string{"work", "client"}, want: work, wantFound: true},
+		{name: "all effective tiers empty falls to base", candidates: []Candidate{base}, layers: []string{"work"}, want: base, wantFound: true},
 		{name: "inactive variant never matches", candidates: []Candidate{work}, wantFound: false},
-		{name: "duplicate tier is an error", candidates: []Candidate{work, duplicate, base}, profiles: []string{"work"}, wantErr: true},
-		{name: "duplicate base is an error", candidates: []Candidate{base, {Path: "/two/AGENTS.md", Source: "two"}}, wantErr: true},
+		{name: "local applies without layers", candidates: []Candidate{base, local}, want: local, wantFound: true},
+		{name: "local wins over effective layers", candidates: []Candidate{base, work, local}, layers: []string{"work"}, want: local, wantFound: true},
+		{name: "duplicate tier is an error", candidates: []Candidate{work, duplicate, base}, layers: []string{"work"}, wantErr: true},
+		{name: "duplicate tier is an error when a later tier would win", candidates: []Candidate{work, duplicate, client}, layers: []string{"work", "client"}, wantErr: true},
+		{name: "duplicate base is an error when local would win", candidates: []Candidate{base, {Path: "/two/AGENTS.md", Source: "two"}, local}, wantErr: true},
+		{name: "duplicate inactive tier is ignored", candidates: []Candidate{work, duplicate, base}, want: base, wantFound: true},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			selection, err := Select(test.candidates, test.profiles)
+			selection, err := Select(test.candidates, test.layers)
 			if (err != nil) != test.wantErr {
 				t.Fatalf("Select() error = %v, want error=%t", err, test.wantErr)
 			}

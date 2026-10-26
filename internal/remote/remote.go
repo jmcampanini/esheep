@@ -101,7 +101,7 @@ func (n Names) Select(machines []config.ResolvedMachine, hostname string) (Selec
 		return selection, []session.Diagnostic{{
 			Code:    CodeNoMachines,
 			Machine: selection.LocalName,
-			Message: "--remote all selected no other machine; add [[machines]] entries to esheep.toml",
+			Message: "--remote all selected no other machine; add [[machines]] entries to config.toml",
 		}}, nil
 	}
 

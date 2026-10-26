@@ -15,7 +15,7 @@ func newExitCodesTopic() *cobra.Command {
      output prevented a valid command from succeeding. 'sync' exits 1 when
      its final report contains failures after unrelated work is attempted.
      'skills status' exits 1 whenever deployment health is not proven.
-     'skills list' and 'profiles' exit 1 only when discovery is incomplete.
+     'skills list' and 'layers' exit 1 only when discovery is incomplete.
      'doctor' exits 1 when any environment check fails.
      'memory record' exits 1 when no session can be derived or the
      project lookup or append fails.

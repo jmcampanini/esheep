@@ -14,10 +14,10 @@ func newSkillFormatTopic() *cobra.Command {
 		Long: fmt.Sprintf(`Each source is a read-only container: skills are the immediate child
 directories of its skills/ directory that contain a manifest, and an
 optional global agents file lives in the sibling agents-md/ directory as
-AGENTS.md or a profile variant AGENTS.<profile>.md. A container may
-provide skills, an agents file, or both; a container without a skills/
-directory provides no skills, and one without an agents-md/ directory
-provides no agents file. Container-root files, including a
+AGENTS.md, a layer variant AGENTS.<layer>.md, or AGENTS.local.md. A
+container may provide skills, an agents file, or both; a container without
+a skills/ directory provides no skills, and one without an agents-md/
+directory provides no agents file. Container-root files, including a
 repository-local AGENTS.md, are ignored: only agents-md/ holds managed
 instruction files. Skill discovery skips immediate children of skills/
 whose names start with '.' or equal node_modules.
@@ -47,18 +47,25 @@ The entire selected agents file uses the same variable language as skill
 bodies, including text that resembles frontmatter. Agents files have no
 interpreted frontmatter. Content outside substitutions stays byte-identical.
 An empty rendered agents file is legal and is installed. Variants share the
-profile grammar of SKILL.<profile>.md below, and any other agents-md/ file
-of the form AGENTS.<segment>.md is an error.
+layer grammar and layer order of SKILL.<layer>.md below, and any other
+agents-md/ file of the form AGENTS.<segment>.md is an error.
 
-Manifests are SKILL.md and profile variants named SKILL.<profile>.md, where
-<profile> is 1-64 characters of lowercase alphanumeric words separated by
-single hyphens; base and local are reserved names. Any other root file of
-the form SKILL.<segment>.md is an error. SKILL.md applies under every
-profile unless esheep-only-profiles narrows it; SKILL.<profile>.md applies
-only under its filename profile unioned with esheep-only-profiles. Under
-the active profiles, an applying profile variant overrides SKILL.md, and
-two applying variants are a conflict that blocks synchronization. The
-selected manifest always renders as SKILL.md.
+Manifests are SKILL.md, layer variants named SKILL.<layer>.md, and the
+automatic local variant SKILL.local.md, where <layer> is 1-64 characters
+of lowercase alphanumeric words separated by single hyphens. SKILL.md is
+the base layer, so SKILL.base.md is an error, as is any other root file of
+the form SKILL.<segment>.md with an invalid segment. The layer order is
+base, the effective layers in their configured order, then local. A
+manifest applies when its layer is in that order and its
+esheep-only-layers gate is empty or names an effective layer: an ungated
+SKILL.md or SKILL.local.md applies even with no effective layers, and
+SKILL.<layer>.md applies only while its filename layer is effective. The
+gate narrows a manifest and never widens or reorders it; SKILL.work.md
+gated to [laptop] applies only when work and laptop are both effective
+and keeps work's position in the order. Among the applying manifests, the
+one from the latest layer in the order is selected, so SKILL.local.md
+overrides every other manifest whenever it applies. The selected manifest
+always renders as SKILL.md.
 
 A manifest is YAML frontmatter followed by a Markdown body preserved
 byte-for-byte except esheep variables, described below. Frontmatter fields
@@ -82,27 +89,29 @@ Interpreted fields:
   esheep-disabled           Optional boolean, default false. When true on
                             the selected manifest, prevents installation
                             on every target.
-  esheep-only-profiles      Optional nonempty list of profile names. Limits
-                            the manifest to the named profiles.
+  esheep-only-layers        Optional nonempty list of layer names. Limits
+                            the manifest to selections where at least one
+                            named layer is effective; base and local are
+                            not accepted.
   esheep-targets            Required nonempty list naming where the skill
                             installs: claude, pi, codex. Each entry is a
                             target name, or a single-pair mapping from a
-                            target name to a nonempty list of profile
+                            target name to a nonempty list of layer
                             names that limits that target to those
-                            profiles. Unlisted targets and targets whose
-                            profile list matches no active profile are not
+                            layers. Unlisted targets and targets whose
+                            layer list names no effective layer are not
                             installed.
 
-esheep-disabled applies only after profile selection. A profile variant
+esheep-disabled applies only after layer selection. A layer variant
 does not inherit the base SKILL.md flag, and a selected disabled variant
 does not fall back to SKILL.md. Remove the flag or set it to false to
-re-enable that manifest subject to its target and profile gates.
+re-enable that manifest subject to its target and layer gates.
 Disabling preserves discovery and validation, including required fields,
-supporting files, name collisions, and profile conflicts. Includes are not
-expanded for a disabled manifest.
+supporting files, and name collisions. Includes are not expanded for a
+disabled manifest.
 
 List and status report disabled readiness for a valid selected disabled
-manifest; invalid, collision, and conflict take precedence. On the next
+manifest; invalid and collision take precedence. On the next
 sync, previously managed copies are pruned from enabled targets using the
 normal ownership protections. Disabled targets remain untouched. Status
 treats disabled as healthy without checking whether an individual copy
@@ -110,7 +119,7 @@ still exists; sync performs removal. Unlike esheep-disabled,
 disable-model-invocation still installs the skill.
 
 The top-level description field is reserved case-insensitively for rendered
-output and is an error in every source manifest, including profile variants.
+output and is an error in every source manifest, including layer variants.
 The esheep- key prefix is reserved. Interpreted esheep- keys are never
 emitted under their source names; any other esheep- key is an error.
 Every other top-level field passes through unchanged, preserved in source
@@ -119,15 +128,15 @@ passed-through field carries only the meaning the receiving harness gives
 it.
 
 The {{esheep. text is reserved everywhere in manifest bodies, entire managed
-AGENTS.md and AGENTS.<profile>.md files, and included files: every occurrence
-must be exactly a known variable, a known variable must occupy its own line
-without indentation, and there is no escape syntax. Anything else fails
-validation. Rendering substitutes each variable with its value, preserving
-all other bytes, including surrounding line endings. Included files are
-text without interpreted frontmatter. Skill frontmatter and copied
-supporting files are never substituted. When a variable or an included file
-changes rendered output, that target's installation drifts and the next sync
-repairs it. Unused include files do not affect installed output.
+agents files, and included files: every occurrence must be exactly a known
+variable, a known variable must occupy its own line without indentation,
+and there is no escape syntax. Anything else fails validation. Rendering
+substitutes each variable with its value, preserving all other bytes,
+including surrounding line endings. Included files are text without
+interpreted frontmatter. Skill frontmatter and copied supporting files are
+never substituted. When a variable or an included file changes rendered
+output, that target's installation drifts and the next sync repairs it.
+Unused include files do not affect installed output.
 
 Variables for skill bodies and agents files:
 

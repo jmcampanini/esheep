@@ -70,14 +70,14 @@ func TestDisabledFlagBelongsToSelectedManifest(t *testing.T) {
 	tests := []struct {
 		baseFields    string
 		name          string
-		profiles      []string
+		layers        []string
 		readiness     Readiness
 		trigger       string
 		variantFields string
 	}{
 		{name: "disabled base selected", baseFields: "esheep-disabled: true\n", readiness: ReadinessDisabled, trigger: "Base"},
-		{name: "variant does not inherit", baseFields: "esheep-disabled: true\n", profiles: []string{"work"}, readiness: ReadinessReady, trigger: "Work"},
-		{name: "disabled variant does not fall back", variantFields: "esheep-disabled: true\n", profiles: []string{"work"}, readiness: ReadinessDisabled, trigger: "Work"},
+		{name: "variant does not inherit", baseFields: "esheep-disabled: true\n", layers: []string{"work"}, readiness: ReadinessReady, trigger: "Work"},
+		{name: "disabled variant does not fall back", variantFields: "esheep-disabled: true\n", layers: []string{"work"}, readiness: ReadinessDisabled, trigger: "Work"},
 		{name: "unselected disabled variant", variantFields: "esheep-disabled: true\n", readiness: ReadinessReady, trigger: "Base"},
 	}
 	for _, test := range tests {
@@ -96,7 +96,7 @@ func TestDisabledFlagBelongsToSelectedManifest(t *testing.T) {
 			loaded := testConfig(source, "", claude, filepath.Join(root, "pi"), filepath.Join(root, "codex"))
 			loaded.ResolvedSources = []config.ResolvedSource{{Name: "source", Path: source}}
 			loaded.Config.Targets.Pi.Enabled = false
-			loaded.EffectiveProfiles = test.profiles
+			loaded.EffectiveLayers = test.layers
 
 			report := Sync(t.Context(), loaded)
 			known := findKnownSkill(t, List(t.Context(), loaded), "source", "demo")
@@ -132,13 +132,6 @@ func TestDisabledSkillPreservesSourceFailureProtections(t *testing.T) {
 				t.Fatal(err)
 			}
 		}},
-		{name: "profile conflict", readiness: ReadinessConflict, setup: func(t *testing.T, source string) {
-			root := filepath.Join(source, "skills", "demo")
-			if err := os.Rename(filepath.Join(root, "SKILL.md"), filepath.Join(root, "SKILL.work.md")); err != nil {
-				t.Fatal(err)
-			}
-			writeVariantManifest(t, source, "demo", "client", "Client")
-		}},
 		{name: "name collision", readiness: ReadinessCollision, setup: func(t *testing.T, source string) {
 			writeSourceSkill(t, source+"-second", "demo", "Duplicate", "")
 		}},
@@ -157,7 +150,7 @@ func TestDisabledSkillPreservesSourceFailureProtections(t *testing.T) {
 			writeOwnedSkill(t, claude, install.Marker{Source: "first", Skill: "demo", Target: render.TargetClaude})
 			loaded := testConfig(source, source+"-second", claude, filepath.Join(root, "pi"), filepath.Join(root, "codex"))
 			loaded.Config.Targets.Pi.Enabled = false
-			loaded.EffectiveProfiles = []string{"work", "client"}
+			loaded.EffectiveLayers = []string{"work", "client"}
 
 			report := Sync(t.Context(), loaded)
 			status := Status(t.Context(), loaded)

@@ -303,7 +303,7 @@ func TestDiscoverReportsPresentInvalidManifests(t *testing.T) {
 	}
 }
 
-func TestDiscoverRecognizesProfileVariantManifests(t *testing.T) {
+func TestDiscoverRecognizesLayerVariantManifests(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	variantOnly := filepath.Join(root, "skills", "variant-only")
@@ -340,10 +340,10 @@ func TestDiscoverRecognizesProfileVariantManifests(t *testing.T) {
 			t.Fatalf("unexpected candidate %q", candidate.Location.RelativePath)
 		}
 	}
-	if !variantCandidate.Valid() || variantCandidate.Package.Manifests[0].Profile != "work" {
+	if !variantCandidate.Valid() || variantCandidate.Package.Manifests[0].Layer != "work" {
 		t.Fatalf("variant candidate = %#v", variantCandidate)
 	}
-	if invalidCandidate.Valid() || countSkillCode(invalidCandidate.Diagnostics, skill.CodeInvalidProfile) != 1 {
+	if invalidCandidate.Valid() || countSkillCode(invalidCandidate.Diagnostics, skill.CodeInvalidLayer) != 1 {
 		t.Fatalf("invalid candidate diagnostics = %#v", invalidCandidate.Diagnostics)
 	}
 }

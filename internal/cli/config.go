@@ -25,7 +25,7 @@ to override a path. Omitted settings retain these defaults:
   codex   ~/.agents/skills      ~/.codex/AGENTS.md
 
 The output includes all effective settings, including defaults, so it
-contains more than you need to put in esheep.toml.
+contains more than you need to put in config.toml.
 
 [memory].path is the root 'memory record' appends under. It defaults to
 $XDG_DATA_HOME/esheep/memory when XDG_DATA_HOME is set, otherwise
@@ -65,7 +65,7 @@ agents_md_path values must be distinct, non-symlink file paths outside every
 source root and enabled skills path, and may not be the settings file, an
 existing non-regular file, '/', or the home directory.
 
-The command reads but never creates or modifies esheep.toml, works before
+The command reads but never creates or modifies config.toml, works before
 any source directory exists, and fails before any skill or target
 processing when configuration is invalid.`,
 		Args: cobra.NoArgs,
@@ -92,13 +92,17 @@ func redactConfig(loaded config.LoadResult) config.LoadResult {
 const configResolutionHelp = `Settings load in this order, with later sources taking precedence: built-in
 target, session, and memory defaults (CODEX_HOME supplies the Codex session
 home default and XDG_DATA_HOME the memory root default when set);
-$XDG_CONFIG_HOME/esheep/esheep.toml, or
-$HOME/.config/esheep/esheep.toml; ESHEEP_PROFILES, ESHEEP_<TARGET>_ENABLED,
-ESHEEP_<TARGET>_SKILLS_PATH, ESHEEP_<TARGET>_AGENTS_MD_PATH,
-ESHEEP_CLAUDE_SESSIONS_PATH, ESHEEP_CLAUDE_COWORK_SESSIONS_PATH,
-ESHEEP_PI_SESSIONS_PATH, ESHEEP_CODEX_HOME, and ESHEEP_MEMORY_PATH
-variables; then the profile, target, session, and memory flags.
---config PATH replaces automatic discovery and requires a
-loadable file. Source directories and env_profiles are configured only in
-the TOML file; every environment variable named by env_profiles appends its
-comma-separated profiles to the effective list.`
+$XDG_CONFIG_HOME/esheep/config.toml, or $HOME/.config/esheep/config.toml
+when XDG_CONFIG_HOME is unset, empty, or not an absolute path;
+ESHEEP_LAYERS, ESHEEP_<TARGET>_ENABLED, ESHEEP_<TARGET>_SKILLS_PATH,
+ESHEEP_<TARGET>_AGENTS_MD_PATH, ESHEEP_CLAUDE_SESSIONS_PATH,
+ESHEEP_CLAUDE_COWORK_SESSIONS_PATH, ESHEEP_PI_SESSIONS_PATH,
+ESHEEP_CODEX_HOME, and ESHEEP_MEMORY_PATH variables; then the --layers,
+--layer, target, session, and memory flags. A higher-precedence layers
+value replaces the lower one rather than appending to it, and an empty
+value such as --layers "" clears it. --config PATH replaces automatic
+discovery and requires a loadable file. Source directories and env_layers
+are configured only in the TOML file; every environment variable named by
+env_layers appends its comma-separated layers after the layers setting,
+whatever supplied or cleared it. 'esheep layers --help' describes
+deduplication and the automatic base and local layers.`

@@ -56,10 +56,10 @@ func TestSyncHarnessIncludesPreservesIdentityAndTracksTargetDrift(t *testing.T) 
 		t.Fatalf("status after repair = %#v", status)
 	}
 
-	loaded.EffectiveProfiles = nil
+	loaded.EffectiveLayers = nil
 	report = Sync(t.Context(), loaded)
 	if report.Summary.Pruned != 2 || report.Summary.Failed != 0 {
-		t.Fatalf("inactive personal profile summary = %#v", report.Summary)
+		t.Fatalf("inactive personal layer summary = %#v", report.Summary)
 	}
 	for _, root := range []string{loaded.ResolvedTargets.Pi.Skills, loaded.ResolvedTargets.Codex.Skills} {
 		if _, err := os.Stat(filepath.Join(root, "fable-review")); !errors.Is(err, os.ErrNotExist) {
@@ -215,7 +215,7 @@ func personalIncludeConfig(t *testing.T) (config.LoadResult, string) {
 	loaded := testConfig(source, "", filepath.Join(root, "claude"), filepath.Join(root, "pi"), filepath.Join(root, "codex"))
 	loaded.Config.Targets.Codex.Enabled = true
 	loaded.ResolvedSources = []config.ResolvedSource{{Name: "source", Path: source}}
-	loaded.EffectiveProfiles = []string{"personal"}
+	loaded.EffectiveLayers = []string{"personal"}
 	return loaded, skillRoot
 }
 

@@ -32,7 +32,7 @@ const (
 	CodeNameMismatch    Code = "name-mismatch"
 	CodeInvalidValue    Code = "invalid-value"
 	CodeInvalidVariable Code = "invalid-variable"
-	CodeInvalidProfile  Code = "invalid-profile"
+	CodeInvalidLayer    Code = "invalid-layer"
 	CodeReservedPath    Code = "reserved-path"
 	CodePathCollision   Code = "path-collision"
 	CodeUnsupportedFile Code = "unsupported-file"
@@ -75,18 +75,14 @@ func (e *ValidationError) Unwrap() []error {
 // TargetOptions contains the declarative esheep-targets settings for one
 // render target.
 type TargetOptions struct {
-	Listed       bool
-	OnlyProfiles []string
+	Listed     bool
+	OnlyLayers []string
 }
 
 // Applies reports whether the target is listed in esheep-targets and its
-// profile gate matches the active profiles. An empty gate matches every
-// profile.
-func (options TargetOptions) Applies(profiles []string) bool {
-	if !options.Listed {
-		return false
-	}
-	return len(options.OnlyProfiles) == 0 || intersects(options.OnlyProfiles, profiles)
+// layer gate is empty or names an effective layer.
+func (options TargetOptions) Applies(layers []string) bool {
+	return options.Listed && gateApplies(options.OnlyLayers, layers)
 }
 
 // Targets contains settings for every supported target.
@@ -128,7 +124,7 @@ type Document struct {
 	Metadata               map[string]string
 	DisableModelInvocation bool
 	Disabled               bool
-	OnlyProfiles           []string
+	OnlyLayers             []string
 	Extra                  []ExtraField
 	Targets                Targets
 	Body                   []byte
@@ -142,7 +138,7 @@ type File struct {
 // Manifest is one parsed manifest file within a skill directory.
 type Manifest struct {
 	FileName string
-	Profile  string
+	Layer    string
 	Document Document
 }
 
@@ -154,52 +150,35 @@ type Package struct {
 	Files       []File
 }
 
-// Selection describes which manifest applies under the active profiles.
+// Selection describes which manifest applies under the effective layers.
 type Selection struct {
-	Active    bool
-	Manifest  Manifest
-	Conflicts []string
+	Active   bool
+	Manifest Manifest
 }
 
-// Select resolves which manifest applies under the active profiles. A manifest
-// applies when its gate is empty or names an active profile. Specific beats
-// base: an active profile variant overrides SKILL.md, and two active variants
-// are a conflict.
-func (source Package) Select(profiles []string) Selection {
-	var base Manifest
-	var hasBase bool
-	var variants []Manifest
-	for _, manifest := range source.Manifests {
-		gate := manifestGate(manifest)
-		if len(gate) != 0 && !intersects(gate, profiles) {
-			continue
+// Select resolves which manifest applies under the effective layers. The
+// layer order is base, the effective layers in order, then local. A manifest
+// applies when its filename layer is in that order and its esheep-only-layers
+// gate is empty or names an effective layer; the manifest of the latest
+// applying layer is selected.
+func (source Package) Select(layers []string) Selection {
+	var selection Selection
+	for _, layer := range naming.LayerOrder(layers) {
+		for _, manifest := range source.Manifests {
+			if manifest.Layer != layer || !gateApplies(manifest.Document.OnlyLayers, layers) {
+				continue
+			}
+			selection = Selection{Active: true, Manifest: manifest}
 		}
-		if manifest.Profile == "" {
-			base = manifest
-			hasBase = true
-			continue
-		}
-		variants = append(variants, manifest)
 	}
-
-	if len(variants) > 1 {
-		conflicts := make([]string, 0, len(variants))
-		for _, variant := range variants {
-			conflicts = append(conflicts, variant.FileName)
-		}
-		return Selection{Conflicts: conflicts}
-	}
-	if len(variants) == 1 {
-		return Selection{Active: true, Manifest: variants[0]}
-	}
-	if hasBase {
-		return Selection{Active: true, Manifest: base}
-	}
-	return Selection{}
+	return selection
 }
 
-// Gate returns the sorted union of profile names that limit when the skill
-// applies. An empty gate means the skill applies under every profile.
+// Gate returns the sorted union of every layer name that takes part in a
+// manifest's eligibility, from filenames and esheep-only-layers gates. It is
+// nil when some manifest applies under any effective layers. A variant
+// with a gate needs its filename layer and a gate name together, so the
+// union lists the names involved rather than a condition.
 func (source Package) Gate() []string {
 	union := make(map[string]struct{})
 	for _, manifest := range source.Manifests {
@@ -207,33 +186,34 @@ func (source Package) Gate() []string {
 		if len(gate) == 0 {
 			return nil
 		}
-		for _, profile := range gate {
-			union[profile] = struct{}{}
+		for _, layer := range gate {
+			union[layer] = struct{}{}
 		}
 	}
-	return sortedProfiles(union)
+	return sortedLayers(union)
 }
 
-// ReferencedProfiles returns every valid profile name any manifest gates on,
-// including per-target esheep-targets gates, sorted.
-func (source Package) ReferencedProfiles() []string {
+// ReferencedLayers returns every valid layer name any manifest names in its
+// filename or gates on, including per-target esheep-targets gates, sorted.
+// The automatic local layer is never referenced.
+func (source Package) ReferencedLayers() []string {
 	union := make(map[string]struct{})
-	collect := func(profiles []string) {
-		for _, profile := range profiles {
-			if naming.ValidateProfileName(profile) != nil {
+	collect := func(layers []string) {
+		for _, layer := range layers {
+			if naming.ValidateLayerName(layer) != nil {
 				continue
 			}
-			union[profile] = struct{}{}
+			union[layer] = struct{}{}
 		}
 	}
 	for _, manifest := range source.Manifests {
 		collect(manifestGate(manifest))
 		for _, options := range manifest.Document.Targets.all() {
-			collect(options.OnlyProfiles)
+			collect(options.OnlyLayers)
 		}
 	}
 
-	return sortedProfiles(union)
+	return sortedLayers(union)
 }
 
 // Identity returns the validated skill name shared by the manifests, when any
@@ -247,35 +227,42 @@ func (source Package) Identity(directoryName string) (string, bool) {
 	return "", false
 }
 
-// manifestGate unions the filename profile with the frontmatter gate. An empty
-// result means the manifest applies under every profile.
+// manifestGate lists the layer names a manifest's eligibility depends on:
+// its filename layer and its frontmatter gate. An empty result means the
+// manifest applies without any effective layer; the automatic local layer
+// is not a gate name.
 func manifestGate(manifest Manifest) []string {
-	union := make(map[string]struct{}, len(manifest.Document.OnlyProfiles)+1)
-	if manifest.Profile != "" {
-		union[manifest.Profile] = struct{}{}
+	union := make(map[string]struct{}, len(manifest.Document.OnlyLayers)+1)
+	if manifest.Layer != "" && manifest.Layer != naming.LocalLayer {
+		union[manifest.Layer] = struct{}{}
 	}
-	for _, profile := range manifest.Document.OnlyProfiles {
-		union[profile] = struct{}{}
+	for _, layer := range manifest.Document.OnlyLayers {
+		union[layer] = struct{}{}
 	}
-	return sortedProfiles(union)
+	return sortedLayers(union)
 }
 
-func sortedProfiles(union map[string]struct{}) []string {
+func sortedLayers(union map[string]struct{}) []string {
 	if len(union) == 0 {
 		return nil
 	}
-	profiles := make([]string, 0, len(union))
-	for profile := range union {
-		profiles = append(profiles, profile)
+	layers := make([]string, 0, len(union))
+	for layer := range union {
+		layers = append(layers, layer)
 	}
-	sort.Strings(profiles)
-	return profiles
+	sort.Strings(layers)
+	return layers
 }
 
-func intersects(gate, profiles []string) bool {
-	for _, profile := range profiles {
+// gateApplies reports whether an esheep-only-layers gate admits the effective
+// layers. An empty gate admits every selection.
+func gateApplies(gate, layers []string) bool {
+	if len(gate) == 0 {
+		return true
+	}
+	for _, layer := range layers {
 		for _, gated := range gate {
-			if profile == gated {
+			if layer == gated {
 				return true
 			}
 		}
@@ -291,7 +278,7 @@ type rawDocument struct {
 	Metadata               map[string]string `yaml:"metadata"`
 	DisableModelInvocation bool              `yaml:"disable-model-invocation"`
 	Disabled               bool              `yaml:"esheep-disabled"`
-	OnlyProfiles           []string          `yaml:"esheep-only-profiles"`
+	OnlyLayers             []string          `yaml:"esheep-only-layers"`
 }
 
 // Parse parses frontmatter, preserves the Markdown body, and validates the
@@ -353,7 +340,7 @@ func parse(data []byte, directoryName string) (Document, []Diagnostic) {
 		Metadata:               raw.Metadata,
 		DisableModelInvocation: raw.DisableModelInvocation,
 		Disabled:               raw.Disabled,
-		OnlyProfiles:           raw.OnlyProfiles,
+		OnlyLayers:             raw.OnlyLayers,
 		Extra:                  extra,
 		Targets:                targets,
 		Body:                   body,
@@ -455,8 +442,8 @@ func validateShape(mapping *yaml.Node) ([]ExtraField, Targets, bool, []Diagnosti
 			}
 		case "metadata":
 			diagnostics = append(diagnostics, validateMetadata(value)...)
-		case "esheep-only-profiles":
-			diagnostics = append(diagnostics, validateOnlyProfiles(value)...)
+		case "esheep-only-layers":
+			diagnostics = append(diagnostics, validateOnlyLayers(value)...)
 		case "esheep-targets":
 			targetsSeen = true
 			var targetDiagnostics []Diagnostic
@@ -474,7 +461,7 @@ func validateShape(mapping *yaml.Node) ([]ExtraField, Targets, bool, []Diagnosti
 }
 
 // parseTargets decodes the esheep-targets sequence, where each entry is a
-// target name or a single-pair mapping from a target name to its profile gate.
+// target name or a single-pair mapping from a target name to its layer gate.
 func parseTargets(node *yaml.Node) (Targets, []Diagnostic) {
 	var targets Targets
 	if node.Kind != yaml.SequenceNode {
@@ -502,7 +489,7 @@ func parseTargets(node *yaml.Node) (Targets, []Diagnostic) {
 		}
 		seen[name] = struct{}{}
 		options.Listed = true
-		options.OnlyProfiles = gate
+		options.OnlyLayers = gate
 	}
 	return targets, diagnostics
 }
@@ -515,26 +502,26 @@ func parseTargetEntry(item *yaml.Node) (string, []string, []Diagnostic) {
 	}
 	if item.Kind != yaml.MappingNode || len(item.Content) != 2 ||
 		item.Content[0].Kind != yaml.ScalarNode || item.Content[0].Tag != "!!str" {
-		return "", nil, []Diagnostic{{Code: CodeInvalidValue, Field: "esheep-targets", Detail: "entry must be a target name or a single target-to-profiles pair"}}
+		return "", nil, []Diagnostic{{Code: CodeInvalidValue, Field: "esheep-targets", Detail: "entry must be a target name or a single target-to-layers pair"}}
 	}
 	target := item.Content[0].Value
-	gate, diagnostics := parseProfileList(item.Content[1], "esheep-targets."+target)
+	gate, diagnostics := parseLayerList(item.Content[1], "esheep-targets."+target)
 	return target, gate, diagnostics
 }
 
-func validateOnlyProfiles(node *yaml.Node) []Diagnostic {
-	_, diagnostics := parseProfileList(node, "esheep-only-profiles")
+func validateOnlyLayers(node *yaml.Node) []Diagnostic {
+	_, diagnostics := parseLayerList(node, "esheep-only-layers")
 	return diagnostics
 }
 
-func parseProfileList(node *yaml.Node, field string) ([]string, []Diagnostic) {
+func parseLayerList(node *yaml.Node, field string) ([]string, []Diagnostic) {
 	if node.Kind != yaml.SequenceNode {
 		return nil, []Diagnostic{invalidType(field, "list of strings")}
 	}
 	if len(node.Content) == 0 {
 		return nil, []Diagnostic{{Code: CodeInvalidValue, Field: field, Detail: "value must not be empty"}}
 	}
-	var profiles []string
+	var layers []string
 	var diagnostics []Diagnostic
 	seen := make(map[string]struct{}, len(node.Content))
 	for _, item := range node.Content {
@@ -542,18 +529,18 @@ func parseProfileList(node *yaml.Node, field string) ([]string, []Diagnostic) {
 			diagnostics = append(diagnostics, invalidType(field, "list of strings"))
 			continue
 		}
-		if err := naming.ValidateProfileName(item.Value); err != nil {
-			diagnostics = append(diagnostics, Diagnostic{Code: CodeInvalidProfile, Field: field, Err: err})
+		if err := naming.ValidateLayerName(item.Value); err != nil {
+			diagnostics = append(diagnostics, Diagnostic{Code: CodeInvalidLayer, Field: field, Err: err})
 			continue
 		}
 		if _, duplicate := seen[item.Value]; duplicate {
-			diagnostics = append(diagnostics, Diagnostic{Code: CodeInvalidValue, Field: field, Detail: fmt.Sprintf("duplicate profile %q", item.Value)})
+			diagnostics = append(diagnostics, Diagnostic{Code: CodeInvalidValue, Field: field, Detail: fmt.Sprintf("duplicate layer %q", item.Value)})
 			continue
 		}
 		seen[item.Value] = struct{}{}
-		profiles = append(profiles, item.Value)
+		layers = append(layers, item.Value)
 	}
-	return profiles, diagnostics
+	return layers, diagnostics
 }
 
 func validateMetadata(node *yaml.Node) []Diagnostic {

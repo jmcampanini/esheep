@@ -11,7 +11,7 @@ func TestDisabledReadinessInHumanAndJSONReports(t *testing.T) {
 	root := filepath.Join(workDir, "disabled-reporting")
 	source := filepath.Join(root, "source")
 	claude := filepath.Join(root, "claude")
-	settings := filepath.Join(root, "config", "esheep", "esheep.toml")
+	settings := filepath.Join(root, "config", "esheep", "config.toml")
 	writeE2ESkill(t, filepath.Join(source, "skills"), "demo", "Use when asked", "esheep-disabled: true\n", nil)
 	writeVariablesSettings(t, settings, [][2]string{{"source", source}}, claude)
 	environment := map[string]string{"HOME": filepath.Join(root, "home"), "XDG_CONFIG_HOME": filepath.Join(root, "config")}

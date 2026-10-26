@@ -48,14 +48,14 @@ type Identity struct {
 }
 
 // Request contains one target reconciliation request. Document is the
-// manifest selected for the active profiles, Profiles is the active profile
+// manifest selected for the effective layers, Layers is the effective layer
 // list that gates per-target installation, and Variables supplies the values
 // substituted for esheep variables in the manifest body.
 type Request struct {
 	Document  skill.Document
 	Identity  Identity
 	Package   skill.Package
-	Profiles  []string
+	Layers    []string
 	Root      string
 	Variables expansion.Variables
 }
@@ -142,7 +142,7 @@ func Inspect(ctx context.Context, request Request) (state State, resultErr error
 		return "", err
 	}
 
-	disabled, err := render.Disabled(request.Document, request.Identity.Target, request.Profiles)
+	disabled, err := render.Disabled(request.Document, request.Identity.Target, request.Layers)
 	if err != nil {
 		return "", err
 	}
@@ -209,7 +209,7 @@ func reconcile(ctx context.Context, request Request, fsys filesystem) (result Re
 		return result, err
 	}
 
-	disabled, err := render.Disabled(request.Document, request.Identity.Target, request.Profiles)
+	disabled, err := render.Disabled(request.Document, request.Identity.Target, request.Layers)
 	if err != nil {
 		result.Action = ActionFailed
 		return result, err
@@ -367,7 +367,7 @@ func renderInTransaction(transaction string, request Request) (string, error) {
 	if err := os.Mkdir(staging, 0o700); err != nil {
 		return "", fmt.Errorf("create render staging: %w", err)
 	}
-	rendered, err := render.Render(staging, request.Package, request.Document, request.Identity.Target, request.Profiles, request.Variables)
+	rendered, err := render.Render(staging, request.Package, request.Document, request.Identity.Target, request.Layers, request.Variables)
 	if err != nil {
 		return "", fmt.Errorf("render target skill: %w", err)
 	}
