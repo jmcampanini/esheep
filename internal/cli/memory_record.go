@@ -54,15 +54,15 @@ repository with a separate git directory therefore lands under that
 parent instead. A missing git binary uses the worktree root and reports a
 diagnostic on stderr. Outside git the project is the working directory.
 The project directory name is that identity with every '/' replaced by
-'-', so
-github.com/acme/widgets becomes github.com-acme-widgets and
+'-', so github.com/acme/widgets becomes github.com-acme-widgets and
 /Users/me/scratch becomes -Users-me-scratch.
 
-The command creates missing directories and files under the memory root
-and touches nothing else. To find the repository it searches the working
-directory and its ancestors for a .git entry, then runs git there to read
-the shared git directory and the origin URL. It never contacts another
-machine.
+The command creates the memory root and its missing parents when needed,
+creates the project directory and session file beneath it, and touches
+nothing else. To find the repository it searches the working directory
+and its ancestors for a .git entry, then runs git there to read the
+shared git directory and the origin URL. It never contacts another
+machine. Stdout is the one path; there is no machine-readable form.
 
 ` + ui.StreamContractHelp,
 		Example: `  esheep memory record 'Prefer merge over rebase when syncing with main' \

@@ -17,12 +17,14 @@ func newSyncCommand(load configLoader, synchronize func(context.Context, config.
 		Short: "Synchronize enabled skill targets",
 		Long: `Install, repair, and prune esheep-owned output on enabled targets.
 
-The command writes only under each enabled target's skills_path, where it
-creates, replaces, and deletes one directory per managed skill, and at
-each enabled target's agents_md_path, which it replaces as a whole file.
-Pruning deletes managed skill directories under skills_path whose source
-skill is gone, inactive, or disabled. 'esheep config' prints the resolved
-paths. Sources are read in place and never written.
+The command writes only at each enabled target's skills_path and
+agents_md_path. It creates the missing parent directories of both, then
+creates, replaces, and deletes one directory per managed skill under
+skills_path and replaces the agents_md_path file as a whole, staging the
+new content in a temporary .esheep-agents-md-* file beside it. Pruning
+deletes managed skill directories under skills_path whose source skill is
+gone, inactive, or disabled. 'esheep config' prints the resolved paths.
+Sources are read in place and never written.
 
 Deterministic action rows and the final summary are payload on stdout. The
 command continues unrelated work after individual skill or target failures
@@ -72,7 +74,9 @@ selection is skipped entirely while any configured source is unavailable.
 Serialize invocations: concurrent mutating esheep commands against the
 same targets are unsupported.
 
-` + ui.StreamContractHelp,
+` + ui.StreamContractHelp + `
+
+` + ui.ColorContractHelp,
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			loaded, err := loadConfiguration(command, load)

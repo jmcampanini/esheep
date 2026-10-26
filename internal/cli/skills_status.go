@@ -48,6 +48,8 @@ their previously managed copies.
 
 ` + ui.StreamContractHelp + `
 
+` + ui.ColorContractHelp + `
+
 ` + ui.JSONContractHelp + ` Status JSON includes "healthy",
 "effective_layers", and an optional "agents_file" section naming the
 selected source file and per-target states. Each skill's optional "trigger"

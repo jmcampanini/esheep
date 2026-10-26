@@ -63,6 +63,8 @@ Stdout is exactly the document 'sessions list --json' or 'sessions search
 underlying command: 0 complete, 1 incomplete or application failure, 2
 usage.
 
+` + ui.StreamContractHelp + `
+
 ` + sessionPeriodHelp,
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {

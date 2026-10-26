@@ -32,7 +32,8 @@ against what was actually said or done, not escaped JSON: user text,
 assistant text, and tool calls and results (tool arguments and output). The
 pattern is a case-insensitive Go regular expression and is optional when
 --tool or --errors already select events. An empty pattern is a usage error;
-use '.' to select every event.
+use '.' to select every event, which with --id prints one session's events
+with their line numbers.
 
 --id limits which sessions are searched; it does not select events. A pattern,
 --tool, or --errors is still required. 'sessions list' with --id locates a
@@ -64,7 +65,7 @@ saved history. Use --raw to inspect other records in qualifying audits.
 ` + sessionRemoteHelp + `
 
 Unparseable transcript lines are skipped and reported as diagnostics without
-failing the search. The command exits nonzero only when filesystem failures
+failing the search. The command exits nonzero when filesystem failures
 prevent a complete search.
 
 ` + ui.StreamContractHelp + `

@@ -24,7 +24,7 @@ const (
 	configName      = "config.toml"
 	configFlag      = "config"
 	envPrefix       = "esheep"
-	configHelp      = "configuration file to load instead of the discovered one"
+	configHelp      = "path to the configuration file (replaces discovered files)"
 	memoryDirectory = "memory"
 )
 
@@ -70,7 +70,7 @@ type ClaudeSessions struct {
 
 // CoworkSessions locates Claude Cowork's local conversation storage.
 type CoworkSessions struct {
-	Path string `toml:"path" config:"claude-cowork-sessions-path" help:"local Claude Cowork session root; empty disables discovery"`
+	Path string `toml:"path" config:"claude-cowork-sessions-path" help:"local session root for Claude Cowork; empty disables discovery"`
 }
 
 // PiSessions locates Pi's session transcripts.
@@ -80,7 +80,7 @@ type PiSessions struct {
 
 // CodexSessions locates the shared Codex and local ChatGPT Work transcripts.
 type CodexSessions struct {
-	Home string `toml:"home" config:"codex-home" help:"Codex home holding Codex and local ChatGPT Work transcripts"`
+	Home string `toml:"home" config:"codex-home" help:"Codex home containing sessions and archived_sessions for Codex and local ChatGPT Work"`
 }
 
 // Machine configures one other machine that runs esheep. Name is its

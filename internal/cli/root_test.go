@@ -65,9 +65,8 @@ func TestEveryCommandDeclaresPositionalGrammar(t *testing.T) {
 			}
 		}
 		for _, child := range command.Commands() {
-			// Cobra owns its help command and its hidden internals; esheep
-			// declares its own completion command.
-			if child.Name() == "help" || child.Hidden {
+			// Cobra owns its help command; esheep declares its own completion command.
+			if child.Name() == "help" {
 				continue
 			}
 			if child.Args == nil {

@@ -104,10 +104,11 @@ the project when a memory is recorded. Nothing else is required.
 
 A bare 'esheep' prints this help on stdout. Every command writes its
 payload to stdout and diagnostics to stderr; a failure ends with one
-'esheep: <message>' line. Run 'esheep config' to inspect the effective
-configuration and resolved paths, 'esheep config --help' for every
-configuration key, 'esheep help skill-format' for the authoring format,
-and 'esheep help exit-codes' for exit statuses and the failure format.
+'esheep: <message>' line unless a --json document already reports it.
+Run 'esheep config' to inspect the effective configuration and resolved
+paths, 'esheep config --help' for every configuration key, 'esheep help
+skill-format' for the authoring format, and 'esheep help exit-codes' for
+exit statuses and the failure format.
 
 Common tasks:
   Deploy changed source skills:  esheep sync
@@ -126,7 +127,12 @@ Command groups:
 			return command.Help()
 		},
 	}
-	root.SetUsageTemplate(usageTemplate)
+	// Cobra never wraps flag usage; wrapping it at 80 columns keeps every
+	// help line within a default terminal.
+	root.SetUsageTemplate(strings.NewReplacer(
+		".LocalFlags.FlagUsages", ".LocalFlags.FlagUsagesWrapped 80",
+		".InheritedFlags.FlagUsages", ".InheritedFlags.FlagUsagesWrapped 80",
+	).Replace(root.UsageTemplate()))
 	if err := config.RegisterFlags(root.PersistentFlags()); err != nil {
 		panic(fmt.Sprintf("register configuration flags: %v", err))
 	}
@@ -150,36 +156,3 @@ Command groups:
 	)
 	return root
 }
-
-// usageTemplate is Cobra's default usage template with flag usage wrapped at
-// 80 columns, so every help line fits a default terminal.
-const usageTemplate = `Usage:{{if .Runnable}}
-  {{.UseLine}}{{end}}{{if .HasAvailableSubCommands}}
-  {{.CommandPath}} [command]{{end}}{{if gt (len .Aliases) 0}}
-
-Aliases:
-  {{.NameAndAliases}}{{end}}{{if .HasExample}}
-
-Examples:
-{{.Example}}{{end}}{{if .HasAvailableSubCommands}}{{$cmds := .Commands}}{{if eq (len .Groups) 0}}
-
-Available Commands:{{range $cmds}}{{if (or .IsAvailableCommand (eq .Name "help"))}}
-  {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{end}}{{else}}{{range $group := .Groups}}
-
-{{.Title}}{{range $cmds}}{{if (and (eq .GroupID $group.ID) (or .IsAvailableCommand (eq .Name "help")))}}
-  {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{end}}{{end}}{{if not .AllChildCommandsHaveGroup}}
-
-Additional Commands:{{range $cmds}}{{if (and (eq .GroupID "") (or .IsAvailableCommand (eq .Name "help")))}}
-  {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{end}}{{end}}{{end}}{{end}}{{if .HasAvailableLocalFlags}}
-
-Flags:
-{{.LocalFlags.FlagUsagesWrapped 80 | trimTrailingWhitespaces}}{{end}}{{if .HasAvailableInheritedFlags}}
-
-Global Flags:
-{{.InheritedFlags.FlagUsagesWrapped 80 | trimTrailingWhitespaces}}{{end}}{{if .HasHelpSubCommands}}
-
-Additional help topics:{{range .Commands}}{{if .IsAdditionalHelpTopicCommand}}
-  {{rpad .CommandPath .CommandPathPadding}} {{.Short}}{{end}}{{end}}{{end}}{{if .HasAvailableSubCommands}}
-
-Use "{{.CommandPath}} [command] --help" for more information about a command.{{end}}
-`

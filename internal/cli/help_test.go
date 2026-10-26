@@ -48,8 +48,8 @@ func TestEveryCommandHelpMeetsTheBaseline(t *testing.T) {
 		}
 
 		for _, child := range command.Commands() {
-			// Cobra owns its help command and hides its own internals.
-			if child.Name() == "help" || child.Hidden {
+			// Cobra owns its help command.
+			if child.Name() == "help" {
 				continue
 			}
 			assertHelp(child)

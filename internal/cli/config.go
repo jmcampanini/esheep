@@ -19,19 +19,18 @@ to put in config.toml.
 
 The command reads but never creates or modifies config.toml, works before
 any source directory exists, and fails before any skill or target
-processing when configuration is invalid.
+processing when configuration is invalid. Failures go to stderr as one
+line; the command never prompts and has no other output format.
 
 Every path setting must be absolute, exactly '~', or begin with '~/';
 symlinks in it are resolved. The keys config.toml accepts:
 
 layers is a list of layer names. A name is 1-64 characters of lowercase
 alphanumeric words separated by single hyphens; base and local are
-reserved. Names are deduplicated by keeping the last occurrence of each.
-'esheep layers --help' describes the effective list.
+reserved.
 
 env_layers is a list of environment variable names, each nonblank with no
-surrounding whitespace. The comma-separated layers in each named
-variable append after the layers setting; blank entries are skipped.
+surrounding whitespace; blank entries in a named variable are skipped.
 
 [[sources]] entries name the read-only skill containers. name identifies
 the source in reports: 1-255 characters in '/'-separated segments, each

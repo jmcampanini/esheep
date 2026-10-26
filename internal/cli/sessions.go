@@ -40,11 +40,11 @@ Work and Cowork transcripts qualify when they contain a supported user message,
 assistant message, tool call, or tool result. Title-only and
 injected-context-only records are excluded, including from --raw searches.
 Partial or unknown local history qualifies; results do not imply complete
-remote history. A transcript's
-history_base may reference earlier history elsewhere. That history is not
-expanded or searched through the reference; hits address only saved lines in
-each discovered file. Cowork uses its session folder's relative path, including
-both scopes, as its ID. Companion metadata supplies title, creation time,
+remote history. A transcript's history_base may reference earlier history
+elsewhere. That history is not expanded or searched through the reference;
+hits address only saved lines in each discovered file. Cowork uses its
+session folder's relative path, including both scopes, as its ID.
+Companion metadata supplies title, creation time,
 selected host folders, and the archive flag. Missing or invalid companions
 do not exclude readable messages. Invalid or mismatched companions produce
 diagnostics; a mismatched sessionId discards that companion's metadata.
@@ -155,12 +155,12 @@ PATH or an invalid remote configuration), or machine-reply (stdout was not
 one JSON document, such as a shell startup file printing to stdout). The
 message carries the last lines of the remote's stderr or the decoder error.
 
-Builds are not version-checked. The remote rejects a request field it
-does not know, so a machine running an older esheep answers with a
-machine-command diagnostic after a change to the request shape until it
-is upgraded. Replies decode best-effort: unknown fields are ignored and
-missing fields are zero-filled, so a stale remote can return wrong or
-empty results after a change to the document shape.`
+Builds are not version-checked. A remote rejects a request field it does
+not know and answers with a machine-command diagnostic, while replies
+decode best-effort: unknown fields are ignored and missing fields are
+zero-filled. A machine running a different esheep build can therefore
+refuse the request, ignore a filter, or return wrong or empty results
+after a change to the request or document shape until it is upgraded.`
 
 func newSessionsCommand(load configLoader, operations commandOperations) *cobra.Command {
 	command := &cobra.Command{
@@ -180,10 +180,11 @@ paths and the Codex home under [sessions] in TOML; Codex transcript paths are
 derived from its home. Cowork's platform defaults and configuration are
 described below. A missing root skips that location with a diagnostic.
 
-Every command in this group writes its report to stdout and diagnostics
-to stderr, can emit one JSON document instead of text, and never prompts.
-Commands that accept --remote run esheep on configured machines over ssh;
-without it nothing leaves this machine.
+A bare 'esheep sessions' prints this help on stdout. Every command in
+this group writes its report to stdout and diagnostics to stderr, offers
+the report as one JSON document, and never prompts. Commands that accept
+--remote run esheep on configured machines over ssh; without it nothing
+leaves this machine.
 
 ` + sessionHarnessHelp,
 		Args: cobra.NoArgs,
