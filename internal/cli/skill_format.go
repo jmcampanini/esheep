@@ -18,7 +18,6 @@ AGENTS.md, a layer variant AGENTS.<layer>.md, or AGENTS.local.md. A
 container may provide skills, an agents file, or both; a container without
 a skills/ directory provides no skills, and one without an agents-md/
 directory provides no agents file. Container-root files, including a
-
 repository-local AGENTS.md, are ignored: only agents-md/ holds managed
 instruction files. Skill discovery skips immediate children of skills/
 whose names start with '.' or equal node_modules.
@@ -129,15 +128,15 @@ passed-through field carries only the meaning the receiving harness gives
 it.
 
 The {{esheep. text is reserved everywhere in manifest bodies, entire managed
-agents files, and included files: every occurrence
-must be exactly a known variable, a known variable must occupy its own line
-without indentation, and there is no escape syntax. Anything else fails
-validation. Rendering substitutes each variable with its value, preserving
-all other bytes, including surrounding line endings. Included files are
-text without interpreted frontmatter. Skill frontmatter and copied
-supporting files are never substituted. When a variable or an included file
-changes rendered output, that target's installation drifts and the next sync
-repairs it. Unused include files do not affect installed output.
+agents files, and included files: every occurrence must be exactly a known
+variable, a known variable must occupy its own line without indentation,
+and there is no escape syntax. Anything else fails validation. Rendering
+substitutes each variable with its value, preserving all other bytes,
+including surrounding line endings. Included files are text without
+interpreted frontmatter. Skill frontmatter and copied supporting files are
+never substituted. When a variable or an included file changes rendered
+output, that target's installation drifts and the next sync repairs it.
+Unused include files do not affect installed output.
 
 Variables for skill bodies and agents files:
 
