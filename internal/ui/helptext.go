@@ -6,8 +6,11 @@ package ui
 
 // StreamContractHelp describes output streams and terminal styling.
 const StreamContractHelp = `Payload goes to stdout; human-readable diagnostics and final error messages
-go to stderr. Human tables use color only on terminals and honor NO_COLOR;
-redirected output contains no terminal escapes.`
+go to stderr. Human tables carry color only under --color=auto (the
+default) when the receiving stream is a terminal, NO_COLOR is unset or
+empty, and TERM is not dumb; --color=always and --color=never override
+that detection. Each stream is judged on its own, and --json output never
+contains terminal escapes.`
 
 // JSONContractHelp describes structured output and failure reporting.
 const JSONContractHelp = `--json emits one complete JSON document, including structured diagnostics,

@@ -17,6 +17,13 @@ func newSyncCommand(load configLoader, synchronize func(context.Context, config.
 		Short: "Synchronize enabled skill targets",
 		Long: `Install, repair, and prune esheep-owned output on enabled targets.
 
+The command writes only under each enabled target's skills_path, where it
+creates, replaces, and deletes one directory per managed skill, and at
+each enabled target's agents_md_path, which it replaces as a whole file.
+Pruning deletes managed skill directories under skills_path whose source
+skill is gone, inactive, or disabled. 'esheep config' prints the resolved
+paths. Sources are read in place and never written.
+
 Deterministic action rows and the final summary are payload on stdout. The
 command continues unrelated work after individual skill or target failures
 and exits 1 when the final summary contains failures.
@@ -73,7 +80,7 @@ same targets are unsupported.
 				return err
 			}
 			report := synchronize(command.Context(), loaded)
-			if err := ui.WriteSync(command.OutOrStdout(), report, ui.ShouldColor(command.OutOrStdout())); err != nil {
+			if err := ui.WriteSync(command.OutOrStdout(), report, useColor(command, command.OutOrStdout())); err != nil {
 				return apperr.Wrap(err)
 			}
 			if err := ui.WriteDiagnostics(command.ErrOrStderr(), report.Diagnostics); err != nil {

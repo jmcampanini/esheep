@@ -37,14 +37,37 @@ func TestCompletionDoesNotLoadConfiguration(t *testing.T) {
 func TestEveryCommandDeclaresPositionalGrammar(t *testing.T) {
 	root := newRootCommand(config.Load)
 
+	if root.Args != nil {
+		t.Error("root: Args is set, so an unknown subcommand is not rejected during command discovery")
+	}
+	if !root.DisableSuggestions {
+		t.Error("root: DisableSuggestions is false")
+	}
+	for _, name := range []string{"help", "version"} {
+		if root.Flags().Lookup(name) == nil {
+			t.Errorf("root: --%s is not registered at construction", name)
+		}
+	}
+
 	var assertGrammar func(*cobra.Command)
 	assertGrammar = func(command *cobra.Command) {
-		if command.HasSubCommands() && command.RunE == nil {
-			t.Errorf("%s: has subcommands but no RunE, so Cobra shows help before validating operands", command.CommandPath())
+		if command != root && (command.HasSubCommands() || isHelpTopic(command)) {
+			if command.RunE == nil {
+				t.Errorf("%s: group or help topic has no RunE, so Cobra shows help before validating operands", command.CommandPath())
+			}
+			if command.Args != nil {
+				if err := command.Args(command, nil); err != nil {
+					t.Errorf("%s: group or help topic rejects a bare invocation: %v", command.CommandPath(), err)
+				}
+				if err := command.Args(command, []string{"unexpected"}); err == nil {
+					t.Errorf("%s: group or help topic accepts an operand", command.CommandPath())
+				}
+			}
 		}
 		for _, child := range command.Commands() {
-			// Cobra owns its help command; esheep declares its own completion command.
-			if child.Name() == "help" {
+			// Cobra owns its help command and its hidden internals; esheep
+			// declares its own completion command.
+			if child.Name() == "help" || child.Hidden {
 				continue
 			}
 			if child.Args == nil {
@@ -55,6 +78,32 @@ func TestEveryCommandDeclaresPositionalGrammar(t *testing.T) {
 	}
 
 	assertGrammar(root)
+}
+
+func TestUsageErrorPrintsOneLineWithoutUsage(t *testing.T) {
+	code, stdout, stderr := runCommand(t, successfulLoad, "skills", "list", "extra")
+
+	if code != 2 || stdout != "" {
+		t.Fatalf("exit = %d, stdout = %q", code, stdout)
+	}
+	if !strings.HasPrefix(stderr, "esheep: ") || strings.Count(stderr, "\n") != 1 || strings.Contains(stderr, "Usage") {
+		t.Fatalf("stderr = %q, want one 'esheep: <message>' line and no usage", stderr)
+	}
+}
+
+func TestFailureLineFlattensMultilineMessages(t *testing.T) {
+	load := func(config.LoadOptions) (config.LoadResult, error) {
+		return config.LoadResult{}, errors.New("cannot read settings\r\npermission denied\nretry")
+	}
+
+	code, stdout, stderr := runCommand(t, load, "config")
+
+	if code != 1 || stdout != "" {
+		t.Fatalf("exit = %d, stdout = %q", code, stdout)
+	}
+	if want := "esheep: cannot read settings permission denied retry\n"; stderr != want {
+		t.Fatalf("stderr = %q, want %q", stderr, want)
+	}
 }
 
 func TestConfigurationFailureIsAnApplicationError(t *testing.T) {
@@ -68,7 +117,7 @@ func TestConfigurationFailureIsAnApplicationError(t *testing.T) {
 	if stdout != "" {
 		t.Fatalf("stdout = %q, want empty", stdout)
 	}
-	if stderr != "Error: cannot load settings\n" {
+	if stderr != "esheep: cannot load settings\n" {
 		t.Fatalf("stderr = %q", stderr)
 	}
 }

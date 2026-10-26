@@ -8,10 +8,7 @@ import (
 )
 
 func newSkillFormatTopic() *cobra.Command {
-	return &cobra.Command{
-		Use:   "skill-format",
-		Short: "Source container layout, SKILL.md frontmatter, and the agents file",
-		Long: fmt.Sprintf(`Each source is a read-only container: skills are the immediate child
+	return newHelpTopic("skill-format", "Source layout, SKILL.md frontmatter, and the agents file", fmt.Sprintf(`Each source is a read-only container: skills are the immediate child
 directories of its skills/ directory that contain a manifest, and an
 optional global agents file lives in the sibling agents-md/ directory as
 AGENTS.md, a layer variant AGENTS.<layer>.md, or AGENTS.local.md. A
@@ -209,10 +206,5 @@ Rendering is deterministic. Every target receives the interpreted content
 fields and the passed-through fields. When disable-model-invocation is
 true, the Codex render also writes agents/openai.yaml containing
 'policy.allow_implicit_invocation: false' unless the skill provides that
-file itself.`, expansion.MaxIncludeDepth),
-		Args: cobra.NoArgs,
-		RunE: func(command *cobra.Command, _ []string) error {
-			return command.Help()
-		},
-	}
+file itself.`, expansion.MaxIncludeDepth))
 }

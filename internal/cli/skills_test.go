@@ -93,7 +93,7 @@ func TestSkillsStatusIsAHealthCheckInHumanAndJSONModes(t *testing.T) {
 	if code != 1 || !strings.Contains(stdout, "drifted") || !strings.Contains(stdout, "missing") {
 		t.Fatalf("human result: code=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
-	if stderr != "Error: skills status is unhealthy\n" {
+	if stderr != "esheep: skills status is unhealthy\n" {
 		t.Fatalf("stderr = %q", stderr)
 	}
 
@@ -133,7 +133,7 @@ func TestSyncPrintsAggregateActionsAndReturnsApplicationFailure(t *testing.T) {
 			t.Fatalf("stdout missing %q:\n%s", content, stdout)
 		}
 	}
-	if !strings.Contains(stderr, "synchronization: destination is not esheep-owned") || !strings.Contains(stderr, "Error: sync completed with 1 failure(s)") {
+	if !strings.Contains(stderr, "synchronization: destination is not esheep-owned") || !strings.Contains(stderr, "esheep: sync completed with 1 failure(s)") {
 		t.Fatalf("stderr = %q", stderr)
 	}
 }
@@ -177,7 +177,7 @@ func TestLayersExitsNonzeroWhenDiscoveryIsIncomplete(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("exit code = %d, want 1: stdout=%q stderr=%q", code, stdout, stderr)
 	}
-	if !strings.Contains(stderr, "source-unavailable") || !strings.Contains(stderr, "Error: layers inventory is incomplete") {
+	if !strings.Contains(stderr, "source-unavailable") || !strings.Contains(stderr, "esheep: layers inventory is incomplete") {
 		t.Fatalf("stderr = %q", stderr)
 	}
 }

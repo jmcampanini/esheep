@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"runtime/debug"
+	"strings"
 
 	"github.com/jmcampanini/esheep/internal/apperr"
 	"github.com/jmcampanini/esheep/internal/config"
@@ -46,9 +47,13 @@ func Execute() int {
 	return execute(newRootCommand(config.Load), os.Args[1:])
 }
 
+// execute runs the tree and maps the outcome to a process status: 0 on
+// success, 1 for an application failure, and 2 for a usage error. A
+// failure that has not already been reported prints one line on stderr in
+// the form '<cli>: <message>' and nothing else.
 func execute(root *cobra.Command, args []string) int {
 	root.SetArgs(args)
-	failed, err := root.ExecuteC()
+	err := root.Execute()
 	if err == nil {
 		return 0
 	}
@@ -61,10 +66,8 @@ func execute(root *cobra.Command, args []string) int {
 			return exitCode
 		}
 	}
-	_, _ = fmt.Fprintf(root.ErrOrStderr(), "Error: %v\n", err)
-	if exitCode == 2 && failed != nil {
-		_, _ = fmt.Fprintf(root.ErrOrStderr(), "Run '%s --help' for usage.\n", failed.CommandPath())
-	}
+	message := strings.NewReplacer("\r\n", " ", "\r", " ", "\n", " ").Replace(err.Error())
+	_, _ = fmt.Fprintf(root.ErrOrStderr(), "%s: %s\n", root.Name(), message)
 	return exitCode
 }
 
@@ -86,25 +89,35 @@ func newRootCommandWithOperations(load configLoader, operations commandOperation
 		Use:   "esheep",
 		Short: "Manage local Agent Skills and agents files across coding harnesses",
 		Long: `Manage Agent Skills and a global agents file from human-maintained local
-source directories.
+source directories, and find historical harness session transcripts.
 
 esheep reads skills and an optional agents file from configured source
-containers and renders them for the Claude, Pi, and Codex targets. It never
-executes source content and never creates, updates, or deletes source
-directories. Commands accept only the arguments shown and never prompt.
+containers and renders them for the Claude, Pi, and Codex targets. It
+never executes source content and never creates, updates, or deletes
+source directories. Commands accept only the arguments shown and never
+prompt. esheep contacts another machine only when --remote names it, and
+only to run esheep there over ssh; every other command is offline.
 
-'esheep sessions list' and 'esheep sessions search' find historical harness
-session transcripts, reading the harness-owned files in place and never
-modifying them. esheep contacts another machine only when --remote names
-it, and only to run esheep there over ssh; every other command is offline.
+External programs: ssh carries --remote session queries and must already
+reach each named machine without a prompt; git 2.31 or later identifies
+the project when a memory is recorded. Nothing else is required.
 
-Run 'esheep config' to inspect the effective configuration and resolved
-paths, 'esheep help skill-format' for the authoring format, and
-'esheep help exit-codes' for exit-status meanings.
+A bare 'esheep' prints this help on stdout. Every command writes its
+payload to stdout and diagnostics to stderr; a failure ends with one
+'esheep: <message>' line. Run 'esheep config' to inspect the effective
+configuration and resolved paths, 'esheep config --help' for every
+configuration key, 'esheep help skill-format' for the authoring format,
+and 'esheep help exit-codes' for exit statuses and the failure format.
 
-'esheep memory record' appends a memory for the calling harness session
-under the configured memory root; it is the only command that writes
-there.`,
+Common tasks:
+  Deploy changed source skills:  esheep sync
+  Check deployment health:       esheep skills status
+  Find a session by content:     esheep sessions search 'budget review'
+
+Command groups:
+  memory    Memories recorded for harness sessions:  esheep memory --help
+  sessions  Historical session transcripts:          esheep sessions --help
+  skills    Known skills and deployment status:      esheep skills --help`,
 		Version:            effectiveVersion(),
 		DisableSuggestions: true,
 		SilenceErrors:      true,
@@ -113,9 +126,11 @@ there.`,
 			return command.Help()
 		},
 	}
+	root.SetUsageTemplate(usageTemplate)
 	if err := config.RegisterFlags(root.PersistentFlags()); err != nil {
 		panic(fmt.Sprintf("register configuration flags: %v", err))
 	}
+	registerColorFlag(root.PersistentFlags())
 	// Cobra registers --help and --version only when it executes the found
 	// command, but it strips flags while finding it. Registering them here keeps
 	// 'esheep --help --config x' from reading "x" as an unknown command.
@@ -135,3 +150,36 @@ there.`,
 	)
 	return root
 }
+
+// usageTemplate is Cobra's default usage template with flag usage wrapped at
+// 80 columns, so every help line fits a default terminal.
+const usageTemplate = `Usage:{{if .Runnable}}
+  {{.UseLine}}{{end}}{{if .HasAvailableSubCommands}}
+  {{.CommandPath}} [command]{{end}}{{if gt (len .Aliases) 0}}
+
+Aliases:
+  {{.NameAndAliases}}{{end}}{{if .HasExample}}
+
+Examples:
+{{.Example}}{{end}}{{if .HasAvailableSubCommands}}{{$cmds := .Commands}}{{if eq (len .Groups) 0}}
+
+Available Commands:{{range $cmds}}{{if (or .IsAvailableCommand (eq .Name "help"))}}
+  {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{end}}{{else}}{{range $group := .Groups}}
+
+{{.Title}}{{range $cmds}}{{if (and (eq .GroupID $group.ID) (or .IsAvailableCommand (eq .Name "help")))}}
+  {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{end}}{{end}}{{if not .AllChildCommandsHaveGroup}}
+
+Additional Commands:{{range $cmds}}{{if (and (eq .GroupID "") (or .IsAvailableCommand (eq .Name "help")))}}
+  {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{end}}{{end}}{{end}}{{end}}{{if .HasAvailableLocalFlags}}
+
+Flags:
+{{.LocalFlags.FlagUsagesWrapped 80 | trimTrailingWhitespaces}}{{end}}{{if .HasAvailableInheritedFlags}}
+
+Global Flags:
+{{.InheritedFlags.FlagUsagesWrapped 80 | trimTrailingWhitespaces}}{{end}}{{if .HasHelpSubCommands}}
+
+Additional help topics:{{range .Commands}}{{if .IsAdditionalHelpTopicCommand}}
+  {{rpad .CommandPath .CommandPathPadding}} {{.Short}}{{end}}{{end}}{{end}}{{if .HasAvailableSubCommands}}
+
+Use "{{.CommandPath}} [command] --help" for more information about a command.{{end}}
+`

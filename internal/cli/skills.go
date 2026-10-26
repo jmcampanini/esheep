@@ -8,11 +8,14 @@ func newSkillsCommand(load configLoader, operations commandOperations) *cobra.Co
 	command := &cobra.Command{
 		Use:   "skills",
 		Short: "Inspect known skills and deployment status",
-		Long: `Inspect skills and their deployment status without changing sources or
-targets.
+		Long: `Inspect the skills found in configured sources and how they are deployed
+on enabled targets, without changing sources or targets.
 
-'skills list' inventories configured sources; 'skills status' checks
-per-target deployment health.`,
+Commands in this group read the skills/ directory of each configured
+source and, when they report deployment health, the skills_path and
+agents_md_path of each enabled target. Each writes a report to stdout and
+diagnostics to stderr; --json replaces the report with one JSON document.
+Run 'esheep sync' to change a target.`,
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			return command.Help()

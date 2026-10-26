@@ -166,7 +166,7 @@ func TestSessionsQueryAnswersWithTheFlagDrivenDocument(t *testing.T) {
 			}}}
 		},
 	}
-	request := `{"mode":"search","filter":{"archive_state":"archived","harnesses":["pi"],"ids":["one"],"project":"","since":"2026-09-06T21:47:06-04:00","until":null,"subagents":true},"query":{"pattern":"timeout","role":"user","tool":"","errors":false,"raw":false},"future":1}`
+	request := `{"mode":"search","filter":{"archive_state":"archived","harnesses":["pi"],"ids":["one"],"project":"","since":"2026-09-06T21:47:06-04:00","until":null,"subagents":true},"query":{"pattern":"timeout","role":"user","tool":"","errors":false,"raw":false}}`
 
 	code, stdout, stderr := runCommandWithInput(t, fleetLoader(t), operations, request, "sessions", "query")
 
@@ -213,6 +213,9 @@ func TestSessionsQueryRejectsInvalidRequestsBeforeConfiguration(t *testing.T) {
 		want    string
 	}{
 		{name: "not JSON", request: "hello", want: "decode request"},
+		{name: "unknown field", request: `{"mode":"list","unexpected":1}`, want: `unknown field "unexpected"`},
+		{name: "unknown nested field", request: `{"mode":"list","filter":{"unexpected":1}}`, want: `unknown field "unexpected"`},
+		{name: "second document", request: `{"mode":"list"} {}`, want: "exactly one JSON document"},
 		{name: "unknown mode", request: `{"mode":"count","filter":{"archive_state":"all"}}`, want: "unknown mode"},
 		{name: "search without criteria", request: `{"mode":"search","filter":{"archive_state":"all"}}`, want: "search requires a pattern, --tool, or --errors"},
 		{name: "empty ID", request: `{"mode":"list","filter":{"archive_state":"all","ids":[""]}}`, want: "--id must not contain empty IDs"},

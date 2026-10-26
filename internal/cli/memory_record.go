@@ -52,13 +52,17 @@ origin, or whose origin is a local path, uses the main repository root,
 taken as the parent of the shared git directory; a submodule or a
 repository with a separate git directory therefore lands under that
 parent instead. A missing git binary uses the worktree root and reports a
-diagnostic on stderr. Outside git the project is the working directory. The project
-directory name is that identity with every '/' replaced by '-', so
+diagnostic on stderr. Outside git the project is the working directory.
+The project directory name is that identity with every '/' replaced by
+'-', so
 github.com/acme/widgets becomes github.com-acme-widgets and
 /Users/me/scratch becomes -Users-me-scratch.
 
 The command creates missing directories and files under the memory root
-and touches nothing else. It never contacts another machine.
+and touches nothing else. To find the repository it searches the working
+directory and its ancestors for a .git entry, then runs git there to read
+the shared git directory and the origin URL. It never contacts another
+machine.
 
 ` + ui.StreamContractHelp,
 		Example: `  esheep memory record 'Prefer merge over rebase when syncing with main' \
