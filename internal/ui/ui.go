@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"strings"
 	"unicode"
@@ -19,19 +18,6 @@ import (
 	"github.com/jmcampanini/esheep/internal/manage"
 	"github.com/jmcampanini/esheep/internal/session"
 )
-
-// ShouldColor reports whether human output should contain terminal styling.
-func ShouldColor(writer io.Writer) bool {
-	if _, disabled := os.LookupEnv("NO_COLOR"); disabled {
-		return false
-	}
-	file, ok := writer.(*os.File)
-	if !ok {
-		return false
-	}
-	info, err := file.Stat()
-	return err == nil && info.Mode()&os.ModeCharDevice != 0
-}
 
 // WriteList writes a human known-skill table.
 func WriteList(writer io.Writer, report manage.ListReport, color bool) error {

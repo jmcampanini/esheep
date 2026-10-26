@@ -26,8 +26,13 @@ exact entry passes; equivalent hand-written patterns are rejected because
 pi does not expand '~' inside patterns and treats hidden path segments
 specially. The check is skipped while either the pi or codex target is disabled.
 
-The report is payload on stdout, one row per check. The command exits 1
-when any check fails, and each failure names the exact entry to add.`,
+The report is a table on stdout, one row per check, with no other output
+format. The command exits 1 when any check fails, and each failure names
+the exact entry to add.
+
+` + ui.StreamContractHelp + `
+
+` + ui.ColorContractHelp,
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			loaded, err := loadConfiguration(command, load)
@@ -35,7 +40,7 @@ when any check fails, and each failure names the exact entry to add.`,
 				return err
 			}
 			report := doctor.Run(loaded)
-			if err := ui.WriteDoctor(command.OutOrStdout(), report, ui.ShouldColor(command.OutOrStdout())); err != nil {
+			if err := ui.WriteDoctor(command.OutOrStdout(), report, useColor(command, command.OutOrStdout())); err != nil {
 				return apperr.Wrap(err)
 			}
 			if !report.Healthy() {

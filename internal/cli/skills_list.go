@@ -32,6 +32,8 @@ prevent complete discovery.
 
 ` + ui.StreamContractHelp + `
 
+` + ui.ColorContractHelp + `
+
 ` + ui.JSONContractHelp + ` List JSON includes "complete" and
 "effective_layers". Each skill's optional "trigger" contains its invocation
 text from esheep-trigger. Its optional "layer_gate" lists the layer names
@@ -52,7 +54,7 @@ its manifests' eligibility depends on.`,
 				}
 				return nil
 			}
-			if err := ui.WriteList(command.OutOrStdout(), report, ui.ShouldColor(command.OutOrStdout())); err != nil {
+			if err := ui.WriteList(command.OutOrStdout(), report, useColor(command, command.OutOrStdout())); err != nil {
 				return apperr.Wrap(err)
 			}
 			if err := ui.WriteDiagnostics(command.ErrOrStderr(), report.Diagnostics); err != nil {

@@ -11,9 +11,10 @@ func newCompletionCommand() *cobra.Command {
 		Short: "Generate a shell completion script",
 		Long: `Write a completion script for the named shell to stdout.
 
-For example, 'esheep completion zsh' writes Zsh completion. Load the
-script as your shell's documentation describes. Completion does not load
-configuration.`,
+Load the script as your shell's documentation describes. The command
+reads no files, does not load configuration, writes nothing but the
+script, and never prompts; a failure is one line on stderr.`,
+		Example:   "  esheep completion zsh",
 		Args:      cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
 		ValidArgs: []string{"bash", "zsh", "fish", "powershell"},
 		RunE: func(command *cobra.Command, args []string) error {

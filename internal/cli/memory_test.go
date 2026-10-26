@@ -119,7 +119,7 @@ func TestMemoryRecordFailureIsAnApplicationError(t *testing.T) {
 
 	code, stdout, stderr := runCommandWithOperations(t, load, operations, "memory", "record", "text")
 
-	if code != 1 || stdout != "" || stderr != "Error: no session detected\n" {
+	if code != 1 || stdout != "" || stderr != "esheep: no session detected\n" {
 		t.Fatalf("exit = %d, stdout = %q, stderr = %q", code, stdout, stderr)
 	}
 }

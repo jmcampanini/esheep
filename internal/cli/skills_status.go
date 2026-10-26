@@ -48,6 +48,8 @@ their previously managed copies.
 
 ` + ui.StreamContractHelp + `
 
+` + ui.ColorContractHelp + `
+
 ` + ui.JSONContractHelp + ` Status JSON includes "healthy",
 "effective_layers", and an optional "agents_file" section naming the
 selected source file and per-target states. Each skill's optional "trigger"
@@ -69,7 +71,7 @@ lists the layer names its manifests' eligibility depends on.`,
 				}
 				return nil
 			}
-			if err := ui.WriteStatus(command.OutOrStdout(), report, ui.ShouldColor(command.OutOrStdout())); err != nil {
+			if err := ui.WriteStatus(command.OutOrStdout(), report, useColor(command, command.OutOrStdout())); err != nil {
 				return apperr.Wrap(err)
 			}
 			if err := ui.WriteDiagnostics(command.ErrOrStderr(), report.Diagnostics); err != nil {

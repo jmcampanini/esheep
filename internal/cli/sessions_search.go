@@ -32,12 +32,12 @@ against what was actually said or done, not escaped JSON: user text,
 assistant text, and tool calls and results (tool arguments and output). The
 pattern is a case-insensitive Go regular expression and is optional when
 --tool or --errors already select events. An empty pattern is a usage error;
-use '.' to select every event, for example 'sessions search . --id <id>' to
-print one session's events with their line numbers.
+use '.' to select every event, which with --id prints one session's events
+with their line numbers.
 
 --id limits which sessions are searched; it does not select events. A pattern,
---tool, or --errors is still required. Use 'sessions list --id <id>' to locate
-a session without searching its content.
+--tool, or --errors is still required. 'sessions list' with --id locates a
+session without searching its content.
 
 --role limits matching to user, assistant, or tool events. --tool limits to
 calls of and results from one tool. --errors keeps only tool results whose
@@ -65,7 +65,7 @@ saved history. Use --raw to inspect other records in qualifying audits.
 ` + sessionRemoteHelp + `
 
 Unparseable transcript lines are skipped and reported as diagnostics without
-failing the search. The command exits nonzero only when filesystem failures
+failing the search. The command exits nonzero when filesystem failures
 prevent a complete search.
 
 ` + ui.StreamContractHelp + `
@@ -75,10 +75,15 @@ prevent a complete search.
 With a period, hits are matching events within that period. A session that
 started earlier contributes its qualifying events.
 
-` + ui.JSONContractHelp + ` Search JSON includes "complete" and "period"; each session
-carries "machine", "projects", an "archived" boolean, and a "hits" array. Each hit carries "line", "role",
-and "excerpt"; "tool" and "timestamp" appear when known, and "error" appears
-for known failures.`,
+` + ui.JSONContractHelp + `
+
+Search JSON includes "complete" and "period"; each session carries
+"machine", "projects", an "archived" boolean, and a "hits" array. Each hit
+carries "line", "role", and "excerpt"; "tool" and "timestamp" appear when
+known, and "error" appears for known failures.`,
+		Example: `  esheep sessions search timeout --harness codex --since 7d
+  esheep sessions search . --id SESSION_ID
+  esheep sessions search --errors --since 7d --json`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
 			names, err := remote.ParseNames(filterFlags.remote, filterFlags.noLocal)

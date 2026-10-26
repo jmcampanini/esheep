@@ -27,13 +27,13 @@ each candidate transcript is also scanned until its first event in the period
 or the end of the file.
 
 Each row carries the harness, session ID, recorded start time (or file
-modification time when unavailable), archive state, project directories, title where the grammar
-records one, and the canonical transcript path. Subagent and
-sidechain transcripts are excluded unless --subagents is set. --since and
---until keep sessions with at least one recorded event in the period.
-Best-effort fields a grammar does not record appear as -.
+modification time when unavailable), archive state, project directories,
+title where the grammar records one, and the canonical transcript path.
+Subagent and sidechain transcripts are excluded unless --subagents is
+set. --since and --until keep sessions with at least one recorded event
+in the period. Best-effort fields a grammar does not record appear as -.
 
-The command exits nonzero only when filesystem failures prevent a complete
+The command exits nonzero when filesystem failures prevent a complete
 inventory; a missing session root merely skips that location with a
 diagnostic.
 
@@ -45,10 +45,14 @@ diagnostic.
 
 ` + ui.StreamContractHelp + `
 
+` + ui.ColorContractHelp + `
+
 ` + sessionPeriodHelp + `
 
-` + ui.JSONContractHelp + ` List JSON includes "complete" and "period"; timestamps are
-RFC 3339, "projects" is an array of paths, "archived" marks archive state,
+` + ui.JSONContractHelp + `
+
+List JSON includes "complete" and "period"; timestamps are RFC 3339,
+"projects" is an array of paths, "archived" marks archive state,
 "subagent" marks non-primary transcripts, and "machine" names the machine
 that owns each session and diagnostic.`,
 		Args: cobra.NoArgs,
@@ -93,7 +97,7 @@ that owns each session and diagnostic.`,
 				return nil
 			}
 			machines := len(filterFlags.remote) != 0
-			if err := ui.WriteSessionList(command.OutOrStdout(), report, ui.ShouldColor(command.OutOrStdout()), machines); err != nil {
+			if err := ui.WriteSessionList(command.OutOrStdout(), report, useColor(command, command.OutOrStdout()), machines); err != nil {
 				return apperr.Wrap(err)
 			}
 			if err := ui.WriteSessionDiagnostics(command.ErrOrStderr(), report.Diagnostics, machines); err != nil {

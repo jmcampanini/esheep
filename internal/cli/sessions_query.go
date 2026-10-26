@@ -38,7 +38,10 @@ The request mirrors the list and search flags:
       "until": null,
       "subagents": false
     },
-    "query": {"pattern": "timeout", "role": "", "tool": "", "errors": false, "raw": false}
+    "query": {
+      "pattern": "timeout", "role": "", "tool": "", "errors": false,
+      "raw": false
+    }
   }
 
 "mode" is list or search. "filter" carries every shared filter: archive_state
@@ -47,16 +50,20 @@ flags accept; since and until are RFC 3339 instants or null, already resolved
 on the caller's clock, with dates expanded to inclusive-day bounds, so a skewed
 clock here cannot move the window. "query"
 is ignored for list; pattern is the case-insensitive regular expression
-source. Unknown fields are ignored and missing fields take their zero value.
+source. An unknown field is rejected by name, as is anything after the one
+document; missing fields take their zero value.
 
 Validation matches the flags: a search needs a pattern, tool, or errors;
 raw cannot combine with role, tool, or errors; empty IDs are rejected. An
 invalid or empty request exits 2 with the reason on stderr.
 
 Stdout is exactly the document 'sessions list --json' or 'sessions search
---json' prints here, including "complete", "diagnostics", "period", and "sessions",
-with "machine" naming this host. Exit status follows the underlying
-command: 0 complete, 1 incomplete or application failure, 2 usage.
+--json' prints here, including "complete", "diagnostics", "period", and
+"sessions", with "machine" naming this host. Exit status follows the
+underlying command: 0 complete, 1 incomplete or application failure, 2
+usage.
+
+` + ui.StreamContractHelp + `
 
 ` + sessionPeriodHelp,
 		Args: cobra.NoArgs,
@@ -69,8 +76,13 @@ command: 0 complete, 1 incomplete or application failure, 2 usage.
 				return errors.New("request required on stdin; see 'esheep sessions query --help' for the schema")
 			}
 			var request session.Request
-			if err := json.Unmarshal(data, &request); err != nil {
+			decoder := json.NewDecoder(bytes.NewReader(data))
+			decoder.DisallowUnknownFields()
+			if err := decoder.Decode(&request); err != nil {
 				return fmt.Errorf("decode request: %w", err)
+			}
+			if err := decoder.Decode(new(any)); !errors.Is(err, io.EOF) {
+				return errors.New("decode request: expected exactly one JSON document")
 			}
 			filter, query, err := request.Resolve()
 			if err != nil {
