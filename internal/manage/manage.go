@@ -165,7 +165,7 @@ func Layers(ctx context.Context, loaded config.LoadResult) LayersReport {
 		candidates, agentsDiagnostics := agentsfile.Discover(agentsSources(loaded))
 		diagnostics = append(diagnostics, convertAgentsDiagnostics(agentsDiagnostics)...)
 		for _, candidate := range candidates {
-			if naming.ValidateLayerName(candidate.Layer) == nil {
+			if candidate.Layer != "" && candidate.Layer != naming.LocalLayer {
 				union[candidate.Layer] = struct{}{}
 			}
 		}
@@ -310,7 +310,7 @@ func Sync(ctx context.Context, loaded config.LoadResult) SyncReport {
 			if !selection.Active {
 				record(&report, install.Result{
 					Action:   install.ActionInactive,
-					Detail:   "layer not active",
+					Detail:   "no manifest applies under the effective layers",
 					Identity: install.Identity{Skill: known.Directory, Source: known.Source, Target: target.name},
 				}, nil)
 				continue

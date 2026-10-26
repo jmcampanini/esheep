@@ -19,6 +19,16 @@ const (
 	LocalLayer = "local"
 )
 
+// LayerOrder returns the layers a source may contribute from, earliest
+// first: base, the effective layers in order, then local. Base is the empty
+// string, matching what the filename parsers report for an unsuffixed name.
+func LayerOrder(effective []string) []string {
+	order := make([]string, 0, len(effective)+2)
+	order = append(order, "")
+	order = append(order, effective...)
+	return append(order, LocalLayer)
+}
+
 var sourceNamePart = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
 var skillNamePattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)

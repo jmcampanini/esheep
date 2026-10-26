@@ -57,8 +57,8 @@ the base layer, so SKILL.base.md is an error, as is any other root file of
 the form SKILL.<segment>.md with an invalid segment. The layer order is
 base, the effective layers in their configured order, then local. A
 manifest applies when its layer is in that order and its
-esheep-only-layers gate is empty or names an effective layer: SKILL.md
-and SKILL.local.md apply even with no effective layers, and
+esheep-only-layers gate is empty or names an effective layer: an ungated
+SKILL.md or SKILL.local.md applies even with no effective layers, and
 SKILL.<layer>.md applies only while its filename layer is effective. The
 gate narrows a manifest and never widens or reorders it; SKILL.work.md
 gated to [laptop] applies only when work and laptop are both effective

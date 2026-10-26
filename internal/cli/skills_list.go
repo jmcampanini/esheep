@@ -22,9 +22,11 @@ sources or targets.
 Readiness is ready, disabled, invalid, or collision. Disabled means the
 selected manifest declares esheep-disabled: true; validation errors and
 collisions take precedence. Diagnostics do not hide known entries. The
-layer gate column shows the layer names that limit when any manifest
-applies: all means some manifest applies under any effective layers, and
-- means no manifest was loadable.
+layer gate column lists every layer name a manifest's eligibility depends
+on, from SKILL.<layer>.md filenames and esheep-only-layers gates; a gated
+variant needs its filename layer and a gate name together. all means some
+manifest applies under any effective layers, and - means no manifest was
+loadable.
 The command exits nonzero only when configuration or filesystem failures
 prevent complete discovery.
 
@@ -32,8 +34,8 @@ prevent complete discovery.
 
 ` + ui.JSONContractHelp + ` List JSON includes "complete" and
 "effective_layers". Each skill's optional "trigger" contains its invocation
-text from esheep-trigger. Its optional "layer_gate" lists the layers
-that limit manifest selection.`,
+text from esheep-trigger. Its optional "layer_gate" lists the layer names
+its manifests' eligibility depends on.`,
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			loaded, err := loadConfiguration(command, load)

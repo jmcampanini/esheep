@@ -52,7 +52,7 @@ their previously managed copies.
 "effective_layers", and an optional "agents_file" section naming the
 selected source file and per-target states. Each skill's optional "trigger"
 contains its invocation text from esheep-trigger. Its optional "layer_gate"
-lists the layers that limit manifest selection.`,
+lists the layer names its manifests' eligibility depends on.`,
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			loaded, err := loadConfiguration(command, load)

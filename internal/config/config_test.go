@@ -503,6 +503,34 @@ func TestLayersResolveWithPrecedenceEnvLayersAndKeepLastDedupe(t *testing.T) {
 	}
 }
 
+func TestEmptyLayersFlagClearsRawLayersButEnvLayersStillAppend(t *testing.T) {
+	env := testEnv(filepath.Join(t.TempDir(), "home"), filepath.Join(t.TempDir(), "config"))
+	env["ESHEEP_LAYERS"] = "env-layer"
+	env["MACHINE_LAYERS"] = "client"
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte("layers = [\"file-layer\"]\nenv_layers = [\"MACHINE_LAYERS\"]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	flags := pflag.NewFlagSet("test", pflag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	if err := RegisterFlags(flags); err != nil {
+		t.Fatal(err)
+	}
+	if err := flags.Parse([]string{"--layers", ""}); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := Load(LoadOptions{Env: env, ConfigPath: path, Flags: flags})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := []string{"client"}
+	if !reflect.DeepEqual(result.EffectiveLayers, want) {
+		t.Fatalf("EffectiveLayers = %#v, want %#v", result.EffectiveLayers, want)
+	}
+}
+
 func TestLayersKeepLastOccurrenceInOrder(t *testing.T) {
 	env := testEnv(filepath.Join(t.TempDir(), "home"), filepath.Join(t.TempDir(), "config"))
 	env["ESHEEP_LAYERS"] = "work,laptop,work"

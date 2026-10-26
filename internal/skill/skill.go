@@ -163,7 +163,7 @@ type Selection struct {
 // applying layer is selected.
 func (source Package) Select(layers []string) Selection {
 	var selection Selection
-	for _, layer := range layerOrder(layers) {
+	for _, layer := range naming.LayerOrder(layers) {
 		for _, manifest := range source.Manifests {
 			if manifest.Layer != layer || !gateApplies(manifest.Document.OnlyLayers, layers) {
 				continue
@@ -174,17 +174,11 @@ func (source Package) Select(layers []string) Selection {
 	return selection
 }
 
-// layerOrder lists the layers that can supply a manifest, earliest first.
-// The empty string is the base layer, matching the Layer of SKILL.md.
-func layerOrder(layers []string) []string {
-	order := make([]string, 0, len(layers)+2)
-	order = append(order, "")
-	order = append(order, layers...)
-	return append(order, naming.LocalLayer)
-}
-
-// Gate returns the sorted union of layer names that limit when the skill
-// applies. An empty gate means the skill applies under every layer.
+// Gate returns the sorted union of every layer name that takes part in a
+// manifest's eligibility, from filenames and esheep-only-layers gates. It is
+// nil when some manifest applies under any effective layers. A variant
+// with a gate needs its filename layer and a gate name together, so the
+// union lists the names involved rather than a condition.
 func (source Package) Gate() []string {
 	union := make(map[string]struct{})
 	for _, manifest := range source.Manifests {
@@ -233,9 +227,10 @@ func (source Package) Identity(directoryName string) (string, bool) {
 	return "", false
 }
 
-// manifestGate unions the filename layer with the frontmatter gate. An empty
-// result means the manifest applies without any effective layer; the
-// automatic local layer is not a gate name.
+// manifestGate lists the layer names a manifest's eligibility depends on:
+// its filename layer and its frontmatter gate. An empty result means the
+// manifest applies without any effective layer; the automatic local layer
+// is not a gate name.
 func manifestGate(manifest Manifest) []string {
 	union := make(map[string]struct{}, len(manifest.Document.OnlyLayers)+1)
 	if manifest.Layer != "" && manifest.Layer != naming.LocalLayer {

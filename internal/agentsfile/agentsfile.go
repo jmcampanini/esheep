@@ -137,12 +137,8 @@ type Selection struct {
 // candidates across sources is an error even when a later tier would win.
 // Candidates for layers outside the order are ignored.
 func Select(candidates []Candidate, layers []string) (Selection, error) {
-	tiers := make([]string, 0, len(layers)+2)
-	tiers = append(tiers, "")
-	tiers = append(tiers, layers...)
-	tiers = append(tiers, naming.LocalLayer)
 	var selection Selection
-	for _, tier := range tiers {
+	for _, tier := range naming.LayerOrder(layers) {
 		var matches []Candidate
 		for _, candidate := range candidates {
 			if candidate.Layer == tier {

@@ -26,7 +26,8 @@ keeping the last occurrence of each name in order. The combined names
 work, laptop, work give the effective layers laptop, work. The automatic
 base and local layers are never effective: SKILL.md and AGENTS.md are the
 base layer and SKILL.local.md and AGENTS.local.md are the local layer, and
-both apply whenever present. Referenced is the sorted union of valid layer
+both apply whenever present, subject to any esheep-only-layers gate on a
+skill manifest. Referenced is the sorted union of valid layer
 names found in SKILL.<layer>.md and AGENTS.<layer>.md filenames,
 esheep-only-layers, and esheep-targets gates; local is never referenced.
 Invalid names remain diagnostics but are excluded from Referenced. The

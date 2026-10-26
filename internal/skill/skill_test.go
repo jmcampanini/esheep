@@ -673,6 +673,9 @@ func TestGateAndReferencedLayersUnionManifestGates(t *testing.T) {
 	localGated := Package{Manifests: []Manifest{
 		{FileName: "SKILL.local.md", Layer: "local", Document: Document{OnlyLayers: []string{"work"}}},
 	}}
+	narrowed := Package{Manifests: []Manifest{
+		{FileName: "SKILL.work.md", Layer: "work", Document: Document{OnlyLayers: []string{"laptop"}}},
+	}}
 
 	if gate := universal.Gate(); gate != nil {
 		t.Errorf("universal Gate() = %v, want nil", gate)
@@ -695,6 +698,9 @@ func TestGateAndReferencedLayersUnionManifestGates(t *testing.T) {
 	}
 	if gate := localGated.Gate(); len(gate) != 1 || gate[0] != "work" {
 		t.Errorf("local gated Gate() = %v, want [work]", gate)
+	}
+	if gate := narrowed.Gate(); !reflect.DeepEqual(gate, []string{"laptop", "work"}) {
+		t.Errorf("narrowed Gate() = %v, want [laptop work]", gate)
 	}
 }
 
