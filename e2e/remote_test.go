@@ -63,8 +63,9 @@ exec sh -c "$1" < "$REMOTE_RECORD"
 	storesBefore := snapshotTree(t, localHome) + snapshotTree(t, remoteHome)
 
 	searched := runEsheep(t, environment, "sessions", "search", "timeout", "--remote", "e2e-remote", "--json")
-	if searched.exitCode != 0 || !strings.Contains(searched.stderr, "e2e-remote: "+remoteHome) || !strings.Contains(searched.stderr, "malformed-lines: skipped 1 unparseable lines") {
-		t.Fatalf("search = %#v, want exit 0 and the remote transcript warning on stderr", searched)
+	assertSuccessWithDiagnostics(t, searched, "malformed-lines", "root-missing")
+	if !strings.Contains(searched.stderr, "e2e-remote: "+remoteHome) || !strings.Contains(searched.stderr, "malformed-lines: skipped 1 unparseable lines") {
+		t.Fatalf("search stderr = %q, want the remote transcript warning", searched.stderr)
 	}
 	var matches struct {
 		Complete bool `json:"complete"`

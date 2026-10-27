@@ -76,7 +76,8 @@ func TestSkillsStatusIsAHealthCheckInHumanAndJSONModes(t *testing.T) {
 	operations := stubOperations()
 	operations.status = func(context.Context, config.LoadResult) manage.StatusReport {
 		return manage.StatusReport{
-			Healthy: false,
+			Diagnostics: []manage.Diagnostic{{Code: "target-unreadable", Message: "permission denied", Path: "/targets/pi", Target: "pi"}},
+			Healthy:     false,
 			Skills: []manage.SkillStatus{{
 				Directory: "demo", HasManifest: true, Path: "/source/demo", Readiness: manage.ReadinessReady, Source: "local",
 				Targets: map[string]install.State{
@@ -88,17 +89,21 @@ func TestSkillsStatusIsAHealthCheckInHumanAndJSONModes(t *testing.T) {
 		}
 	}
 
+	const wantStderr = "/targets/pi [pi]: target-unreadable: permission denied\nesheep: skills status is unhealthy\n"
 	code, stdout, stderr := runCommandWithOperations(t, successfulLoad, operations, "skills", "status")
 	if code != 1 || !strings.Contains(stdout, "drifted") || !strings.Contains(stdout, "missing") {
 		t.Fatalf("human result: code=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
-	if stderr != "esheep: skills status is unhealthy\n" {
-		t.Fatalf("stderr = %q", stderr)
+	if stderr != wantStderr {
+		t.Fatalf("stderr = %q, want %q", stderr, wantStderr)
 	}
 
 	code, stdout, stderr = runCommandWithOperations(t, successfulLoad, operations, "skills", "status", "--json")
-	if code != 1 || stderr != "esheep: skills status is unhealthy\n" {
-		t.Fatalf("JSON result: code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	if code != 1 || stderr != wantStderr {
+		t.Fatalf("JSON result: code=%d stdout=%q stderr=%q, want stderr %q", code, stdout, stderr, wantStderr)
+	}
+	if strings.Contains(stdout, "target-unreadable") {
+		t.Fatalf("JSON stdout carries the diagnostic: %s", stdout)
 	}
 	var document manage.StatusReport
 	if err := json.Unmarshal([]byte(stdout), &document); err != nil {

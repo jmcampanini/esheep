@@ -153,7 +153,7 @@ Command groups:
 	root.InitDefaultHelpCmd()
 	for _, command := range root.Commands() {
 		if command.Name() == "help" {
-			command.Args = cobra.ArbitraryArgs
+			command.Args = helpTopicArgs
 			command.Run = nil
 			command.RunE = runHelp
 		}
@@ -161,10 +161,18 @@ Command groups:
 	return root
 }
 
-func runHelp(command *cobra.Command, args []string) error {
-	target, remaining, err := command.Root().Find(args)
-	if err != nil || len(remaining) != 0 {
+// helpTopicArgs accepts only operands that name one command or help topic.
+func helpTopicArgs(command *cobra.Command, args []string) error {
+	if _, remaining, err := command.Root().Find(args); err != nil || len(remaining) != 0 {
 		return fmt.Errorf("unknown help topic %q", strings.Join(args, " "))
+	}
+	return nil
+}
+
+func runHelp(command *cobra.Command, args []string) error {
+	target, _, err := command.Root().Find(args)
+	if err != nil {
+		return err
 	}
 	target.SetContext(command.Context())
 	target.InitDefaultHelpFlag()

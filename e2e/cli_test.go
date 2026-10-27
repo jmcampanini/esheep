@@ -944,15 +944,15 @@ func assertSuccess(t *testing.T, result processResult) {
 	}
 }
 
-// assertSuccessWithDiagnostics fails unless result exited 0 and every stderr
-// line is a diagnostic carrying one of codes.
+// assertSuccessWithDiagnostics fails unless result exited 0 and stderr holds
+// at least one line, each a diagnostic carrying one of codes.
 func assertSuccessWithDiagnostics(t *testing.T, result processResult, codes ...string) {
 	t.Helper()
-	if result.exitCode != 0 {
-		t.Fatalf("process result = %#v", result)
+	if result.exitCode != 0 || result.stderr == "" {
+		t.Fatalf("process result = %#v, want exit 0 and diagnostics on stderr", result)
 	}
 	for _, line := range strings.Split(strings.TrimSuffix(result.stderr, "\n"), "\n") {
-		if line != "" && !slices.ContainsFunc(codes, func(code string) bool { return strings.Contains(line, ": "+code+": ") }) {
+		if !slices.ContainsFunc(codes, func(code string) bool { return strings.Contains(line, ": "+code+": ") }) {
 			t.Fatalf("stderr line %q carries none of the codes %q", line, codes)
 		}
 	}
