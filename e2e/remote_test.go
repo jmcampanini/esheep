@@ -29,6 +29,7 @@ func TestRemoteSessionsWorkflow(t *testing.T) {
 	writeSessionTranscript(t, filepath.Join(remoteHome, ".pi", "agent", "sessions", "--home-u-piproj--", "2026-08-22T08-00-00-000Z_55555555-aaaa-bbbb-cccc-666666666666.jsonl"),
 		`{"type":"session","version":3,"id":"55555555-aaaa-bbbb-cccc-666666666666","timestamp":"2026-08-22T08:00:00Z","cwd":"/home/u/piproj"}`,
 		`{"type":"message","id":"m1","parentId":null,"timestamp":"2026-08-22T08:00:05Z","message":{"role":"user","content":[{"type":"text","text":"remote timeout question"}]}}`,
+		`malformed transcript line`,
 	)
 	settings := "[[machines]]\nname = \"e2e-remote\"\ncommand = \"" + binaryPath + "\"\n\n[[machines]]\nname = \"e2e-down\"\n"
 	if err := os.WriteFile(filepath.Join(localConfig, "esheep", "config.toml"), []byte(settings), 0o600); err != nil {
@@ -62,7 +63,9 @@ exec sh -c "$1" < "$REMOTE_RECORD"
 	storesBefore := snapshotTree(t, localHome) + snapshotTree(t, remoteHome)
 
 	searched := runEsheep(t, environment, "sessions", "search", "timeout", "--remote", "e2e-remote", "--json")
-	assertSuccess(t, searched)
+	if searched.exitCode != 0 || !strings.Contains(searched.stderr, "e2e-remote: "+remoteHome) || !strings.Contains(searched.stderr, "malformed-lines: skipped 1 unparseable lines") {
+		t.Fatalf("search = %#v, want exit 0 and the remote transcript warning on stderr", searched)
+	}
 	var matches struct {
 		Complete bool `json:"complete"`
 		Sessions []struct {
@@ -119,5 +122,37 @@ exec sh -c "$1" < "$REMOTE_RECORD"
 
 	if got := snapshotTree(t, localHome) + snapshotTree(t, remoteHome); got != storesBefore {
 		t.Fatal("remote session commands modified a session store")
+	}
+
+	brokenRoot := filepath.Join(remoteHome, ".codex", "sessions")
+	if err := os.MkdirAll(filepath.Dir(brokenRoot), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(brokenRoot, []byte("not a directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	storesBefore = snapshotTree(t, localHome) + snapshotTree(t, remoteHome)
+	for _, command := range [][]string{{"list"}, {"search", "timeout"}} {
+		args := append([]string{"sessions"}, command...)
+		args = append(args, "--harness", "codex", "--remote", "e2e-remote", "--no-local", "--json")
+
+		result := runEsheep(t, environment, args...)
+
+		if result.exitCode != 1 || !strings.Contains(result.stderr, "e2e-remote: "+brokenRoot+" [codex]: root-unusable:") || strings.Count(result.stderr, "esheep: ") != 1 {
+			t.Fatalf("%s = %#v, want the remote read diagnostic and one final failure line", command[0], result)
+		}
+		failure := "session inventory is incomplete"
+		if command[0] == "search" {
+			failure = "session search is incomplete"
+		}
+		if !strings.HasSuffix(result.stderr, "esheep: "+failure+"\n") {
+			t.Errorf("stderr = %q, want final %q", result.stderr, failure)
+		}
+		if err := json.Unmarshal([]byte(result.stdout), &matches); err != nil || matches.Complete || len(matches.Sessions) != 0 {
+			t.Fatalf("%s payload = %q (%v), want an incomplete empty inventory", command[0], result.stdout, err)
+		}
+	}
+	if got := snapshotTree(t, localHome) + snapshotTree(t, remoteHome); got != storesBefore {
+		t.Fatal("incomplete remote session commands modified a session store")
 	}
 }

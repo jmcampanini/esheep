@@ -140,15 +140,32 @@ func TestSessionsRemoteAllWithoutMachinesScansLocally(t *testing.T) {
 
 	code, stdout, stderr := runCommandWithOperations(t, sessionLoader(t), operations, "sessions", "list", "--remote", "all", "--json")
 
-	if code != 0 || stderr != "" {
-		t.Fatalf("exit = %d, stderr = %q", code, stderr)
+	if want := "laptop: no-machines: --remote all selected no other machine; add [[machines]] entries to config.toml\n"; code != 0 || stderr != want {
+		t.Fatalf("exit = %d, stderr = %q, want 0 and %q", code, stderr, want)
 	}
 	var report session.ListReport
 	if err := json.Unmarshal([]byte(stdout), &report); err != nil {
 		t.Fatal(err)
 	}
-	if !report.Complete || len(report.Diagnostics) != 1 || report.Diagnostics[0].Code != "no-machines" || report.Diagnostics[0].Machine != "laptop" {
-		t.Errorf("report = %+v, want a complete report with one no-machines diagnostic", report)
+	if !report.Complete || strings.Contains(stdout, "no-machines") {
+		t.Errorf("stdout = %q, want a complete report without the diagnostic", stdout)
+	}
+}
+
+func TestSessionsListJSONPrintsRemoteDiagnosticsOnStderr(t *testing.T) {
+	fakeSSHOnPath(t, `{"complete":false,"diagnostics":[{"code":"walk","harness":"pi","message":"permission denied","path":"/home/j/.pi"}],"sessions":[]}`)
+	operations := commandOperations{hostname: func() (string, error) { return "laptop.local", nil }}
+
+	code, stdout, stderr := runCommandWithOperations(t, fleetLoader(t), operations, "sessions", "list", "--remote", "nas", "--no-local", "--json")
+
+	if code != 1 {
+		t.Fatalf("exit = %d, want 1 (stderr %q)", code, stderr)
+	}
+	if want := "nas: /home/j/.pi [pi]: walk: permission denied\nesheep: session inventory is incomplete\n"; stderr != want {
+		t.Errorf("stderr = %q, want %q", stderr, want)
+	}
+	if strings.Contains(stdout, "diagnostics") || !strings.Contains(stdout, `"complete": false`) {
+		t.Errorf("stdout = %q, want an incomplete document without diagnostics", stdout)
 	}
 }
 
@@ -188,21 +205,42 @@ func TestSessionsQueryAnswersWithTheFlagDrivenDocument(t *testing.T) {
 	}
 }
 
-func TestSessionsQueryListIsIncompleteExitsOneSilently(t *testing.T) {
+func TestSessionsQueryIncompleteReplyCarriesDiagnosticsAndAFailureLine(t *testing.T) {
+	diagnostics := []session.Diagnostic{{Code: "walk", Path: "/roots/pi"}}
 	operations := commandOperations{
 		hostname: func() (string, error) { return "box", nil },
 		sessionList: func(context.Context, session.Roots, session.Filter) session.ListReport {
-			return session.ListReport{Complete: false, Diagnostics: []session.Diagnostic{{Code: "walk", Path: "/roots/pi"}}}
+			return session.ListReport{Diagnostics: diagnostics}
+		},
+		sessionSearch: func(context.Context, session.Roots, session.Filter, session.SearchQuery) session.SearchReport {
+			return session.SearchReport{Diagnostics: diagnostics}
 		},
 	}
+	for _, test := range []struct {
+		mode    string
+		failure string
+	}{
+		{mode: "list", failure: "session inventory is incomplete"},
+		{mode: "search", failure: "session search is incomplete"},
+	} {
+		t.Run(test.mode, func(t *testing.T) {
+			request := `{"mode":"` + test.mode + `","filter":{"archive_state":"all"},"query":{"pattern":"needle"}}`
+			code, stdout, stderr := runCommandWithInput(t, sessionLoader(t), operations, request, "sessions", "query")
 
-	code, stdout, stderr := runCommandWithInput(t, sessionLoader(t), operations, `{"mode":"list","filter":{"archive_state":"all"}}`, "sessions", "query")
-
-	if code != 1 || stderr != "" {
-		t.Fatalf("exit = %d, stderr = %q, want 1 and silence", code, stderr)
-	}
-	if !strings.Contains(stdout, `"complete": false`) || !strings.Contains(stdout, `"machine": "box"`) {
-		t.Errorf("stdout = %q, want the incomplete document stamped box", stdout)
+			if want := "esheep: " + test.failure + "\n"; code != 1 || stderr != want {
+				t.Fatalf("exit = %d, stderr = %q, want 1 and %q", code, stderr, want)
+			}
+			var reply struct {
+				Complete    bool                 `json:"complete"`
+				Diagnostics []session.Diagnostic `json:"diagnostics"`
+			}
+			if err := json.Unmarshal([]byte(stdout), &reply); err != nil {
+				t.Fatal(err)
+			}
+			if reply.Complete || len(reply.Diagnostics) != 1 || reply.Diagnostics[0].Code != "walk" || reply.Diagnostics[0].Machine != "box" {
+				t.Errorf("stdout = %q, want the incomplete reply carrying the walk diagnostic stamped box", stdout)
+			}
+		})
 	}
 }
 

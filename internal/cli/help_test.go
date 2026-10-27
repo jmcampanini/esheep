@@ -48,15 +48,23 @@ func TestEveryCommandHelpMeetsTheBaseline(t *testing.T) {
 		}
 
 		for _, child := range command.Commands() {
-			// Cobra owns its help command.
-			if child.Name() == "help" {
-				continue
-			}
 			assertHelp(child)
 		}
 	}
 
 	assertHelp(root)
+}
+
+func TestHelpRejectsUnknownOperands(t *testing.T) {
+	for _, operands := range [][]string{{"missing"}, {"sessions", "missing"}, {"sessions", "list", "extra"}, {"exit-codes", "extra"}} {
+		t.Run(strings.Join(operands, "/"), func(t *testing.T) {
+			code, stdout, stderr := runCommand(t, loadNeverCalled(t), append([]string{"help"}, operands...)...)
+
+			if code != 2 || stdout != "" || !strings.HasPrefix(stderr, "esheep: unknown help topic ") || strings.Count(stderr, "\n") != 1 {
+				t.Fatalf("help result: exit=%d stdout=%q stderr=%q, want one usage diagnostic", code, stdout, stderr)
+			}
+		})
+	}
 }
 
 // loadNeverCalled fails the test if a command loads configuration while

@@ -57,11 +57,12 @@ Validation matches the flags: a search needs a pattern, tool, or errors;
 raw cannot combine with role, tool, or errors; empty IDs are rejected. An
 invalid or empty request exits 2 with the reason on stderr.
 
-Stdout is exactly the document 'sessions list --json' or 'sessions search
---json' prints here, including "complete", "diagnostics", "period", and
-"sessions", with "machine" naming this host. Exit status follows the
-underlying command: 0 complete, 1 incomplete or application failure, 2
-usage.
+Stdout is the document 'sessions list --json' or 'sessions search --json'
+prints here, with "machine" naming this host, plus a "diagnostics" array
+that carries this machine's diagnostics to the caller, which prints them on
+stderr. Exit status follows the underlying command: 0 complete, 1
+incomplete or application failure, 2 usage. A failure, including an
+incomplete reply, ends with one 'esheep: <message>' line on stderr.
 
 ` + ui.StreamContractHelp + `
 
@@ -105,11 +106,11 @@ usage.
 				if err != nil {
 					return apperr.Wrap(err)
 				}
-				if err := ui.WriteSessionListJSON(command.OutOrStdout(), report); err != nil {
+				if err := remote.WriteListReply(command.OutOrStdout(), report); err != nil {
 					return apperr.Wrap(err)
 				}
 				if !report.Complete {
-					return apperr.WrapSilent(errors.New("session inventory is incomplete"))
+					return apperr.Wrap(errors.New("session inventory is incomplete"))
 				}
 				return nil
 			}
@@ -119,11 +120,11 @@ usage.
 			if err != nil {
 				return apperr.Wrap(err)
 			}
-			if err := ui.WriteSessionSearchJSON(command.OutOrStdout(), report); err != nil {
+			if err := remote.WriteSearchReply(command.OutOrStdout(), report); err != nil {
 				return apperr.Wrap(err)
 			}
 			if !report.Complete {
-				return apperr.WrapSilent(errors.New("session search is incomplete"))
+				return apperr.Wrap(errors.New("session search is incomplete"))
 			}
 			return nil
 		},

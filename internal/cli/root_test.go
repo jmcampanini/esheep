@@ -65,10 +65,6 @@ func TestEveryCommandDeclaresPositionalGrammar(t *testing.T) {
 			}
 		}
 		for _, child := range command.Commands() {
-			// Cobra owns its help command; esheep declares its own completion command.
-			if child.Name() == "help" {
-				continue
-			}
 			if child.Args == nil {
 				t.Errorf("%s: no Args validator", child.CommandPath())
 			}

@@ -1,9 +1,10 @@
 // Package remote runs esheep on other machines over ssh and merges their
 // session reports with the local one.
 //
-// Each machine answers with the same JSON document its own 'sessions list
-// --json' or 'sessions search --json' would print. Only results cross the
-// wire; transcripts stay where they are and no state survives a run.
+// Each machine answers with the JSON document its own 'sessions list --json'
+// or 'sessions search --json' would print plus a "diagnostics" array, which
+// the calling machine prints on stderr. Only results cross the wire;
+// transcripts stay where they are and no state survives a run.
 package remote
 
 import (
@@ -12,6 +13,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"os/exec"
 	"slices"
@@ -159,8 +161,34 @@ func Search(ctx context.Context, ssh string, selection Selection, request sessio
 	return session.SearchReport(merged), err
 }
 
-// document is the report shape shared by list and search, parameterized on
-// the session entry type so one merge serves both.
+// WriteListReply writes report as the reply 'sessions query' sends for a
+// list request.
+func WriteListReply(writer io.Writer, report session.ListReport) error {
+	return writeReply(writer, document[session.Session](report))
+}
+
+// WriteSearchReply writes report as the reply 'sessions query' sends for a
+// search request.
+func WriteSearchReply(writer io.Writer, report session.SearchReport) error {
+	return writeReply(writer, document[session.Match](report))
+}
+
+func writeReply[S any](writer io.Writer, reply document[S]) error {
+	if reply.Diagnostics == nil {
+		reply.Diagnostics = []session.Diagnostic{}
+	}
+	if reply.Sessions == nil {
+		reply.Sessions = []S{}
+	}
+	encoder := json.NewEncoder(writer)
+	encoder.SetEscapeHTML(false)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(reply)
+}
+
+// document is the reply shape shared by list and search, parameterized on
+// the session entry type so one merge serves both. Unlike the session
+// reports, it carries diagnostics in its JSON form.
 type document[S any] struct {
 	Complete    bool                 `json:"complete"`
 	Diagnostics []session.Diagnostic `json:"diagnostics"`

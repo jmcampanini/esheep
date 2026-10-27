@@ -141,9 +141,9 @@ with the local scan and under the entry's timeout. The remote esheep reads
 its own configuration and transcripts and returns only results, so a
 remote host key or passphrase prompt cannot appear: connect to the host
 with ssh once by hand instead. Local and remote results interleave most
-recent first, and every session and diagnostic names its machine. Text
-output adds a MACHINE column or header field and prefixes stderr
-diagnostics with the machine name only when --remote is present.
+recent first, and every session names its machine. Text output adds a
+MACHINE column or header field. In text and JSON modes, stderr diagnostics
+carry the machine name only when --remote is present.
 
 A machine that cannot answer makes the report incomplete and the command
 exit 1 while every result that did arrive is printed. Its diagnostic is

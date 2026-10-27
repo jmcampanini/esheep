@@ -32,9 +32,6 @@ func WriteList(writer io.Writer, report manage.ListReport, color bool) error {
 
 // WriteListJSON writes one complete known-skill JSON document.
 func WriteListJSON(writer io.Writer, report manage.ListReport) error {
-	if report.Diagnostics == nil {
-		report.Diagnostics = []manage.Diagnostic{}
-	}
 	if report.EffectiveLayers == nil {
 		report.EffectiveLayers = []string{}
 	}
@@ -80,9 +77,6 @@ func WriteStatus(writer io.Writer, report manage.StatusReport, color bool) error
 
 // WriteStatusJSON writes one complete deployment-status JSON document.
 func WriteStatusJSON(writer io.Writer, report manage.StatusReport) error {
-	if report.Diagnostics == nil {
-		report.Diagnostics = []manage.Diagnostic{}
-	}
 	if report.EffectiveLayers == nil {
 		report.EffectiveLayers = []string{}
 	}
@@ -100,9 +94,6 @@ func WriteLayers(writer io.Writer, report manage.LayersReport) error {
 
 // WriteLayersJSON writes one complete layers JSON document.
 func WriteLayersJSON(writer io.Writer, report manage.LayersReport) error {
-	if report.Diagnostics == nil {
-		report.Diagnostics = []manage.Diagnostic{}
-	}
 	if report.Effective == nil {
 		report.Effective = []string{}
 	}
@@ -185,9 +176,6 @@ func WriteSessionList(writer io.Writer, report session.ListReport, color bool, m
 
 // WriteSessionListJSON writes one complete session inventory JSON document.
 func WriteSessionListJSON(writer io.Writer, report session.ListReport) error {
-	if report.Diagnostics == nil {
-		report.Diagnostics = []session.Diagnostic{}
-	}
 	if report.Sessions == nil {
 		report.Sessions = []session.Session{}
 	}
@@ -244,9 +232,6 @@ func WriteSessionSearch(writer io.Writer, report session.SearchReport, machines 
 
 // WriteSessionSearchJSON writes one complete search JSON document.
 func WriteSessionSearchJSON(writer io.Writer, report session.SearchReport) error {
-	if report.Diagnostics == nil {
-		report.Diagnostics = []session.Diagnostic{}
-	}
 	if report.Sessions == nil {
 		report.Sessions = []session.Match{}
 	}

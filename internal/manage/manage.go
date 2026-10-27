@@ -31,16 +31,17 @@ const (
 	ReadinessReady     Readiness = "ready"
 )
 
-// Diagnostic is a stable source or target failure record.
+// Diagnostic is a stable source or target failure record. Commands print
+// diagnostics on stderr; no JSON document carries them.
 type Diagnostic struct {
-	Code    string `json:"code"`
-	Detail  string `json:"detail,omitempty"`
-	Field   string `json:"field,omitempty"`
-	Message string `json:"message,omitempty"`
-	Path    string `json:"path,omitempty"`
-	Skill   string `json:"skill,omitempty"`
-	Source  string `json:"source,omitempty"`
-	Target  string `json:"target,omitempty"`
+	Code    string
+	Detail  string
+	Field   string
+	Message string
+	Path    string
+	Skill   string
+	Source  string
+	Target  string
 }
 
 // KnownSkill is one discovered source skill. LayerGate limits when the skill
@@ -59,7 +60,7 @@ type KnownSkill struct {
 // ListReport is the complete known-skill inventory.
 type ListReport struct {
 	Complete        bool         `json:"complete"`
-	Diagnostics     []Diagnostic `json:"diagnostics"`
+	Diagnostics     []Diagnostic `json:"-"`
 	EffectiveLayers []string     `json:"effective_layers"`
 	Skills          []KnownSkill `json:"skills"`
 }
@@ -89,7 +90,7 @@ type AgentsFileStatus struct {
 // selected agents file.
 type StatusReport struct {
 	AgentsFile      *AgentsFileStatus `json:"agents_file,omitempty"`
-	Diagnostics     []Diagnostic      `json:"diagnostics"`
+	Diagnostics     []Diagnostic      `json:"-"`
 	EffectiveLayers []string          `json:"effective_layers"`
 	Healthy         bool              `json:"healthy"`
 	Skills          []SkillStatus     `json:"skills"`
@@ -99,7 +100,7 @@ type StatusReport struct {
 // referenced by discovered skills.
 type LayersReport struct {
 	Complete    bool         `json:"complete"`
-	Diagnostics []Diagnostic `json:"diagnostics"`
+	Diagnostics []Diagnostic `json:"-"`
 	Effective   []string     `json:"effective"`
 	Referenced  []string     `json:"referenced"`
 }
