@@ -26,16 +26,15 @@ A failure prints exactly one line on stderr in the form
   esheep: <message>
 
 and no usage text, for usage errors as well. Diagnostics a command prints
-while it works precede that line. JSON modes report an unsuccessful
-result inside the emitted document and still use the exit status; they
-do not duplicate the report as a stderr error.
+while it works precede that line in every output mode. An incomplete or
+unhealthy report keeps its payload on stdout and still ends with that
+line; a --json document carries results only, never diagnostics or error
+text.
 
-These failures are reported in the output but keep status 0 because the
-command's own work completed. Text modes print them as diagnostics on
-stderr; --json carries them inside the document.
+These conditions keep status 0 because the command's own work completed.
+Every output mode reports them as diagnostics on stderr, except where
+noted.
 
-  'esheep help <topic>' with an unknown topic prints 'Unknown help topic'
-  and the root usage on stderr.
   'skills list' and 'layers' report invalid or colliding source skills
   while discovery is complete.
   'sessions list' and 'sessions search' report a missing or unconfigured

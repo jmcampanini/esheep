@@ -3,6 +3,7 @@ package ui
 import (
 	"bytes"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -244,29 +245,50 @@ func TestWriteSessionListRendersPlaceholdersAndTimes(t *testing.T) {
 	}
 }
 
-func TestSessionJSONWritersEmitEmptyCollections(t *testing.T) {
+func TestJSONWritersEmitPayloadDocuments(t *testing.T) {
 	t.Parallel()
-	var listOutput bytes.Buffer
-	if err := WriteSessionListJSON(&listOutput, session.ListReport{Complete: true}); err != nil {
-		t.Fatal(err)
-	}
-	var list struct {
-		Diagnostics []session.Diagnostic `json:"diagnostics"`
-		Sessions    []session.Session    `json:"sessions"`
-	}
-	if err := json.Unmarshal(listOutput.Bytes(), &list); err != nil {
-		t.Fatalf("list JSON: %v", err)
-	}
-	if list.Diagnostics == nil || list.Sessions == nil {
-		t.Fatalf("list JSON = %s, want empty arrays not null", listOutput.String())
-	}
+	managementDiagnostics := []manage.Diagnostic{{Code: "source-unavailable", Message: "permission denied"}}
+	sessionDiagnostics := []session.Diagnostic{{Code: "walk", Message: "permission denied"}}
+	for _, test := range []struct {
+		name  string
+		want  string
+		write func(*bytes.Buffer) error
+	}{
+		{name: "skills list", want: `{"complete":false,"effective_layers":[],"skills":[]}`, write: func(output *bytes.Buffer) error {
+			return WriteListJSON(output, manage.ListReport{Diagnostics: managementDiagnostics})
+		}},
+		{name: "skills status", want: `{"effective_layers":[],"healthy":false,"skills":[]}`, write: func(output *bytes.Buffer) error {
+			return WriteStatusJSON(output, manage.StatusReport{Diagnostics: managementDiagnostics})
+		}},
+		{name: "layers", want: `{"complete":false,"effective":[],"referenced":[]}`, write: func(output *bytes.Buffer) error {
+			return WriteLayersJSON(output, manage.LayersReport{Diagnostics: managementDiagnostics})
+		}},
+		{name: "sessions list", want: `{"complete":false,"period":{"since":null,"until":null},"sessions":[]}`, write: func(output *bytes.Buffer) error {
+			return WriteSessionListJSON(output, session.ListReport{Diagnostics: sessionDiagnostics})
+		}},
+		{name: "sessions search", want: `{"complete":false,"period":{"since":null,"until":null},"sessions":[]}`, write: func(output *bytes.Buffer) error {
+			return WriteSessionSearchJSON(output, session.SearchReport{Diagnostics: sessionDiagnostics})
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			var output bytes.Buffer
 
-	var searchOutput bytes.Buffer
-	if err := WriteSessionSearchJSON(&searchOutput, session.SearchReport{Complete: true}); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(searchOutput.String(), `"sessions": []`) {
-		t.Fatalf("search JSON = %s, want empty sessions array", searchOutput.String())
+			if err := test.write(&output); err != nil {
+				t.Fatal(err)
+			}
+
+			var got, want any
+			if err := json.Unmarshal(output.Bytes(), &got); err != nil {
+				t.Fatal(err)
+			}
+			if err := json.Unmarshal([]byte(test.want), &want); err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(got, want) {
+				t.Errorf("JSON = %s, want %s", output.String(), test.want)
+			}
+		})
 	}
 }
 

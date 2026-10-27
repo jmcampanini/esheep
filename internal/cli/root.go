@@ -49,8 +49,7 @@ func Execute() int {
 
 // execute runs the tree and maps the outcome to a process status: 0 on
 // success, 1 for an application failure, and 2 for a usage error. A
-// failure that has not already been reported prints one line on stderr in
-// the form '<cli>: <message>' and nothing else.
+// failure prints one final line on stderr in the form '<cli>: <message>'.
 func execute(root *cobra.Command, args []string) int {
 	root.SetArgs(args)
 	err := root.Execute()
@@ -62,9 +61,6 @@ func execute(root *cobra.Command, args []string) int {
 	var application apperr.Error
 	if errors.As(err, &application) {
 		exitCode = 1
-		if application.Silent() {
-			return exitCode
-		}
 	}
 	message := strings.NewReplacer("\r\n", " ", "\r", " ", "\n", " ").Replace(err.Error())
 	_, _ = fmt.Fprintf(root.ErrOrStderr(), "%s: %s\n", root.Name(), message)
@@ -104,7 +100,7 @@ the project when a memory is recorded. Nothing else is required.
 
 A bare 'esheep' prints this help on stdout. Every command writes its
 payload to stdout and diagnostics to stderr; a failure ends with one
-'esheep: <message>' line unless a --json document already reports it.
+'esheep: <message>' line in every output mode.
 Run 'esheep config' to inspect the effective configuration and resolved
 paths, 'esheep config --help' for every configuration key, 'esheep help
 skill-format' for the authoring format, and 'esheep help exit-codes' for
@@ -154,5 +150,32 @@ Command groups:
 		newSkillsCommand(load, operations),
 		newSyncCommand(load, operations.sync),
 	)
+	root.InitDefaultHelpCmd()
+	for _, command := range root.Commands() {
+		if command.Name() == "help" {
+			command.Args = helpTopicArgs
+			command.Run = nil
+			command.RunE = runHelp
+		}
+	}
 	return root
+}
+
+// helpTopicArgs accepts only operands that name one command or help topic.
+func helpTopicArgs(command *cobra.Command, args []string) error {
+	if _, remaining, err := command.Root().Find(args); err != nil || len(remaining) != 0 {
+		return fmt.Errorf("unknown help topic %q", strings.Join(args, " "))
+	}
+	return nil
+}
+
+func runHelp(command *cobra.Command, args []string) error {
+	target, _, err := command.Root().Find(args)
+	if err != nil {
+		return err
+	}
+	target.SetContext(command.Context())
+	target.InitDefaultHelpFlag()
+	target.InitDefaultVersionFlag()
+	return apperr.Wrap(target.Help())
 }

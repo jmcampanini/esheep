@@ -16,7 +16,7 @@ terminal, NO_COLOR is unset or empty, and TERM is not dumb; --color=always
 and --color=never override that detection.`
 
 // JSONContractHelp describes structured output and failure reporting.
-const JSONContractHelp = `--json emits one complete JSON document, including structured diagnostics,
-to stdout and does not duplicate an unsuccessful report as a stderr error;
-the exit status still reports failure. The document never carries terminal
-escapes, whatever --color says.`
+const JSONContractHelp = `--json emits one complete JSON document to stdout. Diagnostics and the
+final failure line go to stderr as in text mode, never into the document,
+and the exit status still reports failure. The document never carries
+terminal escapes, whatever --color says.`

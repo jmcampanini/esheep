@@ -120,17 +120,12 @@ known, and "error" appears for known failures.`,
 			}
 			report.Diagnostics = append(scope.diagnostics, report.Diagnostics...)
 
+			machines := len(filterFlags.remote) != 0
 			if jsonOutput {
 				if err := ui.WriteSessionSearchJSON(command.OutOrStdout(), report); err != nil {
 					return apperr.Wrap(err)
 				}
-				if !report.Complete {
-					return apperr.WrapSilent(errors.New("session search is incomplete"))
-				}
-				return nil
-			}
-			machines := len(filterFlags.remote) != 0
-			if err := ui.WriteSessionSearch(command.OutOrStdout(), report, machines); err != nil {
+			} else if err := ui.WriteSessionSearch(command.OutOrStdout(), report, machines); err != nil {
 				return apperr.Wrap(err)
 			}
 			if err := ui.WriteSessionDiagnostics(command.ErrOrStderr(), report.Diagnostics, machines); err != nil {

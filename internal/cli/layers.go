@@ -48,12 +48,7 @@ prevent complete discovery.
 				if err := ui.WriteLayersJSON(command.OutOrStdout(), report); err != nil {
 					return apperr.Wrap(err)
 				}
-				if !report.Complete {
-					return apperr.WrapSilent(errors.New("layers inventory is incomplete"))
-				}
-				return nil
-			}
-			if err := ui.WriteLayers(command.OutOrStdout(), report); err != nil {
+			} else if err := ui.WriteLayers(command.OutOrStdout(), report); err != nil {
 				return apperr.Wrap(err)
 			}
 			if err := ui.WriteDiagnostics(command.ErrOrStderr(), report.Diagnostics); err != nil {

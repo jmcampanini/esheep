@@ -49,12 +49,7 @@ its manifests' eligibility depends on.`,
 				if err := ui.WriteListJSON(command.OutOrStdout(), report); err != nil {
 					return apperr.Wrap(err)
 				}
-				if !report.Complete {
-					return apperr.WrapSilent(errors.New("skills inventory is incomplete"))
-				}
-				return nil
-			}
-			if err := ui.WriteList(command.OutOrStdout(), report, useColor(command, command.OutOrStdout())); err != nil {
+			} else if err := ui.WriteList(command.OutOrStdout(), report, useColor(command, command.OutOrStdout())); err != nil {
 				return apperr.Wrap(err)
 			}
 			if err := ui.WriteDiagnostics(command.ErrOrStderr(), report.Diagnostics); err != nil {

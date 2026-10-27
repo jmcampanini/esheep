@@ -43,7 +43,7 @@ func TestSkillsListReportsAllKnownSkillsWithoutFailingOnValidation(t *testing.T)
 	}
 }
 
-func TestSkillsListJSONReturnsCompleteDocumentForIncompleteInventory(t *testing.T) {
+func TestSkillsListJSONReportsIncompleteInventoryOnStderr(t *testing.T) {
 	t.Parallel()
 	operations := stubOperations()
 	operations.list = func(context.Context, config.LoadResult) manage.ListReport {
@@ -56,19 +56,18 @@ func TestSkillsListJSONReturnsCompleteDocumentForIncompleteInventory(t *testing.
 	if code != 1 {
 		t.Fatalf("exit code = %d, want 1", code)
 	}
-	if stderr != "" {
-		t.Fatalf("stderr = %q, want empty", stderr)
+	if want := "/source: source-unavailable: not found\nesheep: skills inventory is incomplete\n"; stderr != want {
+		t.Fatalf("stderr = %q, want %q", stderr, want)
 	}
-	var document struct {
-		Complete    *bool               `json:"complete"`
-		Diagnostics []manage.Diagnostic `json:"diagnostics"`
-		Skills      []manage.KnownSkill `json:"skills"`
-	}
+	var document map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(stdout), &document); err != nil {
 		t.Fatalf("stdout is not one JSON document: %v\n%s", err, stdout)
 	}
-	if document.Complete == nil || *document.Complete || len(document.Diagnostics) != 1 || document.Diagnostics[0].Code != "source-unavailable" || document.Skills == nil {
-		t.Fatalf("document = %#v", document)
+	if _, exists := document["diagnostics"]; exists {
+		t.Fatalf("document carries diagnostics:\n%s", stdout)
+	}
+	if string(document["complete"]) != "false" || string(document["skills"]) != "[]" {
+		t.Fatalf("document = %s", stdout)
 	}
 }
 
@@ -77,7 +76,8 @@ func TestSkillsStatusIsAHealthCheckInHumanAndJSONModes(t *testing.T) {
 	operations := stubOperations()
 	operations.status = func(context.Context, config.LoadResult) manage.StatusReport {
 		return manage.StatusReport{
-			Healthy: false,
+			Diagnostics: []manage.Diagnostic{{Code: "target-unreadable", Message: "permission denied", Path: "/targets/pi", Target: "pi"}},
+			Healthy:     false,
 			Skills: []manage.SkillStatus{{
 				Directory: "demo", HasManifest: true, Path: "/source/demo", Readiness: manage.ReadinessReady, Source: "local",
 				Targets: map[string]install.State{
@@ -89,17 +89,21 @@ func TestSkillsStatusIsAHealthCheckInHumanAndJSONModes(t *testing.T) {
 		}
 	}
 
+	const wantStderr = "/targets/pi [pi]: target-unreadable: permission denied\nesheep: skills status is unhealthy\n"
 	code, stdout, stderr := runCommandWithOperations(t, successfulLoad, operations, "skills", "status")
 	if code != 1 || !strings.Contains(stdout, "drifted") || !strings.Contains(stdout, "missing") {
 		t.Fatalf("human result: code=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
-	if stderr != "esheep: skills status is unhealthy\n" {
-		t.Fatalf("stderr = %q", stderr)
+	if stderr != wantStderr {
+		t.Fatalf("stderr = %q, want %q", stderr, wantStderr)
 	}
 
 	code, stdout, stderr = runCommandWithOperations(t, successfulLoad, operations, "skills", "status", "--json")
-	if code != 1 || stderr != "" {
-		t.Fatalf("JSON result: code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	if code != 1 || stderr != wantStderr {
+		t.Fatalf("JSON result: code=%d stdout=%q stderr=%q, want stderr %q", code, stdout, stderr, wantStderr)
+	}
+	if strings.Contains(stdout, "target-unreadable") {
+		t.Fatalf("JSON stdout carries the diagnostic: %s", stdout)
 	}
 	var document manage.StatusReport
 	if err := json.Unmarshal([]byte(stdout), &document); err != nil {
@@ -173,12 +177,14 @@ func TestLayersExitsNonzeroWhenDiscoveryIsIncomplete(t *testing.T) {
 		return manage.LayersReport{Diagnostics: []manage.Diagnostic{{Code: "source-unavailable", Message: "not found", Path: "/source", Source: "local"}}}
 	}
 
-	code, stdout, stderr := runCommandWithOperations(t, successfulLoad, operations, "layers")
-	if code != 1 {
-		t.Fatalf("exit code = %d, want 1: stdout=%q stderr=%q", code, stdout, stderr)
-	}
-	if !strings.Contains(stderr, "source-unavailable") || !strings.Contains(stderr, "esheep: layers inventory is incomplete") {
-		t.Fatalf("stderr = %q", stderr)
+	for _, args := range [][]string{{"layers"}, {"layers", "--json"}} {
+		code, stdout, stderr := runCommandWithOperations(t, successfulLoad, operations, args...)
+		if code != 1 {
+			t.Fatalf("%v: exit code = %d, want 1: stdout=%q stderr=%q", args, code, stdout, stderr)
+		}
+		if want := "/source: source-unavailable: not found\nesheep: layers inventory is incomplete\n"; stderr != want {
+			t.Fatalf("%v: stderr = %q, want %q", args, stderr, want)
+		}
 	}
 }
 

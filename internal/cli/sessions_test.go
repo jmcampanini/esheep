@@ -114,25 +114,18 @@ func TestDisabledCoworkCommandsReportConfigurationWithoutFailing(t *testing.T) {
 				if code != 0 {
 					t.Fatalf("exit = %d, stdout = %q, stderr = %q", code, stdout, stderr)
 				}
+				if !strings.Contains(stderr, "root-disabled") || !strings.Contains(stderr, "[sessions.claude-cowork].path") || strings.Contains(stdout, "root-disabled") {
+					t.Errorf("stdout = %q, stderr = %q, want configuration diagnostic only on stderr", stdout, stderr)
+				}
 				if !jsonOutput {
-					if !strings.Contains(stderr, "root-disabled") || !strings.Contains(stderr, "[sessions.claude-cowork].path") || strings.Contains(stdout, "root-disabled") {
-						t.Errorf("stdout = %q, stderr = %q, want configuration diagnostic only on stderr", stdout, stderr)
-					}
 					return
 				}
-				var report struct {
-					Complete    bool                 `json:"complete"`
-					Diagnostics []session.Diagnostic `json:"diagnostics"`
-				}
+				var report map[string]json.RawMessage
 				if err := json.Unmarshal([]byte(stdout), &report); err != nil {
 					t.Fatal(err)
 				}
-				if stderr != "" || !report.Complete || len(report.Diagnostics) != 1 {
-					t.Fatalf("report = %+v, stderr = %q, want complete report with one JSON diagnostic", report, stderr)
-				}
-				diagnostic := report.Diagnostics[0]
-				if diagnostic.Code != "root-disabled" || !strings.Contains(diagnostic.Message, "[sessions.claude-cowork].path") {
-					t.Errorf("JSON diagnostic = %+v, want configuration diagnostic", diagnostic)
+				if _, exists := report["diagnostics"]; exists || string(report["complete"]) != "true" {
+					t.Errorf("JSON report = %s, want a complete report without diagnostics", stdout)
 				}
 			})
 		}
@@ -300,8 +293,8 @@ func TestSessionsListIncompleteExitsNonzero(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("json exit code = %d", code)
 	}
-	if stderr != "" {
-		t.Fatalf("json stderr = %q, want empty", stderr)
+	if want := "esheep: session inventory is incomplete\n"; stderr != want {
+		t.Fatalf("json stderr = %q, want %q", stderr, want)
 	}
 	if !strings.Contains(stdout, `"complete": false`) {
 		t.Fatalf("json stdout = %q, want complete false", stdout)

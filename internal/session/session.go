@@ -137,18 +137,21 @@ func affectsCompleteness(code string) bool {
 	return code == codeRootUnusable || code == codeTranscriptRead || code == codeMetadataRead || code == codeWalk
 }
 
-// ListReport is the historical session inventory.
+// ListReport is the historical session inventory. Its JSON form omits
+// Diagnostics, which commands print on stderr; only the 'sessions query'
+// reply carries them between machines.
 type ListReport struct {
 	Complete    bool         `json:"complete"`
-	Diagnostics []Diagnostic `json:"diagnostics"`
+	Diagnostics []Diagnostic `json:"-"`
 	Period      Period       `json:"period"`
 	Sessions    []Session    `json:"sessions"`
 }
 
 // SearchReport contains the sessions whose transcripts matched a query.
+// Its JSON form omits Diagnostics, as ListReport's does.
 type SearchReport struct {
 	Complete    bool         `json:"complete"`
-	Diagnostics []Diagnostic `json:"diagnostics"`
+	Diagnostics []Diagnostic `json:"-"`
 	Period      Period       `json:"period"`
 	Sessions    []Match      `json:"sessions"`
 }

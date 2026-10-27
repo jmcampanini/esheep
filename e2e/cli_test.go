@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -88,28 +89,25 @@ func TestMilestoneWorkflow(t *testing.T) {
 
 	invalidSourcesBefore := snapshotTree(t, personal) + snapshotTree(t, work)
 	invalidInventory := runEsheep(t, environment, "skills", "list", "--json")
-	assertSuccess(t, invalidInventory)
-	var invalidReport struct {
-		Diagnostics []struct {
-			Code    string `json:"code"`
-			Field   string `json:"field"`
-			Message string `json:"message"`
-		} `json:"diagnostics"`
-	}
+	assertSuccessWithDiagnostics(t, invalidInventory, "invalid-value", "yaml", "collision")
+	var invalidReport map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(invalidInventory.stdout), &invalidReport); err != nil {
 		t.Fatalf("decode invalid inventory: %v\n%s", err, invalidInventory.stdout)
 	}
+	if _, exists := invalidReport["diagnostics"]; exists {
+		t.Fatalf("invalid inventory carries diagnostics on stdout:\n%s", invalidInventory.stdout)
+	}
 	var foundCollision, foundInvalidField bool
-	for _, diagnostic := range invalidReport.Diagnostics {
-		if diagnostic.Code == "invalid-value" && diagnostic.Field == "metadata" {
+	for _, line := range strings.Split(invalidInventory.stderr, "\n") {
+		if strings.Contains(line, ": invalid-value: metadata: ") {
 			foundInvalidField = true
 		}
-		if diagnostic.Code == "collision" && strings.Contains(diagnostic.Message, "personal/same") && strings.Contains(diagnostic.Message, "work/same") {
+		if strings.Contains(line, ": collision: ") && strings.Contains(line, "personal/same") && strings.Contains(line, "work/same") {
 			foundCollision = true
 		}
 	}
 	if !foundCollision || !foundInvalidField {
-		t.Fatalf("invalid inventory diagnostics = %#v", invalidReport.Diagnostics)
+		t.Fatalf("invalid inventory stderr = %q", invalidInventory.stderr)
 	}
 	failedSync := runEsheep(t, environment, "sync")
 	if failedSync.exitCode != 1 || !strings.Contains(failedSync.stderr, "invalid-value") || !strings.Contains(failedSync.stderr, "collision") {
@@ -211,7 +209,7 @@ func TestMilestoneWorkflow(t *testing.T) {
 		t.Fatal(err)
 	}
 	drifted := runEsheep(t, environment, "skills", "status", "--json")
-	if drifted.exitCode != 1 || drifted.stderr != "" {
+	if drifted.exitCode != 1 || drifted.stderr != "esheep: skills status is unhealthy\n" {
 		t.Fatalf("drifted status = %#v", drifted)
 	}
 	assertStatusHealth(t, drifted.stdout, false)
@@ -523,7 +521,7 @@ func TestSourcesVariableWorkflow(t *testing.T) {
 
 	writeVariablesSettings(t, settingsPath, [][2]string{{"alpha", alpha}, {"beta", beta}}, claude)
 	drifted := runEsheep(t, environment, "skills", "status", "--json")
-	if drifted.exitCode != 1 || drifted.stderr != "" {
+	if drifted.exitCode != 1 || drifted.stderr != "esheep: skills status is unhealthy\n" {
 		t.Fatalf("drifted status = %#v", drifted)
 	}
 	assertStatusHealth(t, drifted.stdout, false)
@@ -946,6 +944,20 @@ func assertSuccess(t *testing.T, result processResult) {
 	}
 }
 
+// assertSuccessWithDiagnostics fails unless result exited 0 and stderr holds
+// at least one line, each a diagnostic carrying one of codes.
+func assertSuccessWithDiagnostics(t *testing.T, result processResult, codes ...string) {
+	t.Helper()
+	if result.exitCode != 0 || result.stderr == "" {
+		t.Fatalf("process result = %#v, want exit 0 and diagnostics on stderr", result)
+	}
+	for _, line := range strings.Split(strings.TrimSuffix(result.stderr, "\n"), "\n") {
+		if !slices.ContainsFunc(codes, func(code string) bool { return strings.Contains(line, ": "+code+": ") }) {
+			t.Fatalf("stderr line %q carries none of the codes %q", line, codes)
+		}
+	}
+}
+
 func processEnvironment(overrides map[string]string) []string {
 	blocked := map[string]struct{}{
 		"CLAUDE_CODE_SESSION_ID": {}, "CODEX_HOME": {}, "CODEX_THREAD_ID": {}, "HOME": {},
@@ -1005,7 +1017,7 @@ func TestSessionsWorkflow(t *testing.T) {
 	storesBefore := snapshotTree(t, home)
 
 	listed := runEsheep(t, environment, "sessions", "list", "--json")
-	assertSuccess(t, listed)
+	assertSuccessWithDiagnostics(t, listed, "root-missing")
 	var inventory struct {
 		Complete bool `json:"complete"`
 		Sessions []struct {
@@ -1027,7 +1039,7 @@ func TestSessionsWorkflow(t *testing.T) {
 	}
 
 	withSubagents := runEsheep(t, environment, "sessions", "list", "--json", "--subagents")
-	assertSuccess(t, withSubagents)
+	assertSuccessWithDiagnostics(t, withSubagents, "root-missing")
 	if err := json.Unmarshal([]byte(withSubagents.stdout), &inventory); err != nil {
 		t.Fatalf("decode subagent inventory: %v\n%s", err, withSubagents.stdout)
 	}
@@ -1036,7 +1048,7 @@ func TestSessionsWorkflow(t *testing.T) {
 	}
 
 	searched := runEsheep(t, environment, "sessions", "search", "--json", "GOMODCACHE")
-	assertSuccess(t, searched)
+	assertSuccessWithDiagnostics(t, searched, "root-missing")
 	var matches struct {
 		Sessions []struct {
 			Harness string `json:"harness"`
@@ -1057,7 +1069,7 @@ func TestSessionsWorkflow(t *testing.T) {
 	}
 
 	failures := runEsheep(t, environment, "sessions", "search", "--json", "--errors")
-	assertSuccess(t, failures)
+	assertSuccessWithDiagnostics(t, failures, "root-missing")
 	if got := strings.Count(failures.stdout, `"error": true`); got != 2 {
 		t.Fatalf("error search hits = %d, want 2\n%s", got, failures.stdout)
 	}

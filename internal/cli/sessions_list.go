@@ -54,7 +54,7 @@ diagnostic.
 List JSON includes "complete" and "period"; timestamps are RFC 3339,
 "projects" is an array of paths, "archived" marks archive state,
 "subagent" marks non-primary transcripts, and "machine" names the machine
-that owns each session and diagnostic.`,
+that owns each session.`,
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			names, err := remote.ParseNames(filterFlags.remote, filterFlags.noLocal)
@@ -87,17 +87,12 @@ that owns each session and diagnostic.`,
 			}
 			report.Diagnostics = append(scope.diagnostics, report.Diagnostics...)
 
+			machines := len(filterFlags.remote) != 0
 			if jsonOutput {
 				if err := ui.WriteSessionListJSON(command.OutOrStdout(), report); err != nil {
 					return apperr.Wrap(err)
 				}
-				if !report.Complete {
-					return apperr.WrapSilent(errors.New("session inventory is incomplete"))
-				}
-				return nil
-			}
-			machines := len(filterFlags.remote) != 0
-			if err := ui.WriteSessionList(command.OutOrStdout(), report, useColor(command, command.OutOrStdout()), machines); err != nil {
+			} else if err := ui.WriteSessionList(command.OutOrStdout(), report, useColor(command, command.OutOrStdout()), machines); err != nil {
 				return apperr.Wrap(err)
 			}
 			if err := ui.WriteSessionDiagnostics(command.ErrOrStderr(), report.Diagnostics, machines); err != nil {
