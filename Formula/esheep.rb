@@ -1,5 +1,5 @@
 class Esheep < Formula
-  desc "Manage local Agent Skills for Claude Code, Pi, and Codex"
+  desc "Find Claude Code, Pi, and Codex sessions and record memories"
   homepage "https://github.com/jmcampanini/esheep"
   license "MIT"
   head "https://github.com/jmcampanini/esheep.git", branch: "main"

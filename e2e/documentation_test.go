@@ -13,8 +13,6 @@ var markdownLinkPattern = regexp.MustCompile(`\[[^]]*\]\(([^)]+)\)`)
 func TestDocumentedCommandsMatchBinaryHelp(t *testing.T) {
 	rootHelp := runEsheep(t, nil, "--help")
 	assertSuccess(t, rootHelp)
-	skillsHelp := runEsheep(t, nil, "skills", "--help")
-	assertSuccess(t, skillsHelp)
 	sessionsHelp := runEsheep(t, nil, "sessions", "--help")
 	assertSuccess(t, sessionsHelp)
 	memoryHelp := runEsheep(t, nil, "memory", "--help")
@@ -28,15 +26,10 @@ func TestDocumentedCommandsMatchBinaryHelp(t *testing.T) {
 	}{
 		{documentation: "esheep completion zsh", help: rootHelp.stdout, name: "completion"},
 		{documentation: "esheep config", help: rootHelp.stdout, name: "config"},
-		{documentation: "esheep doctor", help: rootHelp.stdout, name: "doctor"},
 		{documentation: "esheep memory record", help: memoryHelp.stdout, name: "record"},
-		{documentation: "esheep layers", help: rootHelp.stdout, name: "layers"},
 		{documentation: "esheep sessions list", help: sessionsHelp.stdout, name: "list"},
 		{documentation: "esheep sessions query", help: sessionsHelp.stdout, name: "query"},
 		{documentation: "esheep sessions search", help: sessionsHelp.stdout, name: "search"},
-		{documentation: "esheep skills list", help: skillsHelp.stdout, name: "list"},
-		{documentation: "esheep skills status", help: skillsHelp.stdout, name: "status"},
-		{documentation: "esheep sync", help: rootHelp.stdout, name: "sync"},
 	}
 	for _, command := range commands {
 		if !strings.Contains(command.help, "  "+command.name+" ") {

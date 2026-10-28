@@ -10,7 +10,6 @@ import (
 
 	"github.com/jmcampanini/esheep/internal/apperr"
 	"github.com/jmcampanini/esheep/internal/config"
-	"github.com/jmcampanini/esheep/internal/manage"
 	"github.com/jmcampanini/esheep/internal/memory"
 	"github.com/jmcampanini/esheep/internal/session"
 	"github.com/spf13/cobra"
@@ -33,13 +32,9 @@ type configLoader func(config.LoadOptions) (config.LoadResult, error)
 
 type commandOperations struct {
 	hostname      func() (string, error)
-	list          func(context.Context, config.LoadResult) manage.ListReport
 	memoryRecord  func(context.Context, memory.Request) (memory.Result, error)
-	layers        func(context.Context, config.LoadResult) manage.LayersReport
 	sessionList   func(context.Context, session.Roots, session.Filter) session.ListReport
 	sessionSearch func(context.Context, session.Roots, session.Filter, session.SearchQuery) session.SearchReport
-	status        func(context.Context, config.LoadResult) manage.StatusReport
-	sync          func(context.Context, config.LoadResult) manage.SyncReport
 }
 
 // Execute runs esheep with the process arguments and streams.
@@ -70,27 +65,22 @@ func execute(root *cobra.Command, args []string) int {
 func newRootCommand(load configLoader) *cobra.Command {
 	return newRootCommandWithOperations(load, commandOperations{
 		hostname:      os.Hostname,
-		list:          manage.List,
 		memoryRecord:  memory.Record,
-		layers:        manage.Layers,
 		sessionList:   session.List,
 		sessionSearch: session.Search,
-		status:        manage.Status,
-		sync:          manage.Sync,
 	})
 }
 
 func newRootCommandWithOperations(load configLoader, operations commandOperations) *cobra.Command {
 	root := &cobra.Command{
 		Use:   "esheep",
-		Short: "Manage local Agent Skills and agents files across coding harnesses",
-		Long: `Manage Agent Skills and a global agents file from human-maintained local
-source directories, and find historical harness session transcripts.
+		Short: "Find harness session transcripts and record memories",
+		Long: `Find historical coding-harness session transcripts and record memories
+for the session in progress.
 
-esheep reads skills and an optional agents file from configured source
-containers and renders them for the Claude, Pi, and Codex targets. It
-never executes source content and never creates, updates, or deletes
-source directories. Commands accept only the arguments shown and never
+esheep reads Claude Code, Pi, Codex, local ChatGPT Work, and local Claude
+Cowork transcripts in place and never modifies them. It writes only under
+the memory root. Commands accept only the arguments shown and never
 prompt. esheep contacts another machine only when --remote names it, and
 only to run esheep there over ssh; every other command is offline.
 
@@ -102,19 +92,17 @@ A bare 'esheep' prints this help on stdout. Every command writes its
 payload to stdout and diagnostics to stderr; a failure ends with one
 'esheep: <message>' line in every output mode.
 Run 'esheep config' to inspect the effective configuration and resolved
-paths, 'esheep config --help' for every configuration key, 'esheep help
-skill-format' for the authoring format, and 'esheep help exit-codes' for
-exit statuses and the failure format.
+paths, 'esheep config --help' for every configuration key, and 'esheep
+help exit-codes' for exit statuses and the failure format.
 
 Common tasks:
-  Deploy changed source skills:  esheep sync
-  Check deployment health:       esheep skills status
+  List recent sessions:          esheep sessions list
   Find a session by content:     esheep sessions search 'budget review'
+  Record a memory:               esheep memory record 'prefers table tests'
 
 Command groups:
   memory    Memories recorded for harness sessions:  esheep memory --help
-  sessions  Historical session transcripts:          esheep sessions --help
-  skills    Known skills and deployment status:      esheep skills --help`,
+  sessions  Historical session transcripts:          esheep sessions --help`,
 		Version:            effectiveVersion(),
 		DisableSuggestions: true,
 		SilenceErrors:      true,
@@ -141,14 +129,9 @@ Command groups:
 	root.AddCommand(
 		newCompletionCommand(),
 		newConfigCommand(load),
-		newDoctorCommand(load),
 		newExitCodesTopic(),
 		newMemoryCommand(load, operations.memoryRecord),
-		newLayersCommand(load, operations.layers),
 		newSessionsCommand(load, operations),
-		newSkillFormatTopic(),
-		newSkillsCommand(load, operations),
-		newSyncCommand(load, operations.sync),
 	)
 	root.InitDefaultHelpCmd()
 	for _, command := range root.Commands() {

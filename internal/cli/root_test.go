@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/jmcampanini/esheep/internal/config"
-	"github.com/jmcampanini/esheep/internal/manage"
 	"github.com/spf13/cobra"
 )
 
@@ -76,7 +75,7 @@ func TestEveryCommandDeclaresPositionalGrammar(t *testing.T) {
 }
 
 func TestUsageErrorPrintsOneLineWithoutUsage(t *testing.T) {
-	code, stdout, stderr := runCommand(t, successfulLoad, "skills", "list", "extra")
+	code, stdout, stderr := runCommand(t, successfulLoad, "config", "extra")
 
 	if code != 2 || stdout != "" {
 		t.Fatalf("exit = %d, stdout = %q", code, stdout)
@@ -128,11 +127,11 @@ func TestEffectiveVersionUsesInjectedValue(t *testing.T) {
 
 func runCommand(t *testing.T, load configLoader, args ...string) (int, string, string) {
 	t.Helper()
-	return runCommandWithOperations(t, load, commandOperations{
-		list:   manage.List,
-		status: manage.Status,
-		sync:   manage.Sync,
-	}, args...)
+	return runCommandWithOperations(t, load, commandOperations{}, args...)
+}
+
+func successfulLoad(config.LoadOptions) (config.LoadResult, error) {
+	return config.LoadResult{}, nil
 }
 
 func runCommandWithOperations(t *testing.T, load configLoader, operations commandOperations, args ...string) (int, string, string) {
