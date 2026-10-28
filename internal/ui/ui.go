@@ -168,19 +168,15 @@ func writeTable(writer io.Writer, headers []string, rows [][]string, color bool)
 		BorderRight(false).
 		BorderRow(false).
 		BorderTop(false).
-		StyleFunc(tableStyles(color))
+		StyleFunc(func(row, _ int) lipgloss.Style {
+			style := lipgloss.NewStyle().Padding(0, 1)
+			if color && row == table.HeaderRow {
+				return style.Bold(true).Foreground(lipgloss.Color("63"))
+			}
+			return style
+		})
 	_, err := fmt.Fprintln(writer, tabular.Render())
 	return err
-}
-
-func tableStyles(color bool) table.StyleFunc {
-	return func(row, _ int) lipgloss.Style {
-		style := lipgloss.NewStyle().Padding(0, 1)
-		if color && row == table.HeaderRow {
-			return style.Bold(true).Foreground(lipgloss.Color("63"))
-		}
-		return style
-	}
 }
 
 func writeJSON(writer io.Writer, value any) error {

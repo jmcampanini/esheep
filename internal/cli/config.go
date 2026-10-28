@@ -32,9 +32,8 @@ directories under the home. Each defaults to ~/.claude/projects,
 ~/.pi/agent/sessions, and ~/.codex (or CODEX_HOME when set) and must not
 be empty. [sessions.claude-cowork].path locates local Claude Cowork
 conversations; it defaults to the platform location on macOS, has no
-default on Linux, and an empty value disables Cowork discovery. Session
-roots carry no overlap restrictions. 'esheep sessions --help' describes
-what is read under each root.
+default on Linux, and an empty value disables Cowork discovery. 'esheep
+sessions --help' describes what is read under each root.
 
 [memory].path is the root 'memory record' appends under. It defaults to
 $XDG_DATA_HOME/esheep/memory when XDG_DATA_HOME is set, otherwise

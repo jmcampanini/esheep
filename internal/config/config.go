@@ -117,7 +117,6 @@ type ResolvedMachine struct {
 // LoadResult is an effective configuration together with provenance and resolved paths.
 type LoadResult struct {
 	Config           Config
-	Home             string
 	Locations        Locations
 	ResolvedMachines []ResolvedMachine
 	ResolvedMemory   string
@@ -226,7 +225,6 @@ func Load(options LoadOptions) (LoadResult, error) {
 	}
 	return LoadResult{
 		Config:           cfg,
-		Home:             home,
 		Locations:        locations,
 		ResolvedMachines: resolvedMachines,
 		ResolvedMemory:   resolvedMemory,
