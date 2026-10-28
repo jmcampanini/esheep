@@ -48,7 +48,7 @@ release:
 homebrew_casks:
   - name: esheep
     homepage: https://github.com/jmcampanini/esheep
-    description: Manage local Agent Skills and find historical harness sessions
+    description: Find historical harness sessions and record session memories
     binaries:
       - esheep
     directory: Casks

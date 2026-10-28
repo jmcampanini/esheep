@@ -1,14 +1,12 @@
 package config
 
 import (
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strconv"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -18,9 +16,8 @@ import (
 
 func testEnv(home, configHome string) map[string]string {
 	return map[string]string{
-		"HOME":                  home,
-		"XDG_CONFIG_HOME":       configHome,
-		"ESHEEP_CLAUDE_ENABLED": "true",
+		"HOME":            home,
+		"XDG_CONFIG_HOME": configHome,
 	}
 }
 
@@ -28,14 +25,11 @@ func TestDefaultsAndLocation(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "home")
 	configHome := filepath.Join(t.TempDir(), "config")
 	got := defaults()
-	if !got.Targets.Claude.Enabled || !got.Targets.Pi.Enabled || !got.Targets.Codex.Enabled {
-		t.Fatalf("default enabled targets = %#v", got.Targets)
+	if got.Memory.Path != "~/.local/share/esheep/memory" {
+		t.Fatalf("default memory path = %q", got.Memory.Path)
 	}
-	if got.Targets.Claude.SkillsPath != "~/.claude/skills" || got.Targets.Pi.SkillsPath != "~/.pi/agent/skills" || got.Targets.Codex.SkillsPath != "~/.agents/skills" {
-		t.Fatalf("default target skills paths = %#v", got.Targets)
-	}
-	if got.Targets.Claude.AgentsMDPath != "~/.claude/CLAUDE.md" || got.Targets.Pi.AgentsMDPath != "~/.pi/agent/AGENTS.md" || got.Targets.Codex.AgentsMDPath != "~/.codex/AGENTS.md" {
-		t.Fatalf("default target agents md paths = %#v", got.Targets)
+	if got.Sessions.Claude.Path != "~/.claude/projects" || got.Sessions.Pi.Path != "~/.pi/agent/sessions" || got.Sessions.Codex.Home != "~/.codex" {
+		t.Fatalf("default session paths = %#v", got.Sessions)
 	}
 	location := locationsFromEnv(testEnv(home, configHome), home)
 	if location.ConfigFile != filepath.Join(configHome, "esheep", "config.toml") {
@@ -108,7 +102,7 @@ func TestLoadDoesNotDiscoverCwdConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chdir(old) })
-	if err := os.WriteFile(filepath.Join(cwd, "config.toml"), []byte("[targets.claude]\nenabled = false\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(cwd, "config.toml"), []byte("[memory]\npath = \"~/discovered\"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	env := testEnv(filepath.Join(t.TempDir(), "home"), filepath.Join(t.TempDir(), "config"))
@@ -116,91 +110,8 @@ func TestLoadDoesNotDiscoverCwdConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Config.Targets.Claude.Enabled || len(result.Report.LoadedFiles) != 0 {
-		t.Fatalf("cwd config affected result = %#v report = %#v", result.Config.Targets, result.Report)
-	}
-}
-
-func TestSourcesLoadOnlyFromTOMLAndResolve(t *testing.T) {
-	root := t.TempDir()
-	home := filepath.Join(root, "home")
-	configHome := filepath.Join(root, "config")
-	first := filepath.Join(root, "personal")
-	second := filepath.Join(root, "work")
-	for _, path := range []string{home, first, second, filepath.Join(configHome, "esheep")} {
-		if err := os.MkdirAll(path, 0o755); err != nil {
-			t.Fatal(err)
-		}
-	}
-	settings := "[[sources]]\nname = \"personal\"\npath = \"" + first + "\"\n\n[[sources]]\nname = \"work\"\npath = \"" + second + "\"\n"
-	path := filepath.Join(configHome, "esheep", "config.toml")
-	if err := os.WriteFile(path, []byte(settings), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	result, err := Load(LoadOptions{Env: testEnv(home, configHome)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	canonicalFirst, err := canonicalPath(first)
-	if err != nil {
-		t.Fatal(err)
-	}
-	canonicalSecond, err := canonicalPath(second)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []ResolvedSource{{Name: "personal", Path: canonicalFirst}, {Name: "work", Path: canonicalSecond}}
-	if !reflect.DeepEqual(result.ResolvedSources, want) {
-		t.Fatalf("resolved sources = %#v, want %#v", result.ResolvedSources, want)
-	}
-	if result.Report.Updates["sources"] != path {
-		t.Fatalf("source provenance = %#v", result.Report.Updates)
-	}
-}
-
-func TestApprovedEnvironmentNamesAndFlagsLoadEachTarget(t *testing.T) {
-	home := filepath.Join(t.TempDir(), "home")
-	env := testEnv(home, filepath.Join(t.TempDir(), "config"))
-	env["ESHEEP_PI_ENABLED"] = "false"
-	env["ESHEEP_CODEX_SKILLS_PATH"] = "~/codex-overridden"
-	env["ESHEEP_CODEX_AGENTS_MD_PATH"] = "~/codex-overridden-AGENTS.md"
-	flags := pflag.NewFlagSet("test", pflag.ContinueOnError)
-	flags.SetOutput(io.Discard)
-	if err := RegisterFlags(flags); err != nil {
-		t.Fatal(err)
-	}
-	approved := []string{
-		"claude-enabled", "claude-skills-path", "claude-agents-md-path",
-		"pi-enabled", "pi-skills-path", "pi-agents-md-path",
-		"codex-enabled", "codex-skills-path", "codex-agents-md-path",
-	}
-	for _, name := range approved {
-		if flags.Lookup(name) == nil {
-			t.Fatalf("missing approved flag --%s", name)
-		}
-	}
-	if err := flags.Parse([]string{"--claude-enabled=false", "--claude-skills-path=~/from-flag", "--claude-agents-md-path=~/from-flag-AGENTS.md"}); err != nil {
-		t.Fatal(err)
-	}
-	result, err := Load(LoadOptions{Env: env, Flags: flags})
-	if err != nil {
-		t.Fatal(err)
-	}
-	wantClaudeSkills, err := canonicalPath(filepath.Join(home, "from-flag"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	wantClaudeAgentsMD, err := canonicalPath(filepath.Join(home, "from-flag-AGENTS.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.Config.Targets.Claude.Enabled || result.ResolvedTargets.Claude.Skills != wantClaudeSkills ||
-		result.ResolvedTargets.Claude.AgentsMD != wantClaudeAgentsMD || result.Config.Targets.Pi.Enabled {
-		t.Fatalf("effective targets = %#v resolved = %#v", result.Config.Targets, result.ResolvedTargets)
-	}
-	if result.Report.Updates["targets.claude.skillspath"] != "<pflag>" || result.Report.Updates["targets.pi.enabled"] != "<env>" ||
-		result.Report.Updates["targets.codex.agentsmdpath"] != "<env>" {
-		t.Fatalf("provenance = %#v", result.Report.Updates)
+	if result.Config.Memory.Path != defaults().Memory.Path || len(result.Report.LoadedFiles) != 0 {
+		t.Fatalf("cwd config affected result = %#v report = %#v", result.Config.Memory, result.Report)
 	}
 }
 
@@ -211,7 +122,7 @@ func TestExplicitConfigIsRequiredAndReplacesDiscovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	discovered := filepath.Join(configHome, "esheep", "config.toml")
-	if err := os.WriteFile(discovered, []byte("[targets.claude]\nenabled = false\n"), 0o600); err != nil {
+	if err := os.WriteFile(discovered, []byte("[memory]\npath = \"~/discovered\"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	env := testEnv(home, configHome)
@@ -230,238 +141,51 @@ func TestExplicitConfigIsRequiredAndReplacesDiscovery(t *testing.T) {
 		t.Fatal("empty explicit config succeeded")
 	}
 	explicit := filepath.Join(t.TempDir(), "explicit.toml")
-	if err := os.WriteFile(explicit, []byte("[targets.pi]\nenabled = false\n"), 0o600); err != nil {
+	if err := os.WriteFile(explicit, []byte("[memory]\npath = \"~/explicit\"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	result, err := Load(LoadOptions{Env: env, ConfigPath: explicit})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Config.Targets.Claude.Enabled || result.Config.Targets.Pi.Enabled || result.Locations.ConfigFile != explicit {
+	if result.Config.Memory.Path != "~/explicit" || result.Locations.ConfigFile != explicit {
 		t.Fatalf("explicit result = %#v", result)
 	}
 }
 
-func TestEnabledAgentsMDPathMustNotBeSettingsFile(t *testing.T) {
-	tests := []struct {
-		name     string
-		explicit bool
-		symlink  bool
-	}{
-		{name: "discovered"},
-		{name: "explicit", explicit: true},
-		{name: "symlinked explicit", explicit: true, symlink: true},
+func TestMemoryPathMustNotBeTooBroad(t *testing.T) {
+	home, err := canonicalPath(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
 	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			root := t.TempDir()
-			home := filepath.Join(root, "home")
-			configHome := filepath.Join(root, "config")
-			settingsPath := filepath.Join(configHome, "esheep", "config.toml")
-			if test.explicit {
-				settingsPath = filepath.Join(root, "settings.toml")
-			}
-			if err := os.MkdirAll(filepath.Dir(settingsPath), 0o755); err != nil {
-				t.Fatal(err)
-			}
-			contents := fmt.Sprintf("[targets.claude]\nagents_md_path = %q\n", settingsPath)
-			if err := os.WriteFile(settingsPath, []byte(contents), 0o600); err != nil {
-				t.Fatal(err)
-			}
-			configPath := ""
-			if test.explicit {
-				configPath = settingsPath
-			}
-			if test.symlink {
-				configPath = filepath.Join(root, "settings-alias.toml")
-				if err := os.Symlink(settingsPath, configPath); err != nil {
-					t.Fatal(err)
-				}
-			}
-
-			_, err := Load(LoadOptions{Env: testEnv(home, configHome), ConfigPath: configPath})
-			if err == nil || !strings.Contains(err.Error(), "agents_md_path must not be the settings file") {
-				t.Fatalf("Load() error = %v", err)
-			}
-		})
-	}
-}
-
-func TestManagedPathsMustBeDisjointAndAbsolute(t *testing.T) {
-	root := t.TempDir()
-	home := filepath.Join(root, "home")
-	base := Config(defaults())
-	tests := []struct {
-		name   string
-		mutate func(*Config)
-	}{
-		{name: "relative source", mutate: func(cfg *Config) { cfg.Sources = []Source{{Name: "one", Path: "skills"}} }},
-		{name: "relative target", mutate: func(cfg *Config) { cfg.Targets.Claude.SkillsPath = "skills" }},
-		{name: "relative agents md", mutate: func(cfg *Config) { cfg.Targets.Claude.AgentsMDPath = "CLAUDE.md" }},
-		{name: "nested sources", mutate: func(cfg *Config) {
-			cfg.Sources = []Source{{Name: "one", Path: filepath.Join(root, "sources")}, {Name: "two", Path: filepath.Join(root, "sources", "nested")}}
-		}},
-		{name: "duplicate names ignoring case", mutate: func(cfg *Config) {
-			cfg.Sources = []Source{{Name: "One", Path: filepath.Join(root, "one")}, {Name: "one", Path: filepath.Join(root, "two")}}
-		}},
-		{name: "overlapping targets", mutate: func(cfg *Config) { cfg.Targets.Pi.SkillsPath = cfg.Targets.Claude.SkillsPath }},
-		{name: "duplicate agents md paths", mutate: func(cfg *Config) { cfg.Targets.Pi.AgentsMDPath = cfg.Targets.Claude.AgentsMDPath }},
-		{name: "agents md inside skills root", mutate: func(cfg *Config) {
-			cfg.Targets.Claude.AgentsMDPath = filepath.Join(home, ".claude", "skills", "CLAUDE.md")
-		}},
-		{name: "agents md inside another skills root", mutate: func(cfg *Config) {
-			cfg.Targets.Pi.AgentsMDPath = filepath.Join(home, ".claude", "skills", "AGENTS.md")
-		}},
-		{name: "agents md inside source", mutate: func(cfg *Config) {
-			cfg.Sources = []Source{{Name: "one", Path: filepath.Join(root, "container")}}
-			cfg.Targets.Claude.AgentsMDPath = filepath.Join(root, "container", "AGENTS.md")
-		}},
-		{name: "source target overlap", mutate: func(cfg *Config) {
-			cfg.Sources = []Source{{Name: "one", Path: filepath.Join(home, ".claude")}}
-		}},
-		{name: "unicode-equivalent source target overlap", mutate: func(cfg *Config) {
-			cfg.Sources = []Source{{Name: "one", Path: filepath.Join(root, "caf\u00e9")}}
-			cfg.Targets.Claude.SkillsPath = filepath.Join(root, "cafe\u0301")
-		}},
-		{name: "home target", mutate: func(cfg *Config) { cfg.Targets.Claude.SkillsPath = home }},
-		{name: "home agents md", mutate: func(cfg *Config) { cfg.Targets.Claude.AgentsMDPath = home }},
-		{name: "root target", mutate: func(cfg *Config) { cfg.Targets.Claude.SkillsPath = string(filepath.Separator) }},
-		{name: "memory inside source", mutate: func(cfg *Config) {
-			cfg.Sources = []Source{{Name: "one", Path: filepath.Join(root, "container")}}
-			cfg.Memory.Path = filepath.Join(root, "container", "memory")
-		}},
-		{name: "source inside memory", mutate: func(cfg *Config) {
-			cfg.Sources = []Source{{Name: "one", Path: filepath.Join(home, ".local", "share", "esheep", "memory", "container")}}
-		}},
-		{name: "memory inside enabled target", mutate: func(cfg *Config) {
-			cfg.Memory.Path = filepath.Join(home, ".claude", "skills", "memory")
-		}},
-		{name: "home memory", mutate: func(cfg *Config) { cfg.Memory.Path = home }},
-		{name: "root memory", mutate: func(cfg *Config) { cfg.Memory.Path = string(filepath.Separator) }},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			cfg := base
-			test.mutate(&cfg)
-			if _, _, _, err := resolvePaths(cfg, home, filepath.Join(root, "settings.toml")); err == nil {
-				t.Fatal("resolvePaths succeeded")
-			}
-		})
-	}
-}
-
-func TestManagedPathComparisonUsesUnicodeCaseFolding(t *testing.T) {
-	t.Parallel()
-	root := t.TempDir()
-	sigma := filepath.Join(root, "σ")
-	finalSigma := filepath.Join(root, "ς")
-	if !samePath(sigma, finalSigma) {
-		t.Fatalf("samePath(%q, %q) = false", sigma, finalSigma)
-	}
-	if !pathContains(sigma, filepath.Join(finalSigma, "target")) {
-		t.Fatalf("pathContains(%q, %q) = false", sigma, filepath.Join(finalSigma, "target"))
+	for _, path := range []string{home, "~", string(filepath.Separator)} {
+		if _, err := resolveMemory(path, home); err == nil || !strings.Contains(err.Error(), "too broad") {
+			t.Errorf("resolveMemory(%q) error = %v, want too broad", path, err)
+		}
 	}
 }
 
 func TestMissingPathResolvesExistingSymlinkedParent(t *testing.T) {
-	root := t.TempDir()
-	home := filepath.Join(root, "home")
+	root, err := canonicalPath(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	realParent := filepath.Join(root, "real")
-	sourcePath := filepath.Join(realParent, "source")
-	if err := os.MkdirAll(sourcePath, 0o755); err != nil {
+	if err := os.Mkdir(realParent, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	alias := filepath.Join(root, "alias")
 	if err := os.Symlink(realParent, alias); err != nil {
 		t.Fatal(err)
 	}
-	cfg := Config(defaults())
-	cfg.Sources = []Source{{Name: "one", Path: sourcePath}}
-	cfg.Targets.Claude.SkillsPath = filepath.Join(alias, "source", "missing-target")
-	if _, _, _, err := resolvePaths(cfg, home, filepath.Join(root, "settings.toml")); err == nil {
-		t.Fatal("overlap through a symlinked parent succeeded")
-	}
-}
 
-func TestEnabledAgentsMDPathMustNotBeDirectory(t *testing.T) {
-	root := t.TempDir()
-	home := filepath.Join(root, "home")
-	directory := filepath.Join(root, "occupied")
-	if err := os.MkdirAll(directory, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	cfg := Config(defaults())
-	cfg.Targets.Claude.AgentsMDPath = directory
-	if _, _, _, err := resolvePaths(cfg, home, filepath.Join(root, "settings.toml")); err == nil {
-		t.Fatal("directory agents md path succeeded")
-	}
-}
+	got, err := canonicalPath(filepath.Join(alias, "missing", "memory"))
 
-func TestEnabledAgentsMDPathMustBeRegular(t *testing.T) {
-	root := t.TempDir()
-	home := filepath.Join(root, "home")
-	fifo := filepath.Join(root, "agents-fifo")
-	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
+	if err != nil {
 		t.Fatal(err)
 	}
-	cfg := Config(defaults())
-	cfg.Targets.Claude.AgentsMDPath = fifo
-	if _, _, _, err := resolvePaths(cfg, home, filepath.Join(root, "settings.toml")); err == nil {
-		t.Fatal("non-regular agents md path succeeded")
-	}
-}
-
-func TestEnabledAgentsMDPathMustNotBeSymlink(t *testing.T) {
-	root := t.TempDir()
-	home := filepath.Join(root, "home")
-	realAgentsMD := filepath.Join(root, "AGENTS.md")
-	if err := os.WriteFile(realAgentsMD, nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	alias := filepath.Join(root, "AGENTS-alias.md")
-	if err := os.Symlink(realAgentsMD, alias); err != nil {
-		t.Fatal(err)
-	}
-	cfg := Config(defaults())
-	cfg.Targets.Claude.AgentsMDPath = alias
-	if _, _, _, err := resolvePaths(cfg, home, filepath.Join(root, "settings.toml")); err == nil {
-		t.Fatal("symlinked agents md path succeeded")
-	}
-}
-
-func TestEnabledTargetRootMustNotBeSymlink(t *testing.T) {
-	root := t.TempDir()
-	home := filepath.Join(root, "home")
-	realTarget := filepath.Join(root, "target")
-	if err := os.MkdirAll(realTarget, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	alias := filepath.Join(root, "target-alias")
-	if err := os.Symlink(realTarget, alias); err != nil {
-		t.Fatal(err)
-	}
-	cfg := Config(defaults())
-	cfg.Targets.Claude.SkillsPath = alias
-	if _, _, _, err := resolvePaths(cfg, home, filepath.Join(root, "settings.toml")); err == nil {
-		t.Fatal("symlinked target succeeded")
-	}
-}
-
-func TestSourceSymlinksUseCanonicalBoundary(t *testing.T) {
-	root := t.TempDir()
-	home := filepath.Join(root, "home")
-	realSource := filepath.Join(root, "source")
-	if err := os.MkdirAll(realSource, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	alias := filepath.Join(root, "alias")
-	if err := os.Symlink(realSource, alias); err != nil {
-		t.Fatal(err)
-	}
-	cfg := Config(defaults())
-	cfg.Sources = []Source{{Name: "one", Path: realSource}, {Name: "two", Path: alias}}
-	if _, _, _, err := resolvePaths(cfg, home, filepath.Join(root, "settings.toml")); err == nil {
-		t.Fatal("aliased sources succeeded")
+	if want := filepath.Join(realParent, "missing", "memory"); got != want {
+		t.Fatalf("canonicalPath() = %q, want %q", got, want)
 	}
 }
 
@@ -473,138 +197,6 @@ func TestUnknownTOMLKeyFails(t *testing.T) {
 	}
 	if _, err := Load(LoadOptions{Env: env, ConfigPath: path}); err == nil {
 		t.Fatal("unknown key succeeded")
-	}
-}
-
-func TestLayersResolveWithPrecedenceEnvLayersAndKeepLastDedupe(t *testing.T) {
-	env := testEnv(filepath.Join(t.TempDir(), "home"), filepath.Join(t.TempDir(), "config"))
-	env["MACHINE_LAYERS"] = " client ,alpha,"
-	path := filepath.Join(t.TempDir(), "config.toml")
-	if err := os.WriteFile(path, []byte("layers = [\"file-layer\"]\nenv_layers = [\"MACHINE_LAYERS\", \"UNSET_LAYERS\"]\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	flags := pflag.NewFlagSet("test", pflag.ContinueOnError)
-	flags.SetOutput(io.Discard)
-	if err := RegisterFlags(flags); err != nil {
-		t.Fatal(err)
-	}
-	if err := flags.Parse([]string{"--layers=alpha,beta", "--layer", "gamma"}); err != nil {
-		t.Fatal(err)
-	}
-
-	result, err := Load(LoadOptions{Env: env, ConfigPath: path, Flags: flags})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	want := []string{"beta", "gamma", "client", "alpha"}
-	if !reflect.DeepEqual(result.EffectiveLayers, want) {
-		t.Fatalf("EffectiveLayers = %#v, want %#v", result.EffectiveLayers, want)
-	}
-}
-
-func TestEmptyLayersFlagClearsRawLayersButEnvLayersStillAppend(t *testing.T) {
-	env := testEnv(filepath.Join(t.TempDir(), "home"), filepath.Join(t.TempDir(), "config"))
-	env["ESHEEP_LAYERS"] = "env-layer"
-	env["MACHINE_LAYERS"] = "client"
-	path := filepath.Join(t.TempDir(), "config.toml")
-	if err := os.WriteFile(path, []byte("layers = [\"file-layer\"]\nenv_layers = [\"MACHINE_LAYERS\"]\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	flags := pflag.NewFlagSet("test", pflag.ContinueOnError)
-	flags.SetOutput(io.Discard)
-	if err := RegisterFlags(flags); err != nil {
-		t.Fatal(err)
-	}
-	if err := flags.Parse([]string{"--layers", ""}); err != nil {
-		t.Fatal(err)
-	}
-
-	result, err := Load(LoadOptions{Env: env, ConfigPath: path, Flags: flags})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	want := []string{"client"}
-	if !reflect.DeepEqual(result.EffectiveLayers, want) {
-		t.Fatalf("EffectiveLayers = %#v, want %#v", result.EffectiveLayers, want)
-	}
-}
-
-func TestLayersKeepLastOccurrenceInOrder(t *testing.T) {
-	env := testEnv(filepath.Join(t.TempDir(), "home"), filepath.Join(t.TempDir(), "config"))
-	env["ESHEEP_LAYERS"] = "work,laptop,work"
-
-	result, err := Load(LoadOptions{Env: env})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	want := []string{"laptop", "work"}
-	if !reflect.DeepEqual(result.EffectiveLayers, want) {
-		t.Fatalf("EffectiveLayers = %#v, want %#v", result.EffectiveLayers, want)
-	}
-}
-
-func TestLayersLoadFromEnvironmentVariable(t *testing.T) {
-	env := testEnv(filepath.Join(t.TempDir(), "home"), filepath.Join(t.TempDir(), "config"))
-	env["ESHEEP_LAYERS"] = "work,client"
-
-	result, err := Load(LoadOptions{Env: env})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	want := []string{"work", "client"}
-	if !reflect.DeepEqual(result.EffectiveLayers, want) {
-		t.Fatalf("EffectiveLayers = %#v, want %#v", result.EffectiveLayers, want)
-	}
-}
-
-func TestLayersRejectInvalidAndReservedNames(t *testing.T) {
-	tests := []struct {
-		name string
-		toml string
-		env  map[string]string
-	}{
-		{name: "reserved base", toml: "layers = [\"base\"]\n"},
-		{name: "reserved local", toml: "layers = [\"local\"]\n"},
-		{name: "invalid grammar", toml: "layers = [\"Work\"]\n"},
-		{name: "padded env_layers entry", toml: "env_layers = [\" MACHINE\"]\n"},
-		{name: "blank env_layers entry", toml: "env_layers = [\"\"]\n"},
-		{name: "invalid appended layer", toml: "env_layers = [\"MACHINE\"]\n", env: map[string]string{"MACHINE": "no.dots"}},
-		{name: "reserved appended layer", toml: "env_layers = [\"MACHINE\"]\n", env: map[string]string{"MACHINE": "local"}},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			env := testEnv(filepath.Join(t.TempDir(), "home"), filepath.Join(t.TempDir(), "config"))
-			for key, value := range test.env {
-				env[key] = value
-			}
-			path := filepath.Join(t.TempDir(), "config.toml")
-			if err := os.WriteFile(path, []byte(test.toml), 0o600); err != nil {
-				t.Fatal(err)
-			}
-			if _, err := Load(LoadOptions{Env: env, ConfigPath: path}); err == nil {
-				t.Fatal("Load accepted an invalid layer configuration")
-			}
-		})
-	}
-}
-
-func TestRenderReportsEffectiveLayers(t *testing.T) {
-	env := testEnv(filepath.Join(t.TempDir(), "home"), filepath.Join(t.TempDir(), "config"))
-	env["ESHEEP_LAYERS"] = "work"
-	result, err := Load(LoadOptions{Env: env})
-	if err != nil {
-		t.Fatal(err)
-	}
-	output, err := Render(result, ReportOptions{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(output), "# effective_layers = [\"work\"]") {
-		t.Fatalf("report = %s", output)
 	}
 }
 
@@ -637,18 +229,18 @@ func TestRenderIsValidTOMLAndSanitizesProvenance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result.Config.Targets.Claude.SkillsPath = "sensitive-value"
-	result.ResolvedTargets.Claude = ResolvedTarget{Skills: "/sensitive-value", AgentsMD: "/sensitive-value-AGENTS.md"}
-	result.Report.Updates["targets.claude.skillspath"] = "source\r\n# injected"
+	result.Config.Memory.Path = "sensitive-value"
+	result.ResolvedMemory = "/sensitive-value"
+	result.Report.Updates["memory.path"] = "source\r\n# injected"
 	output, err := Render(result, ReportOptions{Provenance: true, Redact: func(result LoadResult) LoadResult {
-		result.Config.Targets.Claude.SkillsPath = "REDACTED"
-		result.ResolvedTargets.Claude = ResolvedTarget{Skills: "REDACTED", AgentsMD: "REDACTED"}
+		result.Config.Memory.Path = "REDACTED"
+		result.ResolvedMemory = "REDACTED"
 		return result
 	}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(output), "sensitive-value") || !strings.Contains(string(output), "# targets.claude.skills_path = \"REDACTED\"") || !strings.Contains(string(output), "# targets.claude.agents_md_path = \"REDACTED\"") || !strings.Contains(string(output), "# Resolved paths") || strings.Contains(string(output), "source\r\n") || strings.Contains(string(output), "skillspath") || strings.Contains(string(output), "agentsmdpath") || strings.Contains(string(output), "# envlayers") {
+	if strings.Contains(string(output), "sensitive-value") || !strings.Contains(string(output), "# memory.path = \"REDACTED\"") || !strings.Contains(string(output), "# Resolved paths") || strings.Contains(string(output), "source\r\n") {
 		t.Fatalf("report = %s", output)
 	}
 	var decoded Config

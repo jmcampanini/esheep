@@ -6,147 +6,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"path/filepath"
 	"strings"
 	"unicode"
 
 	"charm.land/lipgloss/v2"
 	"charm.land/lipgloss/v2/table"
-	"github.com/jmcampanini/esheep/internal/agentsfile"
-	"github.com/jmcampanini/esheep/internal/doctor"
-	"github.com/jmcampanini/esheep/internal/install"
-	"github.com/jmcampanini/esheep/internal/manage"
 	"github.com/jmcampanini/esheep/internal/session"
 )
-
-// WriteList writes a human known-skill table.
-func WriteList(writer io.Writer, report manage.ListReport, color bool) error {
-	rows := make([][]string, 0, len(report.Skills))
-	for _, known := range report.Skills {
-		rows = append(rows, []string{
-			clean(known.Source), clean(known.Directory), string(known.Readiness), layerGateCell(known.LayerGate, known.HasManifest), clean(known.Trigger),
-		})
-	}
-	return writeTable(writer, []string{"SOURCE", "SKILL", "READINESS", "LAYER GATE", "TRIGGER"}, rows, color)
-}
-
-// WriteListJSON writes one complete known-skill JSON document.
-func WriteListJSON(writer io.Writer, report manage.ListReport) error {
-	if report.EffectiveLayers == nil {
-		report.EffectiveLayers = []string{}
-	}
-	if report.Skills == nil {
-		report.Skills = []manage.KnownSkill{}
-	}
-	return writeJSON(writer, report)
-}
-
-// WriteStatus writes a human deployment-status table headed by the effective
-// layer list.
-func WriteStatus(writer io.Writer, report manage.StatusReport, color bool) error {
-	if _, err := fmt.Fprintf(writer, "Effective layers: %s\n\n", layersLine(report.EffectiveLayers)); err != nil {
-		return err
-	}
-	rows := make([][]string, 0, len(report.Skills))
-	for _, status := range report.Skills {
-		rows = append(rows, []string{
-			clean(status.Source),
-			clean(status.Directory),
-			string(status.Readiness),
-			layerGateCell(status.LayerGate, status.HasManifest),
-			targetState(status, "claude"),
-			targetState(status, "pi"),
-			targetState(status, "codex"),
-		})
-	}
-	if err := writeTable(writer, []string{"SOURCE", "SKILL", "READINESS", "LAYER GATE", "CLAUDE", "PI", "CODEX"}, rows, color); err != nil {
-		return err
-	}
-	if report.AgentsFile == nil {
-		return nil
-	}
-	agentsRow := []string{
-		clean(report.AgentsFile.Source),
-		clean(filepath.Base(report.AgentsFile.Path)),
-		agentsFileState(report.AgentsFile, "claude"),
-		agentsFileState(report.AgentsFile, "pi"),
-		agentsFileState(report.AgentsFile, "codex"),
-	}
-	return writeTable(writer, []string{"SOURCE", "AGENTS FILE", "CLAUDE", "PI", "CODEX"}, [][]string{agentsRow}, color)
-}
-
-// WriteStatusJSON writes one complete deployment-status JSON document.
-func WriteStatusJSON(writer io.Writer, report manage.StatusReport) error {
-	if report.EffectiveLayers == nil {
-		report.EffectiveLayers = []string{}
-	}
-	if report.Skills == nil {
-		report.Skills = []manage.SkillStatus{}
-	}
-	return writeJSON(writer, report)
-}
-
-// WriteLayers writes the effective and referenced layer lists.
-func WriteLayers(writer io.Writer, report manage.LayersReport) error {
-	_, err := fmt.Fprintf(writer, "Effective: %s\nReferenced: %s\n", layersLine(report.Effective), layersLine(report.Referenced))
-	return err
-}
-
-// WriteLayersJSON writes one complete layers JSON document.
-func WriteLayersJSON(writer io.Writer, report manage.LayersReport) error {
-	if report.Effective == nil {
-		report.Effective = []string{}
-	}
-	if report.Referenced == nil {
-		report.Referenced = []string{}
-	}
-	return writeJSON(writer, report)
-}
-
-// WriteSync writes synchronization actions and their aggregate summary.
-func WriteSync(writer io.Writer, report manage.SyncReport, color bool) error {
-	rows := make([][]string, 0, len(report.Actions))
-	for _, result := range report.Actions {
-		target := string(result.Identity.Target)
-		if target == "" {
-			target = "-"
-		}
-		skill := result.Identity.Skill
-		if skill == "" {
-			skill = "-"
-		}
-		source := result.Identity.Source
-		if source == "" {
-			source = "-"
-		}
-		rows = append(rows, []string{string(result.Action), clean(source), clean(skill), target, clean(result.Detail)})
-	}
-	if err := writeTable(writer, []string{"ACTION", "SOURCE", "SKILL", "TARGET", "DETAIL"}, rows, color); err != nil {
-		return err
-	}
-	_, err := fmt.Fprintf(
-		writer,
-		"Summary: installed=%d repaired=%d unchanged=%d pruned=%d inactive=%d disabled=%d blocked=%d failed=%d\n",
-		report.Summary.Installed,
-		report.Summary.Repaired,
-		report.Summary.Unchanged,
-		report.Summary.Pruned,
-		report.Summary.Inactive,
-		report.Summary.Disabled,
-		report.Summary.Blocked,
-		report.Summary.Failed,
-	)
-	return err
-}
-
-// WriteDoctor writes a human environment-check table.
-func WriteDoctor(writer io.Writer, report doctor.Report, color bool) error {
-	rows := make([][]string, 0, len(report.Checks))
-	for _, check := range report.Checks {
-		rows = append(rows, []string{clean(check.Name), string(check.Status), clean(check.Detail)})
-	}
-	return writeTable(writer, []string{"CHECK", "RESULT", "DETAIL"}, rows, color)
-}
 
 // WriteSessionList writes a human session inventory table. machines adds a
 // leading MACHINE column for reports that span more than this machine.
@@ -290,33 +156,6 @@ func dashIfEmpty(value string) string {
 	return value
 }
 
-// WriteDiagnostics writes actionable human diagnostics.
-func WriteDiagnostics(writer io.Writer, diagnostics []manage.Diagnostic) error {
-	for _, diagnostic := range diagnostics {
-		location := diagnostic.Path
-		if location == "" {
-			location = diagnostic.Source
-		}
-		if diagnostic.Target != "" {
-			location += " [" + diagnostic.Target + "]"
-		}
-		message := diagnostic.Message
-		if message == "" {
-			message = diagnostic.Detail
-		}
-		if message == "" {
-			message = diagnostic.Code
-		}
-		if diagnostic.Field != "" {
-			message = diagnostic.Field + ": " + message
-		}
-		if _, err := fmt.Fprintf(writer, "%s: %s: %s\n", clean(location), diagnostic.Code, clean(message)); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 func writeTable(writer io.Writer, headers []string, rows [][]string, color bool) error {
 	tabular := table.New().
 		Headers(headers...).
@@ -329,36 +168,15 @@ func writeTable(writer io.Writer, headers []string, rows [][]string, color bool)
 		BorderRight(false).
 		BorderRow(false).
 		BorderTop(false).
-		StyleFunc(tableStyles(color, rows))
+		StyleFunc(func(row, _ int) lipgloss.Style {
+			style := lipgloss.NewStyle().Padding(0, 1)
+			if color && row == table.HeaderRow {
+				return style.Bold(true).Foreground(lipgloss.Color("63"))
+			}
+			return style
+		})
 	_, err := fmt.Fprintln(writer, tabular.Render())
 	return err
-}
-
-func tableStyles(color bool, rows [][]string) table.StyleFunc {
-	return func(row, column int) lipgloss.Style {
-		style := lipgloss.NewStyle().Padding(0, 1)
-		if !color {
-			return style
-		}
-		if row == table.HeaderRow {
-			return style.Bold(true).Foreground(lipgloss.Color("63"))
-		}
-		if row < 0 || row >= len(rows) || column < 0 || column >= len(rows[row]) {
-			return style
-		}
-		switch rows[row][column] {
-		case string(doctor.StatusPass), string(install.ActionInstalled), string(install.ActionPruned), string(install.ActionRepaired), string(install.StateSynced), string(manage.ReadinessReady):
-			return style.Foreground(lipgloss.Color("42"))
-		case string(doctor.StatusFail), string(install.ActionBlocked), string(install.ActionFailed), string(manage.ReadinessCollision), string(manage.ReadinessInvalid):
-			return style.Foreground(lipgloss.Color("196"))
-		case string(install.StateDrifted), string(install.StateMissing), string(agentsfile.StateStale):
-			return style.Foreground(lipgloss.Color("214"))
-		case string(doctor.StatusSkipped), string(install.ActionDisabled), string(install.ActionInactive):
-			return style.Faint(true)
-		default:
-			return style
-		}
-	}
 }
 
 func writeJSON(writer io.Writer, value any) error {
@@ -366,39 +184,6 @@ func writeJSON(writer io.Writer, value any) error {
 	encoder.SetEscapeHTML(false)
 	encoder.SetIndent("", "  ")
 	return encoder.Encode(value)
-}
-
-func targetState(status manage.SkillStatus, target string) string {
-	state, exists := status.Targets[target]
-	if !exists {
-		return "-"
-	}
-	return string(state)
-}
-
-func agentsFileState(status *manage.AgentsFileStatus, target string) string {
-	state, exists := status.Targets[target]
-	if !exists {
-		return "-"
-	}
-	return string(state)
-}
-
-func layerGateCell(layers []string, hasManifest bool) string {
-	if !hasManifest {
-		return "-"
-	}
-	if len(layers) == 0 {
-		return "all"
-	}
-	return clean(strings.Join(layers, ", "))
-}
-
-func layersLine(layers []string) string {
-	if len(layers) == 0 {
-		return "(none)"
-	}
-	return clean(strings.Join(layers, ", "))
 }
 
 func clean(value string) string {

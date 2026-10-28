@@ -1,6 +1,6 @@
 # esheep
 
-esheep manages Agent Skills and a global agents file from human-maintained source directories and renders them for Claude Code, Pi, and Codex. It also finds historical sessions from Claude Code, Pi, Codex, local ChatGPT Work tasks, and local Claude Cowork conversations by reading their transcripts in place and read-only. esheep never executes source content or creates, updates, or deletes source directories. It contacts another machine only when `--remote` names one.
+esheep finds historical sessions from Claude Code, Pi, Codex, local ChatGPT Work tasks, and local Claude Cowork conversations by reading their transcripts in place and read-only. It also records memories for the harness session in progress. esheep writes only under its memory root and contacts another machine only when `--remote` names one.
 
 
 ## Install
@@ -60,19 +60,13 @@ mise run build
 |---|---|
 | `esheep --version` | Print the build version. |
 | `esheep completion zsh` | Write Zsh completion; bash, fish, and powershell work the same way. |
-| `esheep layers [--json]` | Report effective and referenced layers. |
 | `esheep sessions list [--json]` | List historical harness sessions with their canonical transcript paths. |
 | `esheep sessions search [pattern] [--json]` | Search session transcripts in place; hits address transcript lines. |
 | `esheep sessions query` | Answer a list or search request read from stdin; the endpoint `--remote` runs over ssh. |
-| `esheep skills list [--json]` | Inventory skills in every configured source. |
-| `esheep sync` | Install, repair, and prune esheep-owned output on enabled targets. |
-| `esheep skills status [--json]` | Report source readiness and per-target deployment health. |
-| `esheep doctor` | Verify external tool configuration agrees with esheep. |
 | `esheep memory record TEXT` | Append one memory for the current harness session under the memory root. |
+| `esheep config [--provenance]` | Print the effective configuration and resolved paths. |
 
-The canonical reference is `esheep --help`, each command's `--help`, and the help topics `esheep help skill-format` and `esheep help exit-codes`.
-
-The typical loop after changing a source skill is `esheep sync` followed by `esheep skills status`.
+The canonical reference is `esheep --help`, each command's `--help`, and the help topic `esheep help exit-codes`.
 
 
 ## Required external programs
@@ -83,10 +77,9 @@ The typical loop after changing a source skill is `esheep sync` followed by `esh
 
 ## Configuration
 
-esheep discovers its settings at `$XDG_CONFIG_HOME/esheep/config.toml`, or `$HOME/.config/esheep/config.toml`. `esheep config --help` describes the load order and the target, memory, and machine settings. One source is enough to get started:
+esheep discovers its settings at `$XDG_CONFIG_HOME/esheep/config.toml`, or `$HOME/.config/esheep/config.toml`. Every setting has a default, so esheep works without the file. `esheep config --help` describes the load order and the session, memory, and machine settings. A machine entry lets `--remote` search another machine's sessions:
 
 ```toml
-[[sources]]
-name = "personal"
-path = "~/Code/skills"
+[[machines]]
+name = "nas"
 ```

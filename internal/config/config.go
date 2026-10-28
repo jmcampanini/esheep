@@ -1,4 +1,4 @@
-// Package config loads esheep's human-owned settings and resolves filesystem boundaries.
+// Package config loads esheep's human-owned settings and resolves the paths they name.
 package config
 
 import (
@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jmcampanini/esheep/internal/naming"
 	"github.com/jmcampanini/go-config-loader/configloader"
 	"github.com/jmcampanini/go-config-loader/configreporter"
 	"github.com/jmcampanini/go-config-loader/pflagloader"
@@ -27,41 +26,6 @@ const (
 	configHelp      = "path to the configuration file (replaces discovered files)"
 	memoryDirectory = "memory"
 )
-
-// Source configures one human-managed directory containing skills.
-type Source struct {
-	Name string `toml:"name"`
-	Path string `toml:"path"`
-}
-
-// ClaudeTarget configures the Claude Code harness target.
-type ClaudeTarget struct {
-	Enabled      bool   `toml:"enabled" config:"claude-enabled" help:"enable the Claude target"`
-	SkillsPath   string `toml:"skills_path" config:"claude-skills-path" help:"skills installation path for the Claude target"`
-	AgentsMDPath string `toml:"agents_md_path" config:"claude-agents-md-path" help:"agents file installation path for the Claude target"`
-}
-
-// PiTarget configures the Pi harness target.
-type PiTarget struct {
-	Enabled      bool   `toml:"enabled" config:"pi-enabled" help:"enable the Pi target"`
-	SkillsPath   string `toml:"skills_path" config:"pi-skills-path" help:"skills installation path for the Pi target"`
-	AgentsMDPath string `toml:"agents_md_path" config:"pi-agents-md-path" help:"agents file installation path for the Pi target"`
-}
-
-// CodexTarget configures the Codex harness target, whose skills install into
-// the shared Agent Skills directory Codex reads.
-type CodexTarget struct {
-	Enabled      bool   `toml:"enabled" config:"codex-enabled" help:"enable the Codex target"`
-	SkillsPath   string `toml:"skills_path" config:"codex-skills-path" help:"skills installation path for the Codex target"`
-	AgentsMDPath string `toml:"agents_md_path" config:"codex-agents-md-path" help:"agents file installation path for the Codex target"`
-}
-
-// Targets contains the three supported installation targets.
-type Targets struct {
-	Claude ClaudeTarget `toml:"claude"`
-	Pi     PiTarget     `toml:"pi"`
-	Codex  CodexTarget  `toml:"codex"`
-}
 
 // ClaudeSessions locates Claude Code's session transcripts.
 type ClaudeSessions struct {
@@ -109,13 +73,9 @@ type Memory struct {
 
 // Config is the complete human-owned esheep configuration.
 type Config struct {
-	Layers    []string  `toml:"layers" config:"layers" pflag_singular:"layer" help:"selected layers; --layers accepts comma-separated values."`
-	EnvLayers []string  `toml:"env_layers"`
-	Sources   []Source  `toml:"sources"`
-	Targets   Targets   `toml:"targets"`
-	Sessions  Sessions  `toml:"sessions"`
-	Memory    Memory    `toml:"memory"`
-	Machines  []Machine `toml:"machines"`
+	Sessions Sessions  `toml:"sessions"`
+	Memory   Memory    `toml:"memory"`
+	Machines []Machine `toml:"machines"`
 }
 
 // Locations contains the discovered or explicit settings path.
@@ -129,25 +89,6 @@ type LoadOptions struct {
 	ConfigPath string
 	Env        map[string]string
 	Flags      *pflag.FlagSet
-}
-
-// ResolvedSource is a source identity with an absolute canonical path.
-type ResolvedSource struct {
-	Name string
-	Path string
-}
-
-// ResolvedTarget contains one harness's absolute artifact paths.
-type ResolvedTarget struct {
-	Skills   string
-	AgentsMD string
-}
-
-// ResolvedTargets contains absolute target paths for runtime operations.
-type ResolvedTargets struct {
-	Claude ResolvedTarget
-	Pi     ResolvedTarget
-	Codex  ResolvedTarget
 }
 
 // ResolvedCodexSessions contains the canonical Codex home and its transcript directories.
@@ -176,18 +117,14 @@ type ResolvedMachine struct {
 // LoadResult is an effective configuration together with provenance and resolved paths.
 type LoadResult struct {
 	Config           Config
-	EffectiveLayers  []string
-	Home             string
 	Locations        Locations
 	ResolvedMachines []ResolvedMachine
 	ResolvedMemory   string
 	ResolvedSessions ResolvedSessions
-	ResolvedSources  []ResolvedSource
-	ResolvedTargets  ResolvedTargets
 	Report           configloader.LoadReport
 }
 
-// RegisterFlags registers the config file flag and configuration-backed target flags.
+// RegisterFlags registers the config file flag and configuration-backed path flags.
 func RegisterFlags(flags *pflag.FlagSet) error {
 	if flags == nil {
 		return fmt.Errorf("config: flag set is nil")
@@ -200,7 +137,7 @@ func RegisterFlags(flags *pflag.FlagSet) error {
 }
 
 // Load applies defaults, CODEX_HOME, discovered or explicit TOML, ESHEEP_*
-// variables, and parsed flags in that order. Sources are configured only by TOML.
+// variables, and parsed flags in that order. Machines are configured only by TOML.
 func Load(options LoadOptions) (LoadResult, error) {
 	env := options.Env
 	if env == nil {
@@ -274,11 +211,7 @@ func Load(options LoadOptions) (LoadResult, error) {
 		return LoadResult{}, err
 	}
 	cfg := Config(loaded)
-	effectiveLayers, err := resolveLayers(cfg, env)
-	if err != nil {
-		return LoadResult{}, err
-	}
-	resolvedSources, resolvedTargets, resolvedMemory, err := resolvePaths(cfg, home, locations.ConfigFile)
+	resolvedMemory, err := resolveMemory(cfg.Memory.Path, home)
 	if err != nil {
 		return LoadResult{}, err
 	}
@@ -292,52 +225,12 @@ func Load(options LoadOptions) (LoadResult, error) {
 	}
 	return LoadResult{
 		Config:           cfg,
-		EffectiveLayers:  effectiveLayers,
-		Home:             home,
 		Locations:        locations,
 		ResolvedMachines: resolvedMachines,
 		ResolvedMemory:   resolvedMemory,
 		ResolvedSessions: resolvedSessions,
-		ResolvedSources:  resolvedSources,
-		ResolvedTargets:  resolvedTargets,
 		Report:           report,
 	}, nil
-}
-
-// resolveLayers appends the comma-separated values of each env_layers
-// variable to the loaded layer list, validates every name, and dedupes by
-// keeping the last occurrence of each name in its relative order.
-func resolveLayers(cfg Config, env map[string]string) ([]string, error) {
-	for _, name := range cfg.EnvLayers {
-		trimmed := strings.TrimSpace(name)
-		if trimmed == "" || trimmed != name {
-			return nil, fmt.Errorf("config: env_layers entry %q must be a nonblank environment variable name", name)
-		}
-	}
-
-	layers := append([]string(nil), cfg.Layers...)
-	for _, name := range cfg.EnvLayers {
-		for _, value := range strings.Split(env[name], ",") {
-			if value = strings.TrimSpace(value); value != "" {
-				layers = append(layers, value)
-			}
-		}
-	}
-
-	last := make(map[string]int, len(layers))
-	for index, layer := range layers {
-		if err := naming.ValidateLayerName(layer); err != nil {
-			return nil, fmt.Errorf("config: %w", err)
-		}
-		last[layer] = index
-	}
-	effective := make([]string, 0, len(last))
-	for index, layer := range layers {
-		if last[layer] == index {
-			effective = append(effective, layer)
-		}
-	}
-	return effective, nil
 }
 
 // ReportOptions controls effective TOML rendering.
@@ -370,22 +263,6 @@ func Render(result LoadResult, options ReportOptions) ([]byte, error) {
 		b.WriteByte('\n')
 	}
 	writeResolved("config_file", result.Locations.ConfigFile)
-	quoted := make([]string, 0, len(result.EffectiveLayers))
-	for _, layer := range result.EffectiveLayers {
-		quoted = append(quoted, strconv.Quote(sanitizeCommentValue(layer)))
-	}
-	b.WriteString("# effective_layers = [")
-	b.WriteString(strings.Join(quoted, ", "))
-	b.WriteString("]\n")
-	for _, source := range result.ResolvedSources {
-		writeResolved("sources."+source.Name+".path", source.Path)
-	}
-	writeResolved("targets.claude.skills_path", result.ResolvedTargets.Claude.Skills)
-	writeResolved("targets.claude.agents_md_path", result.ResolvedTargets.Claude.AgentsMD)
-	writeResolved("targets.pi.skills_path", result.ResolvedTargets.Pi.Skills)
-	writeResolved("targets.pi.agents_md_path", result.ResolvedTargets.Pi.AgentsMD)
-	writeResolved("targets.codex.skills_path", result.ResolvedTargets.Codex.Skills)
-	writeResolved("targets.codex.agents_md_path", result.ResolvedTargets.Codex.AgentsMD)
 	writeResolved("sessions.claude.path", result.ResolvedSessions.Claude)
 	writeResolved("sessions.claude-cowork.path", result.ResolvedSessions.ClaudeCowork)
 	writeResolved("sessions.pi.path", result.ResolvedSessions.Pi)
@@ -401,9 +278,8 @@ func Render(result LoadResult, options ReportOptions) ([]byte, error) {
 	if options.Provenance {
 		b.WriteString("\n# Provenance\n")
 		for _, row := range reporter.ProvenanceRows() {
-			path := strings.NewReplacer("envlayers", "env_layers", "skillspath", "skills_path", "agentsmdpath", "agents_md_path").Replace(row[0])
 			b.WriteString("# ")
-			b.WriteString(sanitizeCommentValue(path))
+			b.WriteString(sanitizeCommentValue(row[0]))
 			b.WriteString(" = ")
 			b.WriteString(sanitizeCommentValue(row[1]))
 			b.WriteString(" (source: ")
@@ -435,11 +311,6 @@ func defaults() flagConfig {
 		coworkPath = "~/Library/Application Support/Claude/local-agent-mode-sessions"
 	}
 	return flagConfig{
-		Targets: Targets{
-			Claude: ClaudeTarget{Enabled: true, SkillsPath: "~/.claude/skills", AgentsMDPath: "~/.claude/CLAUDE.md"},
-			Pi:     PiTarget{Enabled: true, SkillsPath: "~/.pi/agent/skills", AgentsMDPath: "~/.pi/agent/AGENTS.md"},
-			Codex:  CodexTarget{Enabled: true, SkillsPath: "~/.agents/skills", AgentsMDPath: "~/.codex/AGENTS.md"},
-		},
 		Sessions: Sessions{
 			Claude:       ClaudeSessions{Path: "~/.claude/projects"},
 			ClaudeCowork: CoworkSessions{Path: coworkPath},
@@ -477,170 +348,22 @@ func locationsFromEnv(env map[string]string, home string) Locations {
 	return Locations{ConfigFile: filepath.Join(filepath.Clean(configHome), appName, configName)}
 }
 
-// resolvePaths resolves every path esheep reads from or writes to and
-// rejects layouts where a write location could reach a read-only source or
-// another write location.
-func resolvePaths(cfg Config, home, configPath string) ([]ResolvedSource, ResolvedTargets, string, error) {
-	resolvedConfigPath, err := canonicalPath(configPath)
-	if err != nil {
-		return nil, ResolvedTargets{}, "", fmt.Errorf("config: resolve settings path: %w", err)
-	}
-	sources, err := resolveSources(cfg.Sources, home)
-	if err != nil {
-		return nil, ResolvedTargets{}, "", err
-	}
-	targets, enabled, err := resolveTargets(cfg.Targets, home)
-	if err != nil {
-		return nil, ResolvedTargets{}, "", err
-	}
-	for _, target := range enabled {
-		if samePath(resolvedConfigPath, target.agentsMD) {
-			return nil, ResolvedTargets{}, "", fmt.Errorf("config: targets.%s.agents_md_path must not be the settings file", target.name)
-		}
-	}
-	for _, source := range sources {
-		for _, target := range enabled {
-			if pathsOverlap(source.Path, target.skills) {
-				return nil, ResolvedTargets{}, "", fmt.Errorf("config: source %q overlaps enabled target %q", source.Name, target.name)
-			}
-			if pathsOverlap(source.Path, target.agentsMD) {
-				return nil, ResolvedTargets{}, "", fmt.Errorf("config: targets.%s.agents_md_path is inside source %q", target.name, source.Name)
-			}
-		}
-	}
-	memory, err := resolveMemory(cfg.Memory.Path, home, sources, enabled)
-	if err != nil {
-		return nil, ResolvedTargets{}, "", err
-	}
-	return sources, targets, memory, nil
-}
-
-// resolveMemory resolves the memory root, the one write location outside
-// targets, under the same breadth and overlap rules as target paths.
-func resolveMemory(path, home string, sources []ResolvedSource, enabled []resolvedTarget) (string, error) {
+// resolveMemory resolves the memory root, the one location esheep writes,
+// and rejects the filesystem root and the home directory as too broad.
+func resolveMemory(path, home string) (string, error) {
 	memory, err := resolveManagedPath("memory.path", path, home)
 	if err != nil {
 		return "", err
 	}
-	if memory == string(filepath.Separator) || samePath(memory, home) {
+	if memory == string(filepath.Separator) || strings.EqualFold(memory, home) {
 		return "", errors.New("config: memory.path is too broad")
-	}
-	for _, source := range sources {
-		if pathsOverlap(memory, source.Path) {
-			return "", fmt.Errorf("config: memory.path overlaps source %q", source.Name)
-		}
-	}
-	for _, target := range enabled {
-		if pathsOverlap(memory, target.skills) {
-			return "", fmt.Errorf("config: memory.path overlaps enabled target %q", target.name)
-		}
 	}
 	return memory, nil
 }
 
-func resolveSources(configured []Source, home string) ([]ResolvedSource, error) {
-	resolved := make([]ResolvedSource, 0, len(configured))
-	for _, source := range configured {
-		if err := naming.ValidateSourceName(source.Name); err != nil {
-			return nil, fmt.Errorf("config: %w", err)
-		}
-		path, err := resolveManagedPath("source "+strconv.Quote(source.Name), source.Path, home)
-		if err != nil {
-			return nil, err
-		}
-		for _, prior := range resolved {
-			if strings.EqualFold(prior.Name, source.Name) {
-				return nil, fmt.Errorf("config: duplicate source name %q", source.Name)
-			}
-			if pathsOverlap(prior.Path, path) {
-				return nil, fmt.Errorf("config: source %q overlaps source %q", source.Name, prior.Name)
-			}
-		}
-		resolved = append(resolved, ResolvedSource{Name: source.Name, Path: path})
-	}
-	return resolved, nil
-}
-
-type resolvedTarget struct {
-	agentsMD string
-	name     string
-	skills   string
-}
-
-func resolveTargets(cfg Targets, home string) (ResolvedTargets, []resolvedTarget, error) {
-	resolved := ResolvedTargets{}
-	configured := []struct {
-		name     string
-		enabled  bool
-		skills   string
-		agentsMD string
-		resolved *ResolvedTarget
-	}{
-		{name: "claude", enabled: cfg.Claude.Enabled, skills: cfg.Claude.SkillsPath, agentsMD: cfg.Claude.AgentsMDPath, resolved: &resolved.Claude},
-		{name: "pi", enabled: cfg.Pi.Enabled, skills: cfg.Pi.SkillsPath, agentsMD: cfg.Pi.AgentsMDPath, resolved: &resolved.Pi},
-		{name: "codex", enabled: cfg.Codex.Enabled, skills: cfg.Codex.SkillsPath, agentsMD: cfg.Codex.AgentsMDPath, resolved: &resolved.Codex},
-	}
-	var enabled []resolvedTarget
-	for _, target := range configured {
-		skills, err := resolveManagedPath("targets."+target.name+".skills_path", target.skills, home)
-		if err != nil {
-			return ResolvedTargets{}, nil, err
-		}
-		agentsMD, err := resolveManagedPath("targets."+target.name+".agents_md_path", target.agentsMD, home)
-		if err != nil {
-			return ResolvedTargets{}, nil, err
-		}
-		*target.resolved = ResolvedTarget{Skills: skills, AgentsMD: agentsMD}
-		if !target.enabled {
-			continue
-		}
-		expandedSkills, err := expandHome(target.skills, home)
-		if err != nil {
-			return ResolvedTargets{}, nil, err
-		}
-		if info, statErr := os.Lstat(filepath.Clean(expandedSkills)); statErr == nil && info.Mode()&os.ModeSymlink != 0 {
-			return ResolvedTargets{}, nil, fmt.Errorf("config: targets.%s.skills_path must not be a symlink", target.name)
-		}
-		expandedAgentsMD, err := expandHome(target.agentsMD, home)
-		if err != nil {
-			return ResolvedTargets{}, nil, err
-		}
-		if info, statErr := os.Lstat(filepath.Clean(expandedAgentsMD)); statErr == nil {
-			if info.Mode()&os.ModeSymlink != 0 {
-				return ResolvedTargets{}, nil, fmt.Errorf("config: targets.%s.agents_md_path must not be a symlink", target.name)
-			}
-			if !info.Mode().IsRegular() {
-				return ResolvedTargets{}, nil, fmt.Errorf("config: targets.%s.agents_md_path must be a regular file when it exists", target.name)
-			}
-		}
-		if skills == string(filepath.Separator) || samePath(skills, home) {
-			return ResolvedTargets{}, nil, fmt.Errorf("config: targets.%s.skills_path is too broad", target.name)
-		}
-		if agentsMD == string(filepath.Separator) || samePath(agentsMD, home) {
-			return ResolvedTargets{}, nil, fmt.Errorf("config: targets.%s.agents_md_path is too broad", target.name)
-		}
-		if pathsOverlap(skills, agentsMD) {
-			return ResolvedTargets{}, nil, fmt.Errorf("config: targets.%s.agents_md_path overlaps targets.%s.skills_path", target.name, target.name)
-		}
-		for _, prior := range enabled {
-			if pathsOverlap(prior.skills, skills) {
-				return ResolvedTargets{}, nil, fmt.Errorf("config: enabled target %q overlaps enabled target %q", target.name, prior.name)
-			}
-			if samePath(prior.agentsMD, agentsMD) {
-				return ResolvedTargets{}, nil, fmt.Errorf("config: targets.%s.agents_md_path duplicates targets.%s.agents_md_path", target.name, prior.name)
-			}
-			if pathsOverlap(prior.skills, agentsMD) || pathsOverlap(skills, prior.agentsMD) {
-				return ResolvedTargets{}, nil, fmt.Errorf("config: enabled target %q overlaps enabled target %q", target.name, prior.name)
-			}
-		}
-		enabled = append(enabled, resolvedTarget{agentsMD: agentsMD, name: target.name, skills: skills})
-	}
-	return resolved, enabled, nil
-}
-
 // resolveSessions resolves the read-only session transcript roots. Session
-// roots are harness-owned inputs, so unlike targets they need no symlink,
-// breadth, or overlap restrictions.
+// roots are harness-owned inputs, so unlike the memory root they need no
+// breadth restriction.
 func resolveSessions(cfg Sessions, home string) (ResolvedSessions, error) {
 	codexHome, err := resolveManagedPath("sessions.codex.home", cfg.Codex.Home, home)
 	if err != nil {
@@ -786,25 +509,6 @@ func canonicalPath(path string) (string, error) {
 		missing = append(missing, filepath.Base(current))
 		current = parent
 	}
-}
-
-func pathsOverlap(left, right string) bool {
-	return pathContains(left, right) || pathContains(right, left)
-}
-
-func pathContains(parent, child string) bool {
-	parent = normalizePath(parent)
-	child = normalizePath(child)
-	rel, err := filepath.Rel(parent, child)
-	return err == nil && (rel == "." || rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
-}
-
-func samePath(left, right string) bool {
-	return normalizePath(left) == normalizePath(right)
-}
-
-func normalizePath(path string) string {
-	return naming.PathKey(filepath.Clean(path))
 }
 
 func sanitizeCommentValue(value string) string {
