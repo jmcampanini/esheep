@@ -71,16 +71,12 @@ Any other key, in any table, is an error naming the key.
 			return config.WriteReport(
 				command.OutOrStdout(),
 				loaded,
-				config.ReportOptions{Provenance: provenance, Redact: redactConfig},
+				config.ReportOptions{Provenance: provenance},
 			)
 		},
 	}
 	command.Flags().BoolVar(&provenance, "provenance", false, "include field-level source information")
 	return command
-}
-
-func redactConfig(loaded config.LoadResult) config.LoadResult {
-	return loaded
 }
 
 const configResolutionHelp = `Settings load in this order, with later sources taking precedence: built-in

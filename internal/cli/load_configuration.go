@@ -6,9 +6,5 @@ import (
 )
 
 func loadConfiguration(command *cobra.Command, load configLoader) (config.LoadResult, error) {
-	loaded, err := load(config.LoadOptions{Flags: command.Root().PersistentFlags()})
-	if err != nil {
-		return config.LoadResult{}, err
-	}
-	return loaded, nil
+	return load(config.LoadOptions{Flags: command.Root().PersistentFlags()})
 }

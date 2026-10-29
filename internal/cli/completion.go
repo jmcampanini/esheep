@@ -18,18 +18,17 @@ script, and never prompts; a failure is one line on stderr.`,
 		ValidArgs: []string{"bash", "zsh", "fish", "powershell"},
 		RunE: func(command *cobra.Command, args []string) error {
 			root := command.Root()
-			var err error
 			switch args[0] {
 			case "bash":
-				err = root.GenBashCompletion(command.OutOrStdout())
+				return root.GenBashCompletion(command.OutOrStdout())
 			case "zsh":
-				err = root.GenZshCompletion(command.OutOrStdout())
+				return root.GenZshCompletion(command.OutOrStdout())
 			case "fish":
-				err = root.GenFishCompletion(command.OutOrStdout(), true)
+				return root.GenFishCompletion(command.OutOrStdout(), true)
 			case "powershell":
-				err = root.GenPowerShellCompletion(command.OutOrStdout())
+				return root.GenPowerShellCompletion(command.OutOrStdout())
 			}
-			return err
+			return nil
 		},
 	}
 }
