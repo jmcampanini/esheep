@@ -166,6 +166,86 @@ func TestMemoryPathMustNotBeTooBroad(t *testing.T) {
 	}
 }
 
+func TestMemoryPathRejectsEquivalentHomeSpellings(t *testing.T) {
+	for _, existing := range []bool{false, true} {
+		for _, test := range []struct {
+			name   string
+			home   string
+			memory string
+		}{
+			{name: "case", home: "Home", memory: "HOME"},
+			{name: "composed home", home: "Jos\u00e9", memory: "Jose\u0301"},
+			{name: "decomposed home", home: "Jose\u0301", memory: "Jos\u00e9"},
+			{name: "case and normalization", home: "Jos\u00e9", memory: "JOSE\u0301"},
+			{name: "Greek iota case and accents", home: "\u0390", memory: "\u0399\u0308\u0301"},
+			{name: "Greek upsilon case and accents", home: "\u03b0", memory: "\u03a5\u0308\u0301"},
+			{name: "combining mark order", home: "a\u0323\u0302", memory: "a\u0302\u0323"},
+		} {
+			t.Run(fmt.Sprintf("%s/existing=%t", test.name, existing), func(t *testing.T) {
+				base := t.TempDir()
+				home := filepath.Join(base, test.home)
+				memory := filepath.Join(base, test.memory)
+				if existing {
+					if err := os.Mkdir(home, 0o700); err != nil {
+						t.Fatal(err)
+					}
+				}
+				env := testEnv(home, filepath.Join(base, "config"))
+				env["ESHEEP_MEMORY_PATH"] = memory
+
+				if _, err := Load(LoadOptions{Env: env}); err == nil || !strings.Contains(err.Error(), "memory.path is too broad") {
+					t.Errorf("Load() with HOME=%q, memory.path=%q error = %v, want too broad", home, memory, err)
+				}
+			})
+		}
+	}
+}
+
+func TestMemoryPathResolvesHomeSymlinkBeforeComparison(t *testing.T) {
+	base := t.TempDir()
+	home := filepath.Join(base, "Jos\u00e9")
+	if err := os.Mkdir(home, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(base, "alias")
+	if err := os.Symlink(home, alias); err != nil {
+		t.Fatal(err)
+	}
+	for _, paths := range [][2]string{{home, alias}, {alias, home}} {
+		env := testEnv(paths[0], filepath.Join(base, "config"))
+		env["ESHEEP_MEMORY_PATH"] = paths[1]
+		if _, err := Load(LoadOptions{Env: env}); err == nil || !strings.Contains(err.Error(), "memory.path is too broad") {
+			t.Errorf("Load() with HOME=%q, memory.path=%q error = %v, want too broad", paths[0], paths[1], err)
+		}
+	}
+}
+
+func TestMemoryPathPreservesDistinctUnicodePaths(t *testing.T) {
+	base, err := canonicalPath(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := filepath.Join(base, "Jos\u00e9")
+	for _, path := range []string{
+		filepath.Join(home, "me\u0301mories"),
+		filepath.Join(base, "Jose"),
+		filepath.Join(base, "Jos\u00e9-memories"),
+	} {
+		env := testEnv(home, filepath.Join(base, "config"))
+		env["ESHEEP_MEMORY_PATH"] = path
+		result, err := Load(LoadOptions{Env: env})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.ResolvedMemory != path {
+			t.Errorf("resolved memory = %q, want original spelling %q", result.ResolvedMemory, path)
+		}
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Errorf("Load created memory directory %q: %v", path, err)
+		}
+	}
+}
+
 func TestMissingPathResolvesExistingSymlinkedParent(t *testing.T) {
 	root, err := canonicalPath(t.TempDir())
 	if err != nil {
