@@ -100,32 +100,46 @@ func appendOriginEvidence(evidence map[string]string, key string, raw json.RawMe
 		return
 	}
 	raw = bytes.TrimSpace(raw)
-	if len(raw) == 0 {
+	if len(raw) == 0 || raw[0] != '{' {
+		if value, ok := scalarEvidence(raw); ok {
+			evidence[key] = value
+		}
 		return
+	}
+	if depth >= evidenceMaxDepth {
+		return
+	}
+	var members map[string]json.RawMessage
+	if json.Unmarshal(raw, &members) != nil {
+		return
+	}
+	for _, child := range slices.Sorted(maps.Keys(members)) {
+		appendOriginEvidence(evidence, key+"."+child, members[child], depth+1)
+	}
+}
+
+// scalarEvidence returns the bounded text of a JSON string or number,
+// preserving the recorded spelling of numbers.
+func scalarEvidence(raw json.RawMessage) (string, bool) {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 {
+		return "", false
 	}
 	switch raw[0] {
 	case '"':
 		var value string
-		if json.Unmarshal(raw, &value) == nil {
-			evidence[key] = boundedEvidenceValue(value)
+		if json.Unmarshal(raw, &value) != nil {
+			return "", false
 		}
-	case '{':
-		if depth >= evidenceMaxDepth {
-			return
-		}
-		var members map[string]json.RawMessage
-		if json.Unmarshal(raw, &members) != nil {
-			return
-		}
-		for _, child := range slices.Sorted(maps.Keys(members)) {
-			appendOriginEvidence(evidence, key+"."+child, members[child], depth+1)
-		}
-	case 'n', 't', 'f', '[':
+		return boundedEvidenceValue(value), true
+	case '{', '[', 'n', 't', 'f':
+		return "", false
 	default:
 		var number json.Number
-		if json.Unmarshal(raw, &number) == nil {
-			evidence[key] = boundedEvidenceValue(string(number))
+		if json.Unmarshal(raw, &number) != nil {
+			return "", false
 		}
+		return boundedEvidenceValue(string(number)), true
 	}
 }
 

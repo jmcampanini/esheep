@@ -200,7 +200,9 @@ func (m claudeOriginMetadata) eventOrigin() EventOrigin {
 	var origin map[string]json.RawMessage
 	_ = json.Unmarshal(m.Origin, &origin)
 	evidence := make(map[string]string)
-	appendOriginEvidence(evidence, "origin.kind", origin["kind"], evidenceMaxDepth)
+	if value, ok := scalarEvidence(origin["kind"]); ok {
+		evidence["origin.kind"] = value
+	}
 	appendOriginEvidence(evidence, "promptSource", m.PromptSource, 0)
 	appendOriginEvidence(evidence, "turnOrigin", m.TurnOrigin, 0)
 
