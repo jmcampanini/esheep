@@ -16,6 +16,7 @@ import (
 	"github.com/jmcampanini/go-config-loader/configreporter"
 	"github.com/jmcampanini/go-config-loader/pflagloader"
 	"github.com/spf13/pflag"
+	"golang.org/x/text/unicode/norm"
 )
 
 const (
@@ -289,8 +290,13 @@ func Render(result LoadResult, options ReportOptions) ([]byte, error) {
 	if options.Provenance {
 		b.WriteString("\n# Provenance\n")
 		for _, row := range reporter.ProvenanceRows() {
+			// The reporter names Go fields; output must name TOML keys.
+			name := row[0]
+			if name == "sessions.claudecowork.path" {
+				name = "sessions.claude-cowork.path"
+			}
 			b.WriteString("# ")
-			b.WriteString(sanitizeCommentValue(row[0]))
+			b.WriteString(sanitizeCommentValue(name))
 			b.WriteString(" = ")
 			b.WriteString(sanitizeCommentValue(row[1]))
 			b.WriteString(" (source: ")
@@ -366,7 +372,10 @@ func resolveMemory(path, home string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if memory == string(filepath.Separator) || strings.EqualFold(memory, home) {
+	// Symlink resolution preserves Unicode spelling. Decompose before folding
+	// case so accented letters compare equally even when their uppercase forms
+	// have no single code point. Keep filesystem access in the original spelling.
+	if memory == string(filepath.Separator) || strings.EqualFold(norm.NFD.String(memory), norm.NFD.String(home)) {
 		return "", errors.New("config: memory.path is too broad")
 	}
 	return memory, nil
