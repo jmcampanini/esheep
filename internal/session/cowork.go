@@ -36,7 +36,7 @@ func (coworkAdapter) discover(root string, _ bool) ([]transcript, []Diagnostic) 
 func (a coworkAdapter) meta(t transcript, ids idFilter) describedSession {
 	id, err := filepath.Rel(a.root, filepath.Dir(t.path))
 	meta := describedSession{err: err, session: Session{
-		Harness: HarnessClaudeCowork, ID: filepath.ToSlash(id), ModifiedAt: t.modTime, Path: t.path,
+		Harness: HarnessClaudeCowork, ID: filepath.ToSlash(id), ModifiedAt: t.modTime, Origin: transcriptOrigin(false), Path: t.path,
 	}}
 	if err != nil {
 		return meta
@@ -123,6 +123,7 @@ func readCoworkCompanion(path string, info os.FileInfo) ([]byte, error) {
 }
 
 type coworkEnvelope struct {
+	claudeOriginMetadata
 	AuditTimestamp  string          `json:"_audit_timestamp"`
 	IsMeta          bool            `json:"isMeta"`
 	IsSynthetic     bool            `json:"isSynthetic"`
@@ -137,7 +138,7 @@ func (e coworkEnvelope) event(line int) event {
 	if timestamp.IsZero() {
 		timestamp = parseTimestamp(e.AuditTimestamp)
 	}
-	return event{line: line, subagent: e.ParentToolUseID != "", timestamp: timestamp}
+	return event{line: line, parentCallID: e.ParentToolUseID, subagent: e.ParentToolUseID != "", timestamp: timestamp}
 }
 
 type coworkDecoder struct {
@@ -155,6 +156,7 @@ func (d *coworkDecoder) decode(envelope coworkEnvelope, base event, visit func(e
 	}
 	switch envelope.Type {
 	case "user":
+		base.origin = envelope.eventOrigin()
 		return claudeUserEvents(envelope.Message, envelope.IsMeta || envelope.IsSynthetic, base, names, visit)
 	case "assistant":
 		return claudeAssistantEvents(envelope.Message, base, names, visit)

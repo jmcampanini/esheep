@@ -12,6 +12,15 @@ import (
 
 const helpColumns = 80
 
+func TestSearchHelpDocumentsClassificationAndRelationshipScope(t *testing.T) {
+	help := newSessionsSearchCommand(nil, commandOperations{}).Long
+	for _, field := range []string{`"kind"`, `"origin"`, `"call_id"`, `"parent_call_id"`, "multiple results", "never by adjacency", "relationship is unknown", "independently of each"} {
+		if !strings.Contains(help, field) {
+			t.Errorf("search help missing classification contract %q", field)
+		}
+	}
+}
+
 func TestEveryCommandHelpMeetsTheBaseline(t *testing.T) {
 	root := newRootCommand(config.Load)
 

@@ -315,7 +315,7 @@ func TestSessionsSearchWritesHitsGroupedBySession(t *testing.T) {
 			},
 			Hits: []session.Hit{
 				{Excerpt: "find the GOMODCACHE bug", Line: 2, Role: session.RoleUser, Timestamp: time.Date(2026, 8, 20, 10, 0, 0, 0, time.Local)},
-				{Error: true, Excerpt: "permission denied", Line: 5, Role: session.RoleTool, Tool: "Bash"},
+				{Error: true, Excerpt: "permission denied", Kind: session.KindToolResult, Line: 5, Origin: session.EventOrigin{Kind: session.EventOriginTool}, Role: session.RoleTool, Tool: "Bash"},
 			},
 		}},
 	}
@@ -334,7 +334,7 @@ func TestSessionsSearchWritesHitsGroupedBySession(t *testing.T) {
 		"claude  2026-08-20 10:00  /Users/u/proj  Debug permissions",
 		"/roots/claude/p/abc.jsonl",
 		":2",
-		"tool:Bash",
+		"result:Bash",
 		"2026-08-20 10:00:00",
 		"error  permission denied",
 	} {

@@ -43,6 +43,9 @@ func TestAdaptersStopAtRequestedEvent(t *testing.T) {
 			if err != nil || malformed != 0 || len(events) != 1 || events[0].line != 1 {
 				t.Fatalf("scan = %+v, %d malformed, %v; want only the first event", events, malformed, err)
 			}
+			if !events[0].kind.Valid() || !events[0].origin.Kind.Valid() {
+				t.Errorf("decoded event = %+v, want classification before matching", events[0])
+			}
 		})
 	}
 }
@@ -60,7 +63,7 @@ func TestPeriodSearchRetainsDecoderStateFromEarlierEvents(t *testing.T) {
 	if !report.Complete || len(report.Sessions) != 1 || len(report.Sessions[0].Hits) != 1 {
 		t.Fatalf("search = %+v, want only the in-period tool result", report)
 	}
-	if hit := report.Sessions[0].Hits[0]; hit.Line != 3 || hit.Tool != "shell" {
+	if hit := report.Sessions[0].Hits[0]; hit.Line != 3 || hit.Tool != "shell" || hit.Kind != KindToolResult || hit.CallID != "call" {
 		t.Errorf("hit = %+v, want tool name from the earlier call", hit)
 	}
 }

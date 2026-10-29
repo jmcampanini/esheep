@@ -257,6 +257,9 @@ func query[S any](ctx context.Context, ssh string, machine config.ResolvedMachin
 
 	var reply document[S]
 	decodeErr := json.Unmarshal(stdout.Bytes(), &reply)
+	if decodeErr == nil {
+		decodeErr = validateClassifications(reply.Sessions)
+	}
 	if decodeErr != nil {
 		reply = document[S]{}
 	}
@@ -282,6 +285,33 @@ func query[S any](ctx context.Context, ssh string, machine config.ResolvedMachin
 		reply.Diagnostics = append(reply.Diagnostics, failure)
 	}
 	return reply
+}
+
+func validateClassifications[S any](entries []S) error {
+	for _, entry := range entries {
+		var metadata session.Session
+		switch entry := any(entry).(type) {
+		case session.Session:
+			metadata = entry
+		case session.Match:
+			metadata = entry.Session
+			for _, hit := range entry.Hits {
+				if !hit.Kind.Valid() {
+					return fmt.Errorf("invalid hit kind %q in session %q", hit.Kind, metadata.ID)
+				}
+				if !hit.Origin.Kind.Valid() {
+					return fmt.Errorf("invalid event origin kind %q in session %q", hit.Origin.Kind, metadata.ID)
+				}
+			}
+		}
+		if !metadata.Origin.Kind.Valid() {
+			return fmt.Errorf("invalid session origin kind %q in session %q", metadata.Origin.Kind, metadata.ID)
+		}
+		if (metadata.Origin.Kind == session.OriginSubagent) != metadata.Subagent {
+			return fmt.Errorf("session %q has inconsistent subagent origin", metadata.ID)
+		}
+	}
+	return nil
 }
 
 // sshFailureExit is the status OpenSSH uses for its own failures: name

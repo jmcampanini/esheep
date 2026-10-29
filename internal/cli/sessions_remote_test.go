@@ -65,7 +65,7 @@ func TestSessionsRemoteSelectionFailuresExitOne(t *testing.T) {
 }
 
 func TestSessionsListMergesRemoteMachinesIntoTextAndJSON(t *testing.T) {
-	fakeSSHOnPath(t, `{"complete":true,"sessions":[{"harness":"pi","id":"remote-1","path":"/home/j/.pi/one.jsonl","projects":[],"started_at":"2026-09-11T22:40:00Z"}]}`, "", 0)
+	fakeSSHOnPath(t, `{"complete":true,"sessions":[{"origin":{"kind":"unknown"},"harness":"pi","id":"remote-1","path":"/home/j/.pi/one.jsonl","projects":[],"started_at":"2026-09-11T22:40:00Z"}]}`, "", 0)
 	var gotFilter session.Filter
 	operations := commandOperations{
 		hostname: func() (string, error) { return "laptop.local", nil },
@@ -176,7 +176,7 @@ func TestSessionsListJSONPrintsRemoteDiagnosticsOnStderr(t *testing.T) {
 func TestSessionsRemoteFailureOverridesCompletePayload(t *testing.T) {
 	for _, command := range [][]string{{"list"}, {"search", "timeout"}} {
 		t.Run(command[0], func(t *testing.T) {
-			fakeSSHOnPath(t, `{"complete":true,"sessions":[{"id":"retained","path":"/home/j/session.jsonl","hits":[{"line":3,"role":"user","excerpt":"timeout"}]}]}`, "esheep: failed after writing results\n", 1)
+			fakeSSHOnPath(t, `{"complete":true,"sessions":[{"origin":{"kind":"unknown"},"id":"retained","path":"/home/j/session.jsonl","hits":[{"kind":"message","origin":{"kind":"unknown"},"line":3,"role":"user","excerpt":"timeout"}]}]}`, "esheep: failed after writing results\n", 1)
 			operations := commandOperations{hostname: func() (string, error) { return "laptop", nil }}
 			args := append([]string{"sessions"}, command...)
 			args = append(args, "--remote", "nas", "--no-local", "--json")

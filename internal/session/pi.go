@@ -28,7 +28,7 @@ func (piAdapter) discover(root string, _ bool) ([]transcript, []Diagnostic) {
 const piMetaLimit = 512
 
 func (piAdapter) meta(t transcript, ids idFilter) describedSession {
-	entry := Session{Harness: HarnessPi, ModifiedAt: t.modTime, Path: t.path, Subagent: t.subagent}
+	entry := Session{Harness: HarnessPi, ModifiedAt: t.modTime, Origin: transcriptOrigin(t.subagent), Path: t.path, Subagent: t.subagent}
 	err := forEachLine(t.path, func(line int, data []byte) bool {
 		var record struct {
 			Cwd       string `json:"cwd"`
@@ -82,16 +82,19 @@ func (piAdapter) scan(path string, visit func(event) bool) (int, error) {
 }
 
 func piMessageEvents(raw json.RawMessage, base event, visit func(event) bool) bool {
+	base.kind, base.origin = KindMessage, EventOrigin{Kind: EventOriginUnknown}
 	var message struct {
 		Content []struct {
 			Arguments json.RawMessage `json:"arguments"`
+			ID        string          `json:"id"`
 			Name      string          `json:"name"`
 			Text      string          `json:"text"`
 			Type      string          `json:"type"`
 		} `json:"content"`
-		IsError  *bool  `json:"isError"`
-		Role     string `json:"role"`
-		ToolName string `json:"toolName"`
+		IsError    *bool  `json:"isError"`
+		Role       string `json:"role"`
+		ToolCallID string `json:"toolCallId"`
+		ToolName   string `json:"toolName"`
 	}
 	if json.Unmarshal(raw, &message) != nil {
 		return true
@@ -101,6 +104,7 @@ func piMessageEvents(raw json.RawMessage, base event, visit func(event) bool) bo
 		role := RoleUser
 		if message.Role == "assistant" {
 			role = RoleAssistant
+			base.origin = EventOrigin{Kind: EventOriginAgent}
 		}
 		for _, block := range message.Content {
 			switch block.Type {
@@ -114,6 +118,7 @@ func piMessageEvents(raw json.RawMessage, base event, visit func(event) bool) bo
 				}
 			case "toolCall":
 				e := base
+				e.callID, e.kind, e.origin = block.ID, KindToolCall, EventOrigin{Kind: EventOriginAgent}
 				e.role, e.tool, e.text = RoleTool, block.Name, compactJSON(block.Arguments)
 				if !visit(e) {
 					return false
@@ -128,6 +133,7 @@ func piMessageEvents(raw json.RawMessage, base event, visit func(event) bool) bo
 			}
 		}
 		base.role, base.tool, base.text = RoleTool, message.ToolName, strings.Join(parts, "\n")
+		base.callID, base.kind, base.origin = message.ToolCallID, KindToolResult, EventOrigin{Kind: EventOriginTool}
 		base.failed = message.IsError != nil && *message.IsError
 		return visit(base)
 	}

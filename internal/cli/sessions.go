@@ -107,7 +107,30 @@ result has "sessions": []. Each session contains "harness" and "id" strings,
 as an array of directory paths, "archived" and "subagent" booleans, and
 "modified_at" as an RFC 3339 timestamp. "started_at" is an RFC 3339 timestamp
 omitted when unknown; "title" is a string omitted when unavailable. Sessions
-sort by start time, falling back to modification time, most recent first.`
+sort by start time, falling back to modification time, most recent first.
+
+Each session has an "origin" object with "kind": unknown, human, automation,
+agent, or subagent. This describes recorded initiation, independently of each
+event's origin. Subagent origin follows the same markers as "subagent" and
+--subagents. Claude and Pi otherwise have unknown session origin; Cowork
+session origin is unknown even when the audit includes child activity.
+
+Codex and Work use source.subagent first, then source.internal (agent), then
+thread_source: user means human, automation means automation, and
+memory_consolidation means agent. Other values mean unknown. thread_source
+is the harness's analytics classification: human means recorded user initiation,
+not independently verified human action. Automation does not distinguish a
+scheduled run from a manual run. Source strings such as cli, vscode, and exec,
+and the originator product name, do not establish initiation.
+
+Origin objects may include "evidence", a map of native field paths to recorded
+string or number values rendered as strings. Codex and Work session evidence
+comes from source, thread_source, and originator. Nested object keys become
+dotted paths. Nulls, booleans, and arrays are omitted. Evidence is bounded to
+four object descents per root and 32 entries in sorted key order. Keys longer
+than 256 bytes are omitted; values longer than 256 bytes are shortened at a
+UTF-8 boundary with a trailing '...' inside that limit. Evidence is not a
+complete copy of native metadata. Text output also shows origins and evidence.`
 
 const sessionPeriodHelp = `--since and --until select activity by event timestamps recorded in each
 transcript. File modification time and session start do not determine period
@@ -160,18 +183,21 @@ machine-unreachable (ssh failed: name resolution, connection, batch-mode
 authentication, or an unknown host key), machine-timeout (no complete
 reply within the entry's timeout), machine-command (the remote command
 failed, such as esheep missing from the login shell's PATH or an invalid
-remote configuration), or machine-reply (stdout was not one JSON document,
-such as a shell startup file printing to stdout). Each nonempty remote
-stderr line is forwarded as a machine-diagnostic with its machine's name;
-this includes diagnostics from successful scans. The failure diagnostic
-carries the process or decoder error.
+remote configuration), or machine-reply (stdout was not one valid reply,
+including non-JSON output or missing or invalid classifications). Each
+nonempty remote stderr line is forwarded as a machine-diagnostic with its
+machine's name, including diagnostics from successful scans. The failure
+diagnostic carries the process or decoder error.
 
 Builds are not version-checked. A remote rejects a request field it does
 not know and answers with a machine-command diagnostic, while replies
-decode best-effort: unknown fields are ignored and missing fields are
-zero-filled. A machine running a different esheep build can therefore
-refuse the request, ignore a filter, or return wrong or empty results
-after a change to the request or document shape until it is upgraded.`
+ignore unknown fields. Session origin kinds, hit kinds, and hit origin kinds
+must be present and recognized, and subagent origin must agree with the
+subagent flag; invalid classifications produce machine-reply diagnostics.
+Other missing fields are zero-filled. A machine running a different esheep
+build can therefore refuse the request, ignore a filter, or return wrong
+or empty results after a change to the request or document shape until
+it is upgraded.`
 
 func newSessionsCommand(load configLoader, operations commandOperations) *cobra.Command {
 	command := &cobra.Command{

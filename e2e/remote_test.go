@@ -29,6 +29,8 @@ func TestRemoteSessionsWorkflow(t *testing.T) {
 	writeSessionTranscript(t, filepath.Join(remoteHome, ".pi", "agent", "sessions", "--home-u-piproj--", "2026-08-22T08-00-00-000Z_55555555-aaaa-bbbb-cccc-666666666666.jsonl"),
 		`{"type":"session","version":3,"id":"55555555-aaaa-bbbb-cccc-666666666666","timestamp":"2026-08-22T08:00:00Z","cwd":"/home/u/piproj"}`,
 		`{"type":"message","id":"m1","parentId":null,"timestamp":"2026-08-22T08:00:05Z","message":{"role":"user","content":[{"type":"text","text":"remote timeout question"}]}}`,
+		`{"type":"message","message":{"role":"assistant","content":[{"type":"toolCall","id":"call-a","name":"shell","arguments":{"command":"timeout"}}]}}`,
+		`{"type":"message","message":{"role":"toolResult","toolCallId":"call-a","toolName":"shell","content":[{"type":"text","text":"timeout output"}]}}`,
 		`malformed transcript line`,
 	)
 	settings := "[[machines]]\nname = \"e2e-remote\"\ncommand = \"" + binaryPath + "\"\n\n[[machines]]\nname = \"e2e-down\"\n"
@@ -38,7 +40,6 @@ func TestRemoteSessionsWorkflow(t *testing.T) {
 	// The fake ssh answers e2e-remote by running the received command line
 	// in the remote fixture home and refuses every other host like ssh does.
 	script := `#!/bin/sh
-cat > "$REMOTE_RECORD"
 shift 5
 host="$1"
 shift
@@ -46,6 +47,7 @@ if [ "$host" != "e2e-remote" ]; then
   echo "ssh: Could not resolve hostname $host" >&2
   exit 255
 fi
+cat > "$REMOTE_RECORD"
 export HOME="$REMOTE_HOME" XDG_CONFIG_HOME="$REMOTE_CONFIG"
 sh -c "$1" < "$REMOTE_RECORD" > "$REMOTE_REPLY"
 result=$?
@@ -81,8 +83,16 @@ exit "$result"
 			Harness string `json:"harness"`
 			Machine string `json:"machine"`
 			Path    string `json:"path"`
-			Hits    []struct {
-				Line int `json:"line"`
+			Origin  struct {
+				Kind string `json:"kind"`
+			} `json:"origin"`
+			Hits []struct {
+				CallID string `json:"call_id"`
+				Kind   string `json:"kind"`
+				Line   int    `json:"line"`
+				Origin struct {
+					Kind string `json:"kind"`
+				} `json:"origin"`
 			} `json:"hits"`
 		} `json:"sessions"`
 	}
@@ -94,8 +104,11 @@ exit "$result"
 	}
 	assertRemotePayloadHasNoDiagnostics(t, environment["REMOTE_REPLY"], searched.stdout)
 	remoteMatch, localMatch := matches.Sessions[0], matches.Sessions[1]
-	if remoteMatch.Machine != "e2e-remote" || remoteMatch.Harness != "pi" || !strings.HasPrefix(remoteMatch.Path, remoteHome) || len(remoteMatch.Hits) != 1 || remoteMatch.Hits[0].Line != 2 {
+	if remoteMatch.Machine != "e2e-remote" || remoteMatch.Harness != "pi" || !strings.HasPrefix(remoteMatch.Path, remoteHome) || len(remoteMatch.Hits) != 3 || remoteMatch.Hits[0].Line != 2 {
 		t.Errorf("remote match = %#v, want the pi hit from the remote home first", remoteMatch)
+	}
+	if len(remoteMatch.Hits) == 3 && (remoteMatch.Origin.Kind != "unknown" || remoteMatch.Hits[0].Kind != "message" || remoteMatch.Hits[0].Origin.Kind != "unknown" || remoteMatch.Hits[1].Kind != "tool_call" || remoteMatch.Hits[1].CallID != "call-a" || remoteMatch.Hits[2].Kind != "tool_result" || remoteMatch.Hits[2].CallID != "call-a" || remoteMatch.Hits[2].Origin.Kind != "tool") {
+		t.Errorf("remote match = %+v, want session/event classification and call IDs across query transport", remoteMatch)
 	}
 	if localMatch.Machine == "" || localMatch.Machine == "e2e-remote" || localMatch.Harness != "claude" || !strings.HasPrefix(localMatch.Path, localHome) {
 		t.Errorf("local match = %#v, want the claude hit labeled with this host", localMatch)
@@ -119,7 +132,7 @@ exit "$result"
 		t.Fatalf("list --remote all with an unreachable machine = %#v, want exit 1", listed)
 	}
 	if !strings.Contains(listed.stdout, "MACHINE") || !strings.Contains(listed.stdout, "e2e-remote") || !strings.Contains(listed.stdout, "claude") {
-		t.Errorf("list stdout = %q, want a MACHINE column with both machines' sessions", listed.stdout)
+		t.Errorf("list stdout = %q, stderr = %q; want a MACHINE column with both machines' sessions", listed.stdout, listed.stderr)
 	}
 	if !strings.Contains(listed.stderr, "e2e-down: machine-diagnostic: ssh: Could not resolve hostname e2e-down") || !strings.Contains(listed.stderr, "e2e-down: machine-unreachable: exit status 255") || !strings.Contains(listed.stderr, "session inventory is incomplete") {
 		t.Errorf("list stderr = %q, want the unreachable diagnostic and the incomplete error", listed.stderr)
@@ -145,8 +158,8 @@ exit "$result"
 		if err := json.Unmarshal([]byte(result.stdout), &matches); err != nil || matches.Complete || len(matches.Sessions) != 1 || matches.Sessions[0].Machine != "e2e-remote" {
 			t.Fatalf("%s payload = %q (%v), want an incomplete report retaining the remote session", command[0], result.stdout, err)
 		}
-		if command[0] == "search" && len(matches.Sessions[0].Hits) != 1 {
-			t.Errorf("search payload = %q, want the remote hit retained", result.stdout)
+		if command[0] == "search" && len(matches.Sessions[0].Hits) != 3 {
+			t.Errorf("search payload = %q, want the remote hits retained", result.stdout)
 		}
 		reply := assertRemotePayloadHasNoDiagnostics(t, environment["REMOTE_REPLY"], result.stdout)
 		if string(reply["complete"]) != "true" {
