@@ -131,11 +131,13 @@ printf '%s\n' "$@" > "$RECORD_DIR/args"
 cat > "$RECORD_DIR/stdin"
 host="$6"
 case "$host" in
+classification)
+  printf '%s' "$CLASSIFICATION_REPLY" ;;
 ok)
-  printf '%s' '{"complete":true,"sessions":[{"harness":"claude","id":"remote-1","machine":"ignored","modified_at":"2026-09-10T10:00:00Z","path":"/home/j/.claude/a.jsonl","projects":[],"started_at":"2026-09-10T10:00:00Z","subagent":false,"hits":[{"line":3,"role":"user","excerpt":"timeout"}]}],"future_field":1}'
+  printf '%s' '{"complete":true,"sessions":[{"origin":{"kind":"unknown"},"harness":"claude","id":"remote-1","machine":"ignored","modified_at":"2026-09-10T10:00:00Z","path":"/home/j/.claude/a.jsonl","projects":[],"started_at":"2026-09-10T10:00:00Z","subagent":false,"hits":[{"kind":"message","origin":{"kind":"unknown"},"line":3,"role":"user","excerpt":"timeout"}]}],"future_field":1}'
   echo '/home/j/.pi [pi]: root-missing: skipped' >&2 ;;
 failed|silent|disconnected|timed-out)
-  printf '%s' '{"complete":true,"sessions":[{"id":"retained","path":"/home/j/session.jsonl","hits":[{"line":3,"role":"user","excerpt":"timeout"}]}]}'
+  printf '%s' '{"complete":true,"sessions":[{"origin":{"kind":"unknown"},"id":"retained","path":"/home/j/session.jsonl","hits":[{"kind":"message","origin":{"kind":"unknown"},"line":3,"role":"user","excerpt":"timeout"}]}]}'
   case "$host" in
     failed) echo 'esheep: failed after writing results' >&2; exit 1 ;;
     silent) exit 1 ;;
@@ -156,7 +158,7 @@ banner)
   echo "Welcome to the shell"
   printf '%s' '{"complete":true}' ;;
 invalid-field)
-  printf '%s' '{"complete":true,"sessions":[{"id":"invalid","started_at":"not a timestamp"}]}' ;;
+  printf '%s' '{"complete":true,"sessions":[{"origin":{"kind":"unknown"},"id":"invalid","started_at":"not a timestamp"}]}' ;;
 missing)
   echo "fish: Unknown command: esheep" >&2
   exit 127 ;;
@@ -248,6 +250,50 @@ func TestListWithoutMachinesStampsLocalResults(t *testing.T) {
 	}
 	if report.Complete || len(report.Sessions) != 1 || report.Sessions[0].Machine != "laptop" || report.Diagnostics[0].Machine != "laptop" {
 		t.Errorf("report = %+v, want local results stamped laptop and incompleteness preserved", report)
+	}
+}
+
+func TestRemoteClassificationValidation(t *testing.T) {
+	ssh, _ := fakeSSH(t)
+	for _, test := range []struct {
+		name string
+		edit func(map[string]any, map[string]any)
+	}{
+		{name: "valid"},
+		{name: "missing session origin", edit: func(s, _ map[string]any) { delete(s, "origin") }},
+		{name: "invalid session origin", edit: func(s, _ map[string]any) { s["origin"] = map[string]any{"kind": "tool"} }},
+		{name: "inconsistent subagent", edit: func(s, _ map[string]any) { s["subagent"] = true }},
+		{name: "missing hit kind", edit: func(_, h map[string]any) { delete(h, "kind") }},
+		{name: "invalid hit kind", edit: func(_, h map[string]any) { h["kind"] = "future" }},
+		{name: "missing event origin", edit: func(_, h map[string]any) { delete(h, "origin") }},
+		{name: "invalid event origin", edit: func(_, h map[string]any) { h["origin"] = map[string]any{"kind": "automation"} }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			hit := map[string]any{"kind": "tool_result", "role": "tool", "call_id": "call", "parent_call_id": "parent", "origin": map[string]any{"kind": "tool"}, "line": 3, "excerpt": "output"}
+			entry := map[string]any{"id": "remote", "path": "/remote/events.jsonl", "origin": map[string]any{"kind": "automation", "evidence": map[string]string{"thread_source": "automation"}}, "hits": []any{hit}}
+			if test.edit != nil {
+				test.edit(entry, hit)
+			}
+			encoded, err := json.Marshal(map[string]any{"complete": true, "sessions": []any{entry}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("CLASSIFICATION_REPLY", string(encoded))
+			selection := Selection{Machines: []config.ResolvedMachine{machine("remote", "classification", time.Minute)}}
+
+			report, err := Search(context.Background(), ssh, selection, session.Request{Mode: session.ModeSearch}, nil)
+
+			if err != nil {
+				t.Fatal(err)
+			}
+			if test.edit == nil {
+				if !report.Complete || len(report.Sessions) != 1 || report.Sessions[0].Origin.Kind != session.OriginAutomation || report.Sessions[0].Origin.Evidence["thread_source"] != "automation" || report.Sessions[0].Hits[0].CallID != "call" || report.Sessions[0].Hits[0].ParentCallID != "parent" {
+					t.Fatalf("Search() = %+v, want classification and IDs preserved", report)
+				}
+			} else if report.Complete || len(report.Sessions) != 0 || len(report.Diagnostics) != 1 || report.Diagnostics[0].Code != CodeReply {
+				t.Fatalf("Search() = %+v, want machine-reply and rejected payload", report)
+			}
+		})
 	}
 }
 

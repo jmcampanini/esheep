@@ -60,7 +60,7 @@ func TestPeriodSearchRetainsDecoderStateFromEarlierEvents(t *testing.T) {
 	if !report.Complete || len(report.Sessions) != 1 || len(report.Sessions[0].Hits) != 1 {
 		t.Fatalf("search = %+v, want only the in-period tool result", report)
 	}
-	if hit := report.Sessions[0].Hits[0]; hit.Line != 3 || hit.Tool != "shell" {
+	if hit := report.Sessions[0].Hits[0]; hit.Line != 3 || hit.Tool != "shell" || hit.Kind != KindToolResult || hit.CallID != "call" {
 		t.Errorf("hit = %+v, want tool name from the earlier call", hit)
 	}
 }

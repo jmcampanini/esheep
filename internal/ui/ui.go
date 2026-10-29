@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -17,7 +19,7 @@ import (
 // WriteSessionList writes a human session inventory table. machines adds a
 // leading MACHINE column for reports that span more than this machine.
 func WriteSessionList(writer io.Writer, report session.ListReport, color bool, machines bool) error {
-	headers := []string{"HARNESS", "ID", "STARTED", "ARCHIVE STATE", "PROJECTS", "TITLE", "PATH"}
+	headers := []string{"HARNESS", "ID", "STARTED", "ARCHIVE STATE", "ORIGIN", "PROJECTS", "TITLE", "PATH"}
 	if machines {
 		headers = append([]string{"MACHINE"}, headers...)
 	}
@@ -28,6 +30,7 @@ func WriteSessionList(writer io.Writer, report session.ListReport, color bool, m
 			dashIfEmpty(clean(entry.ID)),
 			sessionTime(entry),
 			sessionArchiveState(entry),
+			formatOrigin(string(entry.Origin.Kind), entry.Origin.Evidence),
 			dashIfEmpty(clean(strings.Join(entry.Projects, ", "))),
 			dashIfEmpty(clean(entry.Title)),
 			clean(entry.Path),
@@ -69,6 +72,7 @@ func WriteSessionSearch(writer io.Writer, report session.SearchReport, machines 
 			header = append(header, clean(entry.Title))
 		}
 		header = append(header, sessionArchiveState(entry.Session))
+		header = append(header, "origin="+formatOrigin(string(entry.Origin.Kind), entry.Origin.Evidence))
 		if _, err := fmt.Fprintln(writer, strings.Join(header, "  ")); err != nil {
 			return err
 		}
@@ -84,11 +88,18 @@ func WriteSessionSearch(writer io.Writer, report session.SearchReport, machines 
 			if hit.Error {
 				marker = "error  "
 			}
+			metadata := "origin=" + formatOrigin(string(hit.Origin.Kind), hit.Origin.Evidence)
+			if hit.CallID != "" {
+				metadata += " call_id=" + clean(hit.CallID)
+			}
+			if hit.ParentCallID != "" {
+				metadata += " parent_call_id=" + clean(hit.ParentCallID)
+			}
 			timestamp := "-"
 			if !hit.Timestamp.IsZero() {
 				timestamp = hit.Timestamp.Local().Format("2006-01-02 15:04:05")
 			}
-			if _, err := fmt.Fprintf(writer, "  :%-6d %-*s  %s  %s%s\n", hit.Line, width, hitRole(hit), timestamp, marker, clean(hit.Excerpt)); err != nil {
+			if _, err := fmt.Fprintf(writer, "  :%-6d %-*s  %s  %s  %s%s\n", hit.Line, width, hitRole(hit), timestamp, metadata, marker, clean(hit.Excerpt)); err != nil {
 				return err
 			}
 		}
@@ -143,10 +154,25 @@ func sessionArchiveState(entry session.Session) string {
 }
 
 func hitRole(hit session.Hit) string {
-	if hit.Tool != "" {
-		return "tool:" + clean(hit.Tool)
+	if hit.Kind == session.KindToolCall || hit.Kind == session.KindToolResult {
+		tool := "?"
+		if hit.Tool != "" {
+			tool = clean(hit.Tool)
+		}
+		if hit.Kind == session.KindToolCall {
+			return "call:" + tool
+		}
+		return "result:" + tool
 	}
-	return string(hit.Role)
+	return clean(string(hit.Role))
+}
+
+func formatOrigin(kind string, evidence map[string]string) string {
+	parts := []string{clean(kind)}
+	for _, key := range slices.Sorted(maps.Keys(evidence)) {
+		parts = append(parts, clean(key)+"="+clean(evidence[key]))
+	}
+	return strings.Join(parts, " ")
 }
 
 func dashIfEmpty(value string) string {

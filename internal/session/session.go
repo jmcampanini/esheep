@@ -41,7 +41,7 @@ func ParseHarness(value string) (Harness, error) {
 	}
 }
 
-// Role classifies who produced a transcript event.
+// Role identifies the transcript channel, not human authorship.
 type Role string
 
 // Event roles. RoleTool covers both tool calls and tool results; RoleRaw
@@ -65,13 +65,17 @@ func ParseRole(value string) (Role, error) {
 
 // event is one interpreted transcript record component.
 type event struct {
-	failed    bool
-	line      int
-	role      Role
-	subagent  bool
-	text      string
-	timestamp time.Time
-	tool      string
+	callID       string
+	failed       bool
+	kind         EventKind
+	line         int
+	origin       EventOrigin
+	parentCallID string
+	role         Role
+	subagent     bool
+	text         string
+	timestamp    time.Time
+	tool         string
 }
 
 // Session is metadata about one historical session transcript. Path is the
@@ -84,6 +88,7 @@ type Session struct {
 	ID         string    `json:"id"`
 	Machine    string    `json:"machine"`
 	ModifiedAt time.Time `json:"modified_at"`
+	Origin     Origin    `json:"origin"`
 	Path       string    `json:"path"`
 	Projects   []string  `json:"projects"`
 	StartedAt  time.Time `json:"started_at,omitzero"`
@@ -93,12 +98,16 @@ type Session struct {
 
 // Hit is one matching event addressed by its transcript line number.
 type Hit struct {
-	Error     bool      `json:"error,omitempty"`
-	Excerpt   string    `json:"excerpt"`
-	Line      int       `json:"line"`
-	Role      Role      `json:"role"`
-	Timestamp time.Time `json:"timestamp,omitzero"`
-	Tool      string    `json:"tool,omitempty"`
+	CallID       string      `json:"call_id,omitempty"`
+	Error        bool        `json:"error,omitempty"`
+	Excerpt      string      `json:"excerpt"`
+	Kind         EventKind   `json:"kind"`
+	Line         int         `json:"line"`
+	Origin       EventOrigin `json:"origin"`
+	ParentCallID string      `json:"parent_call_id,omitempty"`
+	Role         Role        `json:"role"`
+	Timestamp    time.Time   `json:"timestamp,omitzero"`
+	Tool         string      `json:"tool,omitempty"`
 }
 
 // Match is one session together with its matching events.
@@ -457,7 +466,7 @@ func scanRaw(path string, pattern *regexp.Regexp) ([]Hit, error) {
 		if loc == nil {
 			return true
 		}
-		hits = append(hits, Hit{Excerpt: excerpt(string(data), []int{loc[0], loc[1]}), Line: line, Role: RoleRaw})
+		hits = append(hits, Hit{Excerpt: excerpt(string(data), []int{loc[0], loc[1]}), Kind: KindRaw, Line: line, Origin: EventOrigin{Kind: EventOriginUnknown}, Role: RoleRaw})
 		return true
 	})
 	return hits, err
@@ -481,12 +490,16 @@ func matchEvent(e event, query SearchQuery) (Hit, bool) {
 		}
 	}
 	return Hit{
-		Error:     e.failed,
-		Excerpt:   excerpt(e.text, loc),
-		Line:      e.line,
-		Role:      e.role,
-		Timestamp: e.timestamp,
-		Tool:      e.tool,
+		CallID:       e.callID,
+		Error:        e.failed,
+		Excerpt:      excerpt(e.text, loc),
+		Kind:         e.kind,
+		Line:         e.line,
+		Origin:       e.origin,
+		ParentCallID: e.parentCallID,
+		Role:         e.role,
+		Timestamp:    e.timestamp,
+		Tool:         e.tool,
 	}, true
 }
 

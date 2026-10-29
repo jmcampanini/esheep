@@ -35,6 +35,33 @@ func TestHumanOutputRemovesTerminalControlsFromTranscriptData(t *testing.T) {
 	}
 }
 
+func TestSearchDisplaysKindsOriginsAndRelationships(t *testing.T) {
+	report := session.SearchReport{Sessions: []session.Match{{
+		Session: session.Session{Harness: session.HarnessCodex, Path: "/events.jsonl", Origin: session.Origin{Kind: session.OriginAutomation, Evidence: map[string]string{"thread_source": "automation\n\x1b[31m", "source": "exec"}}},
+		Hits: []session.Hit{
+			{Kind: session.KindToolCall, Role: session.RoleTool, Tool: "shell", CallID: "id\r\u202e", Origin: session.EventOrigin{Kind: session.EventOriginAgent}, Excerpt: "command"},
+			{Kind: session.KindToolResult, Role: session.RoleTool, ParentCallID: "parent\x1b", Origin: session.EventOrigin{Kind: session.EventOriginTool}, Excerpt: "output"},
+			{Kind: session.KindMessage, Role: session.RoleUser, Origin: session.EventOrigin{Kind: session.EventOriginHarness, Evidence: map[string]string{"origin.kind\n": "task-notification\t"}}, Excerpt: "notice"},
+		},
+	}}}
+	var output bytes.Buffer
+
+	if err := WriteSessionSearch(&output, report, false); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, want := range []string{"origin=automation source=exec thread_source=automation", "call:shell", "result:?", "origin=agent call_id=id", "origin=tool parent_call_id=parent", "origin=harness origin.kind=task-notification"} {
+		if !strings.Contains(output.String(), want) {
+			t.Errorf("output missing %q:\n%s", want, output.String())
+		}
+	}
+	for _, control := range []rune{'\r', '\x1b', '\u202e', '\t'} {
+		if strings.ContainsRune(output.String(), control) {
+			t.Errorf("output contains control %U: %q", control, output.String())
+		}
+	}
+}
+
 func TestWriteSessionListRendersPlaceholdersAndTimes(t *testing.T) {
 	t.Parallel()
 	report := session.ListReport{

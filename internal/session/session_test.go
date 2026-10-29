@@ -141,6 +141,9 @@ func TestListInventoriesMainSessionsAcrossHarnesses(t *testing.T) {
 		t.Errorf("pi metadata = %q %q", pi.ID, pi.Title)
 	}
 	for _, entry := range report.Sessions {
+		if (entry.Origin.Kind == OriginSubagent) != entry.Subagent {
+			t.Errorf("session origin = %+v, must agree with subagent marker", entry)
+		}
 		if entry.Subagent {
 			t.Errorf("session %q marked subagent in default listing", entry.Path)
 		}
@@ -180,6 +183,9 @@ func TestListIncludesSubagentsOnRequest(t *testing.T) {
 
 	subagents := 0
 	for _, entry := range report.Sessions {
+		if (entry.Origin.Kind == OriginSubagent) != entry.Subagent {
+			t.Errorf("origin/subagent mismatch = %+v", entry)
+		}
 		if entry.Subagent {
 			subagents++
 		}

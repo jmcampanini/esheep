@@ -35,6 +35,7 @@ func (claudeAdapter) meta(t transcript, ids idFilter) describedSession {
 		Harness:    HarnessClaude,
 		ID:         strings.TrimSuffix(filepath.Base(t.path), ".jsonl"),
 		ModifiedAt: t.modTime,
+		Origin:     transcriptOrigin(t.subagent),
 		Path:       t.path,
 		Subagent:   t.subagent,
 	}
@@ -70,6 +71,7 @@ func (claudeAdapter) scan(path string, visit func(event) bool) (int, error) {
 	toolNames := make(map[string]string)
 	err := forEachLine(path, func(line int, data []byte) bool {
 		var envelope struct {
+			claudeOriginMetadata
 			IsMeta    bool            `json:"isMeta"`
 			Message   json.RawMessage `json:"message"`
 			Timestamp string          `json:"timestamp"`
@@ -79,7 +81,7 @@ func (claudeAdapter) scan(path string, visit func(event) bool) (int, error) {
 			malformed++
 			return true
 		}
-		base := event{line: line, timestamp: parseTimestamp(envelope.Timestamp)}
+		base := event{kind: KindMessage, line: line, origin: envelope.eventOrigin(), timestamp: parseTimestamp(envelope.Timestamp)}
 		switch envelope.Type {
 		case "user":
 			return claudeUserEvents(envelope.Message, envelope.IsMeta, base, toolNames, visit)
@@ -136,8 +138,11 @@ func claudeUserEvents(message json.RawMessage, isMeta bool, base event, toolName
 			}
 		case "tool_result":
 			e := base
+			e.callID, e.kind, e.origin = item.ToolUseID, KindToolResult, EventOrigin{Kind: EventOriginTool}
 			e.role = RoleTool
-			e.tool = toolNames[item.ToolUseID]
+			if item.ToolUseID != "" {
+				e.tool = toolNames[item.ToolUseID]
+			}
 			e.text = flattenText(item.Content)
 			e.failed = item.IsError != nil && *item.IsError
 			if !visit(e) {
@@ -149,6 +154,7 @@ func claudeUserEvents(message json.RawMessage, isMeta bool, base event, toolName
 }
 
 func claudeAssistantEvents(message json.RawMessage, base event, toolNames map[string]string, visit func(event) bool) bool {
+	base.origin = EventOrigin{Kind: EventOriginAgent}
 	var wrapper struct {
 		Content []claudeContentItem `json:"content"`
 	}
@@ -166,8 +172,11 @@ func claudeAssistantEvents(message json.RawMessage, base event, toolNames map[st
 				}
 			}
 		case "tool_use":
-			toolNames[item.ID] = item.Name
+			if item.ID != "" {
+				toolNames[item.ID] = item.Name
+			}
 			e := base
+			e.callID, e.kind = item.ID, KindToolCall
 			e.role, e.tool, e.text = RoleTool, item.Name, compactJSON(item.Input)
 			if !visit(e) {
 				return false
@@ -175,4 +184,58 @@ func claudeAssistantEvents(message json.RawMessage, base event, toolNames map[st
 		}
 	}
 	return true
+}
+
+type claudeOriginMetadata struct {
+	Origin       json.RawMessage `json:"origin"`
+	PromptSource json.RawMessage `json:"promptSource"`
+	TurnOrigin   json.RawMessage `json:"turnOrigin"`
+}
+
+func (m claudeOriginMetadata) eventOrigin() EventOrigin {
+	var origin map[string]json.RawMessage
+	_ = json.Unmarshal(m.Origin, &origin)
+	evidence := make(map[string]json.RawMessage)
+	for key, raw := range map[string]json.RawMessage{"origin.kind": origin["kind"], "turnOrigin": m.TurnOrigin, "promptSource": m.PromptSource} {
+		var scalar any
+		if json.Unmarshal(raw, &scalar) == nil {
+			switch scalar.(type) {
+			case string, float64:
+				evidence[key] = raw
+			}
+		}
+	}
+
+	var kind, turn string
+	_ = json.Unmarshal(origin["kind"], &kind)
+	_ = json.Unmarshal(m.TurnOrigin, &turn)
+	mapped := claudeRecordedOrigin(kind)
+	turnMapped := EventOriginUnknown
+	switch turn {
+	case "human":
+		turnMapped = EventOriginHuman
+	case "peer":
+		turnMapped = EventOriginAgent
+	case "task_notification":
+		turnMapped = EventOriginHarness
+	}
+	if len(m.Origin) == 0 || string(m.Origin) == "null" {
+		mapped = turnMapped
+	} else if turn != "" && turnMapped != mapped {
+		mapped = EventOriginUnknown
+	}
+	return EventOrigin{Evidence: originEvidence(evidence), Kind: mapped}
+}
+
+func claudeRecordedOrigin(kind string) EventOriginKind {
+	switch kind {
+	case "human":
+		return EventOriginHuman
+	case "task-notification":
+		return EventOriginHarness
+	case "peer", "coordinator":
+		return EventOriginAgent
+	default:
+		return EventOriginUnknown
+	}
 }

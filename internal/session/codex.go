@@ -27,6 +27,7 @@ func (codexAdapter) meta(t transcript, ids idFilter) describedSession {
 		Harness:    HarnessCodex,
 		ID:         codexFallbackID(t.path),
 		ModifiedAt: t.modTime,
+		Origin:     transcriptOrigin(t.subagent),
 		Path:       t.path,
 		Subagent:   t.subagent,
 	}
@@ -57,11 +58,10 @@ func (codexAdapter) meta(t transcript, ids idFilter) describedSession {
 		}
 		entry.StartedAt = parseTimestamp(envelope.Timestamp)
 		var payload struct {
-			Cwd        string          `json:"cwd"`
-			ID         string          `json:"id"`
-			Originator string          `json:"originator"`
-			Source     json.RawMessage `json:"source"`
-			Timestamp  string          `json:"timestamp"`
+			codexOriginMetadata
+			Cwd       string `json:"cwd"`
+			ID        string `json:"id"`
+			Timestamp string `json:"timestamp"`
 		}
 		if json.Unmarshal(envelope.Payload, &payload) != nil {
 			return ids.matches(entry.ID)
@@ -70,11 +70,14 @@ func (codexAdapter) meta(t transcript, ids idFilter) describedSession {
 			entry.ID = payload.ID
 		}
 		cwd = payload.Cwd
-		if payload.Originator == "codex_work_desktop" {
+		var originator string
+		_ = json.Unmarshal(payload.Originator, &originator)
+		if originator == "codex_work_desktop" {
 			entry.Harness = HarnessChatGPTWork
 			eligible = false
 		}
 		entry.Subagent = entry.Subagent || codexSubagentSource(payload.Source)
+		entry.Origin = payload.sessionOrigin(entry.Subagent)
 		if entry.StartedAt.IsZero() {
 			entry.StartedAt = parseTimestamp(payload.Timestamp)
 		}
@@ -115,7 +118,7 @@ func (codexAdapter) scan(path string, visit func(event) bool) (int, error) {
 			malformed++
 			return true
 		}
-		base := event{line: line, timestamp: parseTimestamp(envelope.Timestamp)}
+		base := event{kind: KindMessage, line: line, origin: EventOrigin{Kind: EventOriginUnknown}, timestamp: parseTimestamp(envelope.Timestamp)}
 		return decoder.decode(envelope, base, visit)
 	})
 	return malformed, err
@@ -183,12 +186,16 @@ func codexResponseEvents(raw json.RawMessage, base event, toolNames map[string]s
 			return provenance, true
 		case "assistant":
 			if text != "" {
+				base.origin = EventOrigin{Kind: EventOriginAgent}
 				base.role, base.text = RoleAssistant, text
 				return false, visit(base)
 			}
 		}
 	case "function_call", "custom_tool_call":
-		toolNames[payload.CallID] = payload.Name
+		if payload.CallID != "" {
+			toolNames[payload.CallID] = payload.Name
+		}
+		base.callID, base.kind, base.origin = payload.CallID, KindToolCall, EventOrigin{Kind: EventOriginAgent}
 		base.role, base.tool = RoleTool, payload.Name
 		base.text = payload.Arguments
 		if base.text == "" {
@@ -196,7 +203,11 @@ func codexResponseEvents(raw json.RawMessage, base event, toolNames map[string]s
 		}
 		return false, visit(base)
 	case "function_call_output", "custom_tool_call_output":
-		base.role, base.tool, base.text = RoleTool, toolNames[payload.CallID], flattenText(payload.Output)
+		base.callID, base.kind, base.origin = payload.CallID, KindToolResult, EventOrigin{Kind: EventOriginTool}
+		base.role, base.text = RoleTool, flattenText(payload.Output)
+		if payload.CallID != "" {
+			base.tool = toolNames[payload.CallID]
+		}
 		return false, visit(base)
 	}
 	return false, true
@@ -206,6 +217,7 @@ func codexResponseEvents(raw json.RawMessage, base event, toolNames map[string]s
 // signal the grammar has: the Ok/Err union on mcp_tool_call_end results.
 func codexEventMessage(raw json.RawMessage, base event, provenanceUserMessages bool, visit func(event) bool) bool {
 	var payload struct {
+		CallID     string `json:"call_id"`
 		Invocation struct {
 			Tool string `json:"tool"`
 		} `json:"invocation"`
@@ -228,8 +240,43 @@ func codexEventMessage(raw json.RawMessage, base event, provenanceUserMessages b
 			return true
 		}
 		base.role, base.tool, base.text = RoleTool, payload.Invocation.Tool, compactJSON(payload.Result)
+		base.callID, base.kind, base.origin = payload.CallID, KindToolResult, EventOrigin{Kind: EventOriginTool}
 		base.failed = result["Err"] != nil
 		return visit(base)
 	}
 	return true
+}
+
+type codexOriginMetadata struct {
+	Originator   json.RawMessage `json:"originator"`
+	Source       json.RawMessage `json:"source"`
+	ThreadSource json.RawMessage `json:"thread_source"`
+}
+
+func (m codexOriginMetadata) sessionOrigin(subagent bool) Origin {
+	origin := transcriptOrigin(subagent)
+	origin.Evidence = originEvidence(map[string]json.RawMessage{
+		"originator": m.Originator, "source": m.Source, "thread_source": m.ThreadSource,
+	})
+	if subagent {
+		return origin
+	}
+
+	var source map[string]json.RawMessage
+	_ = json.Unmarshal(m.Source, &source)
+	if _, internal := source["internal"]; internal {
+		origin.Kind = OriginAgent
+		return origin
+	}
+	var threadSource string
+	_ = json.Unmarshal(m.ThreadSource, &threadSource)
+	switch threadSource {
+	case "user":
+		origin.Kind = OriginHuman
+	case "automation":
+		origin.Kind = OriginAutomation
+	case "memory_consolidation":
+		origin.Kind = OriginAgent
+	}
+	return origin
 }
