@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -322,13 +323,17 @@ func TestMemoryPathDefaultsAndOverrides(t *testing.T) {
 		env       map[string]string
 		flags     []string
 		name      string
+		tomlPath  string
 		want      string
 		wantValue string
 	}{
 		{name: "default under home", env: testEnv(home, configHome), want: filepath.Join(home, ".local", "share", "esheep", "memory"), wantValue: "<default>"},
-		{name: "XDG_DATA_HOME default", env: withEnv(testEnv(home, configHome), "XDG_DATA_HOME", dataHome), want: filepath.Join(dataHome, "esheep", "memory"), wantValue: "XDG_DATA_HOME"},
-		{name: "ESHEEP_MEMORY_PATH wins over XDG_DATA_HOME", env: withEnv(withEnv(testEnv(home, configHome), "XDG_DATA_HOME", dataHome), "ESHEEP_MEMORY_PATH", "~/memories"), want: filepath.Join(home, "memories"), wantValue: "<env>"},
-		{name: "flag wins over environment", env: withEnv(testEnv(home, configHome), "ESHEEP_MEMORY_PATH", "~/memories"), flags: []string{"--memory-path=~/from-flag"}, want: filepath.Join(home, "from-flag"), wantValue: "<pflag>"},
+		{name: "TOML", env: testEnv(home, configHome), tomlPath: "~/configured", want: filepath.Join(home, "configured"), wantValue: "file"},
+		{name: "empty XDG_DATA_HOME preserves TOML", env: withEnv(testEnv(home, configHome), "XDG_DATA_HOME", ""), tomlPath: "~/configured", want: filepath.Join(home, "configured"), wantValue: "file"},
+		{name: "XDG_DATA_HOME overrides TOML", env: withEnv(testEnv(home, configHome), "XDG_DATA_HOME", dataHome), tomlPath: "~/configured", want: filepath.Join(dataHome, "esheep", "memory"), wantValue: "XDG_DATA_HOME"},
+		{name: "ESHEEP_MEMORY_PATH wins over XDG_DATA_HOME", env: withEnv(withEnv(testEnv(home, configHome), "XDG_DATA_HOME", dataHome), "ESHEEP_MEMORY_PATH", "~/memories"), tomlPath: "~/configured", want: filepath.Join(home, "memories"), wantValue: "<env>"},
+		{name: "ESHEEP_MEMORY_PATH equal to XDG_DATA_HOME is used directly", env: withEnv(withEnv(testEnv(home, configHome), "XDG_DATA_HOME", dataHome), "ESHEEP_MEMORY_PATH", dataHome), want: dataHome, wantValue: "<env>"},
+		{name: "flag wins over environment", env: withEnv(withEnv(testEnv(home, configHome), "XDG_DATA_HOME", dataHome), "ESHEEP_MEMORY_PATH", "~/memories"), tomlPath: "~/configured", flags: []string{"--memory-path=~/from-flag"}, want: filepath.Join(home, "from-flag"), wantValue: "<pflag>"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -341,7 +346,14 @@ func TestMemoryPathDefaultsAndOverrides(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			result, err := Load(LoadOptions{Env: test.env, Flags: flags})
+			options := LoadOptions{Env: test.env, Flags: flags}
+			if test.tomlPath != "" {
+				options.ConfigPath = filepath.Join(t.TempDir(), "settings.toml")
+				if err := os.WriteFile(options.ConfigPath, fmt.Appendf(nil, "[memory]\npath = %q\n", test.tomlPath), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			result, err := Load(options)
 			if err != nil {
 				t.Fatalf("Load: %v", err)
 			}
@@ -353,24 +365,86 @@ func TestMemoryPathDefaultsAndOverrides(t *testing.T) {
 			if result.ResolvedMemory != want {
 				t.Fatalf("ResolvedMemory = %q, want %q", result.ResolvedMemory, want)
 			}
-			if got := result.Report.Updates["memory.path"]; got != test.wantValue {
-				t.Fatalf("provenance = %q, want %q", got, test.wantValue)
+			wantSource := test.wantValue
+			if wantSource == "file" {
+				wantSource = options.ConfigPath
+			}
+			if got := result.Report.Updates["memory.path"]; got != wantSource {
+				t.Fatalf("provenance = %q, want %q", got, wantSource)
+			}
+			rendered, err := Render(result, ReportOptions{Provenance: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			provenance := fmt.Sprintf("# memory.path = %q (source: %s)", result.Config.Memory.Path, wantSource)
+			if !strings.Contains(string(rendered), provenance) {
+				t.Fatalf("config output missing %q:\n%s", provenance, rendered)
 			}
 		})
 	}
 }
 
-func TestMemoryPathMustBeAbsoluteAndDataHomeMustBeAbsolute(t *testing.T) {
-	env := testEnv(filepath.Join(t.TempDir(), "home"), filepath.Join(t.TempDir(), "config"))
+func TestMemoryPathValidatesOnlyWinningInput(t *testing.T) {
+	dataHome := filepath.Join(t.TempDir(), "data")
+	for _, test := range []struct {
+		name       string
+		tomlPath   string
+		env        map[string]string
+		flags      []string
+		want       string
+		wantSource string
+		wantError  string
+	}{
+		{name: "invalid TOML", tomlPath: "relative", wantError: "memory.path must be absolute"},
+		{name: "XDG_DATA_HOME overrides invalid TOML", tomlPath: "~", env: map[string]string{"XDG_DATA_HOME": dataHome}, want: filepath.Join(dataHome, "esheep", "memory"), wantSource: "XDG_DATA_HOME"},
+		{name: "relative XDG_DATA_HOME overrides valid TOML", tomlPath: "~/valid", env: map[string]string{"XDG_DATA_HOME": "relative"}, wantError: "XDG_DATA_HOME must be absolute"},
+		{name: "home-relative XDG_DATA_HOME", env: map[string]string{"XDG_DATA_HOME": "~/data"}, wantError: "XDG_DATA_HOME must be absolute"},
+		{name: "Esheep environment overrides relative XDG_DATA_HOME", env: map[string]string{"XDG_DATA_HOME": "relative", "ESHEEP_MEMORY_PATH": "~/memories"}, want: "~/memories", wantSource: "<env>"},
+		{name: "flag overrides relative XDG_DATA_HOME", env: map[string]string{"XDG_DATA_HOME": "relative"}, flags: []string{"--memory-path=~/memories"}, want: "~/memories", wantSource: "<pflag>"},
+		{name: "flag overrides all invalid paths", tomlPath: "/", env: map[string]string{"XDG_DATA_HOME": "relative", "ESHEEP_MEMORY_PATH": "~another-user"}, flags: []string{"--memory-path=~/memories"}, want: "~/memories", wantSource: "<pflag>"},
+		{name: "empty Esheep environment overrides relative XDG_DATA_HOME", env: map[string]string{"XDG_DATA_HOME": "relative", "ESHEEP_MEMORY_PATH": ""}, wantError: "memory.path must not be empty"},
+		{name: "same relative value validates as memory path", env: map[string]string{"XDG_DATA_HOME": "relative", "ESHEEP_MEMORY_PATH": "relative"}, wantError: "memory.path must be absolute"},
+		{name: "invalid flag overrides valid environment", env: map[string]string{"XDG_DATA_HOME": dataHome, "ESHEEP_MEMORY_PATH": "~/valid"}, flags: []string{"--memory-path=/"}, wantError: "memory.path is too broad"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			home := t.TempDir()
+			env := testEnv(home, t.TempDir())
+			for key, value := range test.env {
+				env[key] = value
+			}
+			flags := pflag.NewFlagSet("test", pflag.ContinueOnError)
+			flags.SetOutput(io.Discard)
+			if err := RegisterFlags(flags); err != nil {
+				t.Fatal(err)
+			}
+			if err := flags.Parse(test.flags); err != nil {
+				t.Fatal(err)
+			}
+			options := LoadOptions{Env: env, Flags: flags}
+			if test.tomlPath != "" {
+				options.ConfigPath = filepath.Join(t.TempDir(), "settings.toml")
+				if err := os.WriteFile(options.ConfigPath, fmt.Appendf(nil, "[memory]\npath = %q\n", test.tomlPath), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
 
-	env["ESHEEP_MEMORY_PATH"] = "relative/memory"
-	if _, err := Load(LoadOptions{Env: env}); err == nil || !strings.Contains(err.Error(), "memory.path") {
-		t.Fatalf("relative memory path error = %v", err)
-	}
-	delete(env, "ESHEEP_MEMORY_PATH")
-	env["XDG_DATA_HOME"] = "data"
-	if _, err := Load(LoadOptions{Env: env}); err == nil || !strings.Contains(err.Error(), "XDG_DATA_HOME") {
-		t.Fatalf("relative XDG_DATA_HOME error = %v", err)
+			result, err := Load(options)
+			if test.wantError != "" {
+				if err == nil || !strings.Contains(err.Error(), test.wantError) {
+					t.Fatalf("Load() error = %v, want %q", err, test.wantError)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Config.Memory.Path != test.want || result.Report.Updates["memory.path"] != test.wantSource {
+				t.Fatalf("memory path = %q, source = %q, want %q / %q", result.Config.Memory.Path, result.Report.Updates["memory.path"], test.want, test.wantSource)
+			}
+			if !filepath.IsAbs(result.ResolvedMemory) {
+				t.Fatalf("resolved memory path is not absolute: %q", result.ResolvedMemory)
+			}
+		})
 	}
 }
 

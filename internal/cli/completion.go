@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"github.com/jmcampanini/esheep/internal/apperr"
 	"github.com/spf13/cobra"
 )
 
@@ -30,7 +29,7 @@ script, and never prompts; a failure is one line on stderr.`,
 			case "powershell":
 				err = root.GenPowerShellCompletion(command.OutOrStdout())
 			}
-			return apperr.Wrap(err)
+			return err
 		},
 	}
 }

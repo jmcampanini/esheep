@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jmcampanini/esheep/internal/apperr"
 	"github.com/jmcampanini/esheep/internal/remote"
 	"github.com/jmcampanini/esheep/internal/session"
 	"github.com/jmcampanini/esheep/internal/ui"
@@ -31,7 +30,7 @@ esheep decodes every transcript line before matching, so the pattern runs
 against what was actually said or done, not escaped JSON: user text,
 assistant text, and tool calls and results (tool arguments and output). The
 pattern is a case-insensitive Go regular expression and is optional when
---tool or --errors already select events. An empty pattern is a usage error;
+--tool or --errors already select events. An empty pattern fails with exit 1;
 use '.' to select every event, which with --id prints one session's events
 with their line numbers.
 
@@ -77,10 +76,15 @@ started earlier contributes its qualifying events.
 
 ` + ui.JSONContractHelp + `
 
-Search JSON includes "complete" and "period"; each session carries
-"machine", "projects", an "archived" boolean, and a "hits" array. Each hit
-carries "line", "role", and "excerpt"; "tool" and "timestamp" appear when
-known, and "error" appears for known failures.`,
+` + sessionJSONHelp + `
+
+Search sessions also contain "hits", an array of matching events. Each hit
+contains "line", the 1-based transcript line number; "role", the event role;
+and "excerpt", a window of up to 160 bytes starting up to 40 bytes before
+the match, expanded to UTF-8 boundaries with whitespace collapsed and
+ellipses marking omitted text. Without a text match the window starts at
+the beginning. "tool" names a known tool, "timestamp" is an RFC 3339 event
+time when known, and "error": true appears only for a known tool failure.`,
 		Example: `  esheep sessions search timeout --harness codex --since 7d
   esheep sessions search . --id SESSION_ID
   esheep sessions search --errors --since 7d --json`,
@@ -116,23 +120,23 @@ known, and "error" appears for known failures.`,
 				return operations.sessionSearch(ctx, sessionRoots(loaded), filter, query)
 			})
 			if err != nil {
-				return apperr.Wrap(err)
+				return err
 			}
 			report.Diagnostics = append(scope.diagnostics, report.Diagnostics...)
 
 			machines := len(filterFlags.remote) != 0
 			if jsonOutput {
 				if err := ui.WriteSessionSearchJSON(command.OutOrStdout(), report); err != nil {
-					return apperr.Wrap(err)
+					return err
 				}
 			} else if err := ui.WriteSessionSearch(command.OutOrStdout(), report, machines); err != nil {
-				return apperr.Wrap(err)
+				return err
 			}
 			if err := ui.WriteSessionDiagnostics(command.ErrOrStderr(), report.Diagnostics, machines); err != nil {
-				return apperr.Wrap(err)
+				return err
 			}
 			if !report.Complete {
-				return apperr.Wrap(errors.New("session search is incomplete"))
+				return errors.New("session search is incomplete")
 			}
 			return nil
 		},

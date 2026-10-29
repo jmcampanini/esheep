@@ -60,7 +60,7 @@ func TestMemoryWorkflow(t *testing.T) {
 	if noSession.exitCode != 1 || !strings.Contains(noSession.stderr, "CLAUDE_CODE_SESSION_ID") || noSession.stdout != "" {
 		t.Fatalf("no session result = %#v", noSession)
 	}
-	if blank.exitCode != 2 || !strings.Contains(blank.stderr, "TEXT must not be blank") {
+	if blank.exitCode != 1 || !strings.Contains(blank.stderr, "TEXT must not be blank") {
 		t.Fatalf("blank result = %#v", blank)
 	}
 

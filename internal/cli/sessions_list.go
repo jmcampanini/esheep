@@ -5,7 +5,6 @@ import (
 	"errors"
 	"time"
 
-	"github.com/jmcampanini/esheep/internal/apperr"
 	"github.com/jmcampanini/esheep/internal/remote"
 	"github.com/jmcampanini/esheep/internal/session"
 	"github.com/jmcampanini/esheep/internal/ui"
@@ -51,10 +50,7 @@ diagnostic.
 
 ` + ui.JSONContractHelp + `
 
-List JSON includes "complete" and "period"; timestamps are RFC 3339,
-"projects" is an array of paths, "archived" marks archive state,
-"subagent" marks non-primary transcripts, and "machine" names the machine
-that owns each session.`,
+` + sessionJSONHelp,
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			names, err := remote.ParseNames(filterFlags.remote, filterFlags.noLocal)
@@ -83,23 +79,23 @@ that owns each session.`,
 				return operations.sessionList(ctx, sessionRoots(loaded), filter)
 			})
 			if err != nil {
-				return apperr.Wrap(err)
+				return err
 			}
 			report.Diagnostics = append(scope.diagnostics, report.Diagnostics...)
 
 			machines := len(filterFlags.remote) != 0
 			if jsonOutput {
 				if err := ui.WriteSessionListJSON(command.OutOrStdout(), report); err != nil {
-					return apperr.Wrap(err)
+					return err
 				}
 			} else if err := ui.WriteSessionList(command.OutOrStdout(), report, useColor(command, command.OutOrStdout()), machines); err != nil {
-				return apperr.Wrap(err)
+				return err
 			}
 			if err := ui.WriteSessionDiagnostics(command.ErrOrStderr(), report.Diagnostics, machines); err != nil {
-				return apperr.Wrap(err)
+				return err
 			}
 			if !report.Complete {
-				return apperr.Wrap(errors.New("session inventory is incomplete"))
+				return errors.New("session inventory is incomplete")
 			}
 			return nil
 		},

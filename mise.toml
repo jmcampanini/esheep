@@ -1,4 +1,5 @@
-min_version = "2026.1.0"
+# The oldest mise release that reads lockfile revision 3, which mise.lock uses.
+min_version = "2026.9.16"
 
 [settings]
 lockfile = true
@@ -6,10 +7,10 @@ lockfile_platforms = ["linux-x64", "macos-arm64"]
 
 [tools]
 go = "1.27.3"
-golangci-lint = "2.14.0"
+golangci-lint = "2.15.0"
 goreleaser = "2.19.0"
 "go:golang.org/x/vuln/cmd/govulncheck" = "1.9.0"
-node = "24.21.0"
+node = "24.22.2"
 "npm:markdownlint-cli2" = "0.24.0"
 
 [env]
@@ -32,11 +33,11 @@ env = { ESHEEP_E2E_BINARY = "{{config_root}}/build/esheep" }
 run = "go test -count=1 -race ./..."
 
 [tasks.lint]
-description = "Run static analysis."
+description = "Run static analysis and report unformatted code."
 run = "golangci-lint run ./..."
 
 [tasks.lint-fix]
-description = "Run static analysis with --fix."
+description = "Apply the fixes static analysis can make, including formatting."
 run = "golangci-lint run --fix ./..."
 
 [tasks.lint-markdown]

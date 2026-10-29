@@ -3,6 +3,7 @@ package cli
 import (
 	"io"
 
+	"github.com/jmcampanini/esheep/internal/config"
 	"github.com/jmcampanini/esheep/internal/ui"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -14,7 +15,7 @@ const colorFlag = "color"
 // configuration, so it is registered here rather than through the
 // configuration package.
 func registerColorFlag(flags *pflag.FlagSet) {
-	mode := ui.ColorAuto
+	mode := ui.ColorMode(config.DefaultColor)
 	flags.Var(&mode, colorFlag, "color human output: auto, always, or never")
 }
 

@@ -47,7 +47,14 @@ if [ "$host" != "e2e-remote" ]; then
   exit 255
 fi
 export HOME="$REMOTE_HOME" XDG_CONFIG_HOME="$REMOTE_CONFIG"
-exec sh -c "$1" < "$REMOTE_RECORD"
+sh -c "$1" < "$REMOTE_RECORD" > "$REMOTE_REPLY"
+result=$?
+cat "$REMOTE_REPLY"
+if [ "$REMOTE_FORCE_FAILURE" = 1 ]; then
+  echo 'remote launcher: failed after writing results' >&2
+  exit 1
+fi
+exit "$result"
 `
 	if err := os.WriteFile(filepath.Join(fakeBin, "ssh"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
@@ -59,12 +66,13 @@ exec sh -c "$1" < "$REMOTE_RECORD"
 		"REMOTE_HOME":     remoteHome,
 		"REMOTE_CONFIG":   remoteConfig,
 		"REMOTE_RECORD":   filepath.Join(root, "request.json"),
+		"REMOTE_REPLY":    filepath.Join(root, "reply.json"),
 	}
 	storesBefore := snapshotTree(t, localHome) + snapshotTree(t, remoteHome)
 
 	searched := runEsheep(t, environment, "sessions", "search", "timeout", "--remote", "e2e-remote", "--json")
 	assertSuccessWithDiagnostics(t, searched, "malformed-lines", "root-missing")
-	if !strings.Contains(searched.stderr, "e2e-remote: "+remoteHome) || !strings.Contains(searched.stderr, "malformed-lines: skipped 1 unparseable lines") {
+	if !strings.Contains(searched.stderr, "e2e-remote: machine-diagnostic: "+remoteHome) || !strings.Contains(searched.stderr, "malformed-lines: skipped 1 unparseable lines") {
 		t.Fatalf("search stderr = %q, want the remote transcript warning", searched.stderr)
 	}
 	var matches struct {
@@ -84,6 +92,7 @@ exec sh -c "$1" < "$REMOTE_RECORD"
 	if !matches.Complete || len(matches.Sessions) != 2 {
 		t.Fatalf("search = %#v", matches)
 	}
+	assertRemotePayloadHasNoDiagnostics(t, environment["REMOTE_REPLY"], searched.stdout)
 	remoteMatch, localMatch := matches.Sessions[0], matches.Sessions[1]
 	if remoteMatch.Machine != "e2e-remote" || remoteMatch.Harness != "pi" || !strings.HasPrefix(remoteMatch.Path, remoteHome) || len(remoteMatch.Hits) != 1 || remoteMatch.Hits[0].Line != 2 {
 		t.Errorf("remote match = %#v, want the pi hit from the remote home first", remoteMatch)
@@ -112,17 +121,41 @@ exec sh -c "$1" < "$REMOTE_RECORD"
 	if !strings.Contains(listed.stdout, "MACHINE") || !strings.Contains(listed.stdout, "e2e-remote") || !strings.Contains(listed.stdout, "claude") {
 		t.Errorf("list stdout = %q, want a MACHINE column with both machines' sessions", listed.stdout)
 	}
-	if !strings.Contains(listed.stderr, "e2e-down: machine-unreachable: ssh: Could not resolve hostname e2e-down") || !strings.Contains(listed.stderr, "session inventory is incomplete") {
+	if !strings.Contains(listed.stderr, "e2e-down: machine-diagnostic: ssh: Could not resolve hostname e2e-down") || !strings.Contains(listed.stderr, "e2e-down: machine-unreachable: exit status 255") || !strings.Contains(listed.stderr, "session inventory is incomplete") {
 		t.Errorf("list stderr = %q, want the unreachable diagnostic and the incomplete error", listed.stderr)
 	}
 
 	unknown := runEsheep(t, environment, "sessions", "list", "--remote", "laptop9")
-	if unknown.exitCode != 2 || !strings.Contains(unknown.stderr, `unknown machine "laptop9"`) {
-		t.Errorf("unknown machine = %#v, want usage error", unknown)
+	if unknown.exitCode != 1 || !strings.Contains(unknown.stderr, `unknown machine "laptop9"`) {
+		t.Errorf("unknown machine = %#v, want application error", unknown)
 	}
 
 	if got := snapshotTree(t, localHome) + snapshotTree(t, remoteHome); got != storesBefore {
 		t.Fatal("remote session commands modified a session store")
+	}
+
+	environment["REMOTE_FORCE_FAILURE"] = "1"
+	for _, command := range [][]string{{"list"}, {"search", "timeout"}} {
+		args := append([]string{"sessions"}, command...)
+		args = append(args, "--harness", "pi", "--remote", "e2e-remote", "--no-local", "--json")
+		result := runEsheep(t, environment, args...)
+		if result.exitCode != 1 || !strings.Contains(result.stderr, "e2e-remote: machine-diagnostic: remote launcher: failed after writing results") || !strings.Contains(result.stderr, "e2e-remote: machine-command: exit status 1") {
+			t.Fatalf("%s = %#v, want the remote process failure", command[0], result)
+		}
+		if err := json.Unmarshal([]byte(result.stdout), &matches); err != nil || matches.Complete || len(matches.Sessions) != 1 || matches.Sessions[0].Machine != "e2e-remote" {
+			t.Fatalf("%s payload = %q (%v), want an incomplete report retaining the remote session", command[0], result.stdout, err)
+		}
+		if command[0] == "search" && len(matches.Sessions[0].Hits) != 1 {
+			t.Errorf("search payload = %q, want the remote hit retained", result.stdout)
+		}
+		reply := assertRemotePayloadHasNoDiagnostics(t, environment["REMOTE_REPLY"], result.stdout)
+		if string(reply["complete"]) != "true" {
+			t.Fatalf("remote payload = %v, want complete before the launcher failed", reply)
+		}
+	}
+	delete(environment, "REMOTE_FORCE_FAILURE")
+	if got := snapshotTree(t, localHome) + snapshotTree(t, remoteHome); got != storesBefore {
+		t.Fatal("failed remote session commands modified a session store")
 	}
 
 	brokenRoot := filepath.Join(remoteHome, ".codex", "sessions")
@@ -139,7 +172,7 @@ exec sh -c "$1" < "$REMOTE_RECORD"
 
 		result := runEsheep(t, environment, args...)
 
-		if result.exitCode != 1 || !strings.Contains(result.stderr, "e2e-remote: "+brokenRoot+" [codex]: root-unusable:") || strings.Count(result.stderr, "esheep: ") != 1 {
+		if result.exitCode != 1 || !strings.Contains(result.stderr, "e2e-remote: machine-diagnostic: "+brokenRoot+" [codex]: root-unusable:") || strings.Count(result.stderr, "\nesheep: ") != 1 {
 			t.Fatalf("%s = %#v, want the remote read diagnostic and one final failure line", command[0], result)
 		}
 		failure := "session inventory is incomplete"
@@ -149,11 +182,35 @@ exec sh -c "$1" < "$REMOTE_RECORD"
 		if !strings.HasSuffix(result.stderr, "esheep: "+failure+"\n") {
 			t.Errorf("stderr = %q, want final %q", result.stderr, failure)
 		}
+		if !strings.Contains(result.stderr, "e2e-remote: machine-diagnostic: esheep: "+failure+"\n") || !strings.Contains(result.stderr, "e2e-remote: machine-command: exit status 1") {
+			t.Errorf("stderr = %q, want the remote failure forwarded", result.stderr)
+		}
 		if err := json.Unmarshal([]byte(result.stdout), &matches); err != nil || matches.Complete || len(matches.Sessions) != 0 {
 			t.Fatalf("%s payload = %q (%v), want an incomplete empty inventory", command[0], result.stdout, err)
 		}
+		assertRemotePayloadHasNoDiagnostics(t, environment["REMOTE_REPLY"], result.stdout)
 	}
 	if got := snapshotTree(t, localHome) + snapshotTree(t, remoteHome); got != storesBefore {
 		t.Fatal("incomplete remote session commands modified a session store")
 	}
+}
+
+func assertRemotePayloadHasNoDiagnostics(t *testing.T, replyPath, stdout string) map[string]json.RawMessage {
+	t.Helper()
+	reply, err := os.ReadFile(replyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var remotePayload map[string]json.RawMessage
+	for _, payload := range []string{stdout, string(reply)} {
+		var decoded map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(payload), &decoded); err != nil {
+			t.Fatalf("decode payload %q: %v", payload, err)
+		}
+		if _, exists := decoded["diagnostics"]; exists || strings.Contains(payload, "machine-diagnostic") || strings.Contains(payload, "malformed-lines") || strings.Contains(payload, "root-unusable") || strings.Contains(payload, "failed after writing results") {
+			t.Errorf("payload = %q, want no diagnostics", payload)
+		}
+		remotePayload = decoded
+	}
+	return remotePayload
 }

@@ -6,16 +6,17 @@ func newExitCodesTopic() *cobra.Command {
 	return newHelpTopic("exit-codes", "Exit statuses and the failure format", `esheep uses a three-value exit scheme:
 
   0  Success.
-  1  Application failure: configuration, transcript input, or output
-     prevented a valid command from succeeding. 'sessions list',
-     'sessions search', and 'sessions query' exit 1 when the scan is
+  1  Application failure: a value rejected by the command after parsing,
+     invalid configuration, transcript input, or output prevented the
+     command from succeeding. 'sessions list', 'sessions search', and
+     'sessions query' exit 1 when the scan is
      incomplete, including when a machine selected by --remote cannot
-     answer, or when ssh or the local hostname cannot be found. 'memory
-     record' exits 1 when no session can be derived or the project
-     lookup or append fails.
+     answer or exits nonzero after writing valid results, or when ssh or
+     the local hostname cannot be found. 'memory record' exits 1 when no
+     session can be derived or the project lookup, append, or output fails.
   2  Usage error: an unknown command, flag, or operand; operands that
-     fail a command's grammar; a flag or operand value outside its fixed
-     set; or a command wiring failure.
+     fail a command's positional grammar; or a flag value the command
+     library cannot parse.
 
 A failure prints exactly one line on stderr in the form
 

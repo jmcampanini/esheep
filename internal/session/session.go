@@ -138,8 +138,7 @@ func affectsCompleteness(code string) bool {
 }
 
 // ListReport is the historical session inventory. Its JSON form omits
-// Diagnostics, which commands print on stderr; only the 'sessions query'
-// reply carries them between machines.
+// Diagnostics, which commands print on stderr, including across machines.
 type ListReport struct {
 	Complete    bool         `json:"complete"`
 	Diagnostics []Diagnostic `json:"-"`

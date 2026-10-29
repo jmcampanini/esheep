@@ -27,6 +27,12 @@ const (
 	memoryDirectory = "memory"
 )
 
+// Defaults for command-only settings, which are not TOML configuration keys.
+const (
+	DefaultColor        = "auto"
+	DefaultArchiveState = "all"
+)
+
 // ClaudeSessions locates Claude Code's session transcripts.
 type ClaudeSessions struct {
 	Path string `toml:"path" config:"claude-sessions-path" help:"session transcript root for Claude Code"`
@@ -136,8 +142,9 @@ func RegisterFlags(flags *pflag.FlagSet) error {
 	return pflagloader.Register[flagConfig](flags)
 }
 
-// Load applies defaults, CODEX_HOME, discovered or explicit TOML, ESHEEP_*
-// variables, and parsed flags in that order. Machines are configured only by TOML.
+// Load applies defaults, discovered or explicit TOML, CODEX_HOME and
+// XDG_DATA_HOME, ESHEEP_* variables, and parsed flags in that order.
+// Machines are configured only by TOML.
 func Load(options LoadOptions) (LoadResult, error) {
 	env := options.Env
 	if env == nil {
@@ -178,7 +185,7 @@ func Load(options LoadOptions) (LoadResult, error) {
 	if err != nil {
 		return LoadResult{}, err
 	}
-	var loaders []configloader.ConfigLoader[flagConfig]
+	loaders := []configloader.ConfigLoader[flagConfig]{fileLoader}
 	if codexHome := env["CODEX_HOME"]; codexHome != "" {
 		loaders = append(loaders, func(base flagConfig) (flagConfig, configloader.LoadReport, error) {
 			base.Sessions.Codex.Home = codexHome
@@ -188,17 +195,15 @@ func Load(options LoadOptions) (LoadResult, error) {
 		})
 	}
 	if dataHome := env["XDG_DATA_HOME"]; dataHome != "" {
-		if !filepath.IsAbs(dataHome) {
-			return LoadResult{}, fmt.Errorf("config: XDG_DATA_HOME must be absolute")
-		}
 		loaders = append(loaders, func(base flagConfig) (flagConfig, configloader.LoadReport, error) {
-			base.Memory.Path = filepath.Join(dataHome, appName, memoryDirectory)
+			// Keep the input raw until all overrides have been applied.
+			base.Memory.Path = dataHome
 			return base, configloader.LoadReport{Updates: configloader.Updates{
 				"memory.path": "XDG_DATA_HOME",
 			}}, nil
 		})
 	}
-	loaders = append(loaders, fileLoader, envLoader)
+	loaders = append(loaders, envLoader)
 	if options.Flags != nil {
 		flagLoader, loaderErr := pflagloader.NewLoader[flagConfig](options.Flags)
 		if loaderErr != nil {
@@ -211,6 +216,12 @@ func Load(options LoadOptions) (LoadResult, error) {
 		return LoadResult{}, err
 	}
 	cfg := Config(loaded)
+	if report.Updates["memory.path"] == "XDG_DATA_HOME" {
+		if !filepath.IsAbs(cfg.Memory.Path) {
+			return LoadResult{}, fmt.Errorf("config: XDG_DATA_HOME must be absolute")
+		}
+		cfg.Memory.Path = filepath.Join(cfg.Memory.Path, appName, memoryDirectory)
+	}
 	resolvedMemory, err := resolveMemory(cfg.Memory.Path, home)
 	if err != nil {
 		return LoadResult{}, err

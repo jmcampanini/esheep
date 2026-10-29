@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jmcampanini/esheep/internal/apperr"
 	"github.com/jmcampanini/esheep/internal/memory"
 	"github.com/jmcampanini/esheep/internal/ui"
 	"github.com/spf13/cobra"
@@ -25,8 +24,8 @@ func newMemoryRecordCommand(load configLoader, record func(context.Context, memo
 file's absolute path on stdout.
 
 TEXT is the memory. Pass '-' to read it from stdin until EOF instead; on a
-terminal the command then waits for EOF and never prompts. Blank text is a
-usage error. --why records the reason the memory holds and --source records
+terminal the command then waits for EOF and never prompts. Blank text fails
+with exit 1. --why records the reason the memory holds and --source records
 pointers backing it, such as file paths, URLs, commits, or session IDs;
 repeat --source for several.
 
@@ -59,7 +58,9 @@ The project directory name is that identity with every '/' replaced by
 
 The command creates the memory root and its missing parents when needed,
 creates the project directory and session file beneath it, and touches
-nothing else. To find the repository it searches the working directory
+nothing else. If printing the result fails, the memory has already been
+appended; check the session file before retrying. To find the repository
+it searches the working directory
 and its ancestors for a .git entry, then runs git there to read the
 shared git directory and the origin URL. It never contacts another
 machine. Stdout is the one path; there is no machine-readable form.
@@ -93,7 +94,7 @@ machine. Stdout is the one path; there is no machine-readable form.
 			}
 			cwd, err := os.Getwd()
 			if err != nil {
-				return apperr.Wrap(fmt.Errorf("determine working directory: %w", err))
+				return fmt.Errorf("determine working directory: %w", err)
 			}
 			result, err := record(command.Context(), memory.Request{
 				Cwd:     cwd,
@@ -106,14 +107,16 @@ machine. Stdout is the one path; there is no machine-readable form.
 				Why:     why,
 			})
 			if err != nil {
-				return apperr.Wrap(err)
+				return err
 			}
 
 			for _, diagnostic := range result.Diagnostics {
-				_, _ = fmt.Fprintln(command.ErrOrStderr(), diagnostic)
+				if _, err := fmt.Fprintln(command.ErrOrStderr(), diagnostic); err != nil {
+					return err
+				}
 			}
-			_, _ = fmt.Fprintln(command.OutOrStdout(), result.Path)
-			return nil
+			_, err = fmt.Fprintln(command.OutOrStdout(), result.Path)
+			return err
 		},
 	}
 	command.Flags().StringVar(&session, "session", "", "session ID to record under instead of detecting one")
@@ -123,13 +126,13 @@ machine. Stdout is the one path; there is no machine-readable form.
 }
 
 // memoryText returns the operand, or stdin read to EOF when the operand is
-// '-'. Blank text is a usage error either way.
+// '-'. Blank text is rejected either way.
 func memoryText(stdin io.Reader, operand string) (string, error) {
 	text := operand
 	if operand == "-" {
 		data, err := io.ReadAll(stdin)
 		if err != nil {
-			return "", apperr.Wrap(fmt.Errorf("read text from stdin: %w", err))
+			return "", fmt.Errorf("read text from stdin: %w", err)
 		}
 		text = string(data)
 	}

@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/jmcampanini/esheep/internal/apperr"
 	"github.com/jmcampanini/esheep/internal/remote"
 	"github.com/jmcampanini/esheep/internal/session"
 	"github.com/jmcampanini/esheep/internal/ui"
@@ -55,14 +54,16 @@ document; missing fields take their zero value.
 
 Validation matches the flags: a search needs a pattern, tool, or errors;
 raw cannot combine with role, tool, or errors; empty IDs are rejected. An
-invalid or empty request exits 2 with the reason on stderr.
+invalid or empty request exits 1 with the reason on stderr.
 
 Stdout is the document 'sessions list --json' or 'sessions search --json'
-prints here, with "machine" naming this host, plus a "diagnostics" array
-that carries this machine's diagnostics to the caller, which prints them on
-stderr. Exit status follows the underlying command: 0 complete, 1
-incomplete or application failure, 2 usage. A failure, including an
-incomplete reply, ends with one 'esheep: <message>' line on stderr.
+prints here, with "machine" naming this host. Diagnostics go to stderr,
+never into the JSON document. The caller forwards each stderr line as a
+machine-diagnostic with this machine's name. Exit status follows the
+underlying command: 0 complete, 1 incomplete or application failure,
+2 usage. A failure, including an incomplete reply, ends with one
+'esheep: <message>' line on stderr. A nonzero exit makes the caller's report
+incomplete even if the JSON says "complete": true; usable results remain.
 
 ` + ui.StreamContractHelp + `
 
@@ -71,7 +72,7 @@ incomplete reply, ends with one 'esheep: <message>' line on stderr.
 		RunE: func(command *cobra.Command, _ []string) error {
 			data, err := io.ReadAll(command.InOrStdin())
 			if err != nil {
-				return apperr.Wrap(fmt.Errorf("read request: %w", err))
+				return fmt.Errorf("read request: %w", err)
 			}
 			if len(bytes.TrimSpace(data)) == 0 {
 				return errors.New("request required on stdin; see 'esheep sessions query --help' for the schema")
@@ -104,13 +105,16 @@ incomplete reply, ends with one 'esheep: <message>' line on stderr.
 					return operations.sessionList(ctx, roots, filter)
 				})
 				if err != nil {
-					return apperr.Wrap(err)
+					return err
 				}
-				if err := remote.WriteListReply(command.OutOrStdout(), report); err != nil {
-					return apperr.Wrap(err)
+				if err := ui.WriteSessionListJSON(command.OutOrStdout(), report); err != nil {
+					return err
+				}
+				if err := ui.WriteSessionDiagnostics(command.ErrOrStderr(), report.Diagnostics, false); err != nil {
+					return err
 				}
 				if !report.Complete {
-					return apperr.Wrap(errors.New("session inventory is incomplete"))
+					return errors.New("session inventory is incomplete")
 				}
 				return nil
 			}
@@ -118,13 +122,16 @@ incomplete reply, ends with one 'esheep: <message>' line on stderr.
 				return operations.sessionSearch(ctx, roots, filter, query)
 			})
 			if err != nil {
-				return apperr.Wrap(err)
+				return err
 			}
-			if err := remote.WriteSearchReply(command.OutOrStdout(), report); err != nil {
-				return apperr.Wrap(err)
+			if err := ui.WriteSessionSearchJSON(command.OutOrStdout(), report); err != nil {
+				return err
+			}
+			if err := ui.WriteSessionDiagnostics(command.ErrOrStderr(), report.Diagnostics, false); err != nil {
+				return err
 			}
 			if !report.Complete {
-				return apperr.Wrap(errors.New("session search is incomplete"))
+				return errors.New("session search is incomplete")
 			}
 			return nil
 		},

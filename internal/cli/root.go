@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -46,8 +47,29 @@ func Execute() int {
 // success, 1 for an application failure, and 2 for a usage error. A
 // failure prints one final line on stderr in the form '<cli>: <message>'.
 func execute(root *cobra.Command, args []string) int {
+	// Cobra's help callback cannot return an error. Render into buffers so
+	// its errors and the destination write still reach our process boundary.
+	var helpErr error
+	renderHelp := root.HelpFunc()
+	root.SetHelpFunc(func(command *cobra.Command, args []string) {
+		out, diagnostics := command.OutOrStdout(), command.ErrOrStderr()
+		var rendered, failed bytes.Buffer
+		command.SetOut(&rendered)
+		command.SetErr(&failed)
+		renderHelp(command, args)
+		command.SetOut(out)
+		command.SetErr(diagnostics)
+		if failed.Len() != 0 {
+			helpErr = errors.New(strings.TrimSpace(failed.String()))
+			return
+		}
+		_, helpErr = rendered.WriteTo(out)
+	})
 	root.SetArgs(args)
 	err := root.Execute()
+	if err == nil {
+		err = apperr.Wrap(helpErr)
+	}
 	if err == nil {
 		return 0
 	}
@@ -72,6 +94,7 @@ func newRootCommand(load configLoader) *cobra.Command {
 }
 
 func newRootCommandWithOperations(load configLoader, operations commandOperations) *cobra.Command {
+	var version bool
 	root := &cobra.Command{
 		Use:   "esheep",
 		Short: "Find harness session transcripts and record memories",
@@ -103,11 +126,14 @@ Common tasks:
 Command groups:
   memory    Memories recorded for harness sessions:  esheep memory --help
   sessions  Historical session transcripts:          esheep sessions --help`,
-		Version:            effectiveVersion(),
 		DisableSuggestions: true,
 		SilenceErrors:      true,
 		SilenceUsage:       true,
 		RunE: func(command *cobra.Command, _ []string) error {
+			if version {
+				_, err := fmt.Fprintf(command.OutOrStdout(), "esheep version %s\n", effectiveVersion())
+				return err
+			}
 			return command.Help()
 		},
 	}
@@ -121,44 +147,29 @@ Command groups:
 		panic(fmt.Sprintf("register configuration flags: %v", err))
 	}
 	registerColorFlag(root.PersistentFlags())
-	// Cobra registers --help and --version only when it executes the found
-	// command, but it strips flags while finding it. Registering them here keeps
-	// 'esheep --help --config x' from reading "x" as an unknown command.
+	// Register these before command discovery so a following flag's value
+	// cannot be mistaken for a command name.
 	root.InitDefaultHelpFlag()
-	root.InitDefaultVersionFlag()
+	root.Flags().BoolVarP(&version, "version", "v", false, "print the version")
+	root.AddGroup(
+		&cobra.Group{ID: "commands", Title: "Commands:"},
+		&cobra.Group{ID: "help-topics", Title: "Help topics:"},
+	)
+	help := newHelpCommand()
+	root.SetHelpCommand(help)
 	root.AddCommand(
+		help,
 		newCompletionCommand(),
 		newConfigCommand(load),
 		newExitCodesTopic(),
 		newMemoryCommand(load, operations.memoryRecord),
 		newSessionsCommand(load, operations),
 	)
-	root.InitDefaultHelpCmd()
 	for _, command := range root.Commands() {
-		if command.Name() == "help" {
-			command.Args = helpTopicArgs
-			command.Run = nil
-			command.RunE = runHelp
+		if command.GroupID == "" {
+			command.GroupID = "commands"
 		}
 	}
+	wrapCommandRunners(root)
 	return root
-}
-
-// helpTopicArgs accepts only operands that name one command or help topic.
-func helpTopicArgs(command *cobra.Command, args []string) error {
-	if _, remaining, err := command.Root().Find(args); err != nil || len(remaining) != 0 {
-		return fmt.Errorf("unknown help topic %q", strings.Join(args, " "))
-	}
-	return nil
-}
-
-func runHelp(command *cobra.Command, args []string) error {
-	target, _, err := command.Root().Find(args)
-	if err != nil {
-		return err
-	}
-	target.SetContext(command.Context())
-	target.InitDefaultHelpFlag()
-	target.InitDefaultVersionFlag()
-	return apperr.Wrap(target.Help())
 }

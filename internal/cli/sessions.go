@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jmcampanini/esheep/internal/apperr"
 	"github.com/jmcampanini/esheep/internal/config"
 	"github.com/jmcampanini/esheep/internal/remote"
 	"github.com/jmcampanini/esheep/internal/session"
@@ -22,7 +21,8 @@ ESHEEP_CLAUDE_COWORK_SESSIONS_PATH, TOML, then the platform default. On macOS,
 the default is ~/Library/Application Support/Claude/local-agent-mode-sessions.
 Linux requires an explicit path; an empty path disables Cowork discovery.
 Only <scope>/<scope>/local_<id>/audit.jsonl files are discovered. Scope names
-are opaque. Supporting files and regular Claude chats are not session sources.
+are opaque. The adjacent <scope>/<scope>/local_<id>.json file supplies companion
+metadata. Supporting files and regular Claude chats are not session sources.
 
 The codex harness includes Codex CLI and desktop sessions. chatgpt-work
 identifies local ChatGPT Work tasks whose recorded originator is exactly
@@ -30,7 +30,7 @@ codex_work_desktop. Missing or unrecognized originators are classified as codex.
 Subagents use their own recorded originator.
 
 Both harnesses share [sessions.codex].home. Its precedence is --codex-home,
-ESHEEP_CODEX_HOME, TOML, CODEX_HOME, then ~/.codex. The sessions and
+ESHEEP_CODEX_HOME, CODEX_HOME, TOML, then ~/.codex. The sessions and
 archived_sessions directories beneath that home are read in place; no other
 home is scanned. Shared storage is discovered once; root diagnostics use
 codex. Omit --harness to include all harnesses, or use
@@ -84,7 +84,7 @@ completeness.`
 
 const sessionIDHelp = `--id selects exact, case-sensitive session IDs. Repeat the flag or use
 comma-separated IDs to select any of them; all other filters still apply,
-including --subagents. Empty IDs are usage errors. Cowork accepts either its
+including --subagents. Empty IDs fail with exit 1. Cowork accepts either its
 full scoped ID or its complete local_<id> component; the latter selects every
 matching scope. Output retains full scoped IDs. Multiple files sharing an ID
 remain separate results; no matches is a successful empty result when the scan
@@ -101,6 +101,14 @@ rules as an unfiltered scan. Errors in skipped content or companion metadata
 are not reported; discovery failures and failures reading required IDs or
 matching transcripts still affect completeness.`
 
+const sessionJSONHelp = `The JSON object contains "complete", "period", and "sessions". An empty
+result has "sessions": []. Each session contains "harness" and "id" strings,
+"machine" naming its host, "path" naming the canonical transcript, "projects"
+as an array of directory paths, "archived" and "subagent" booleans, and
+"modified_at" as an RFC 3339 timestamp. "started_at" is an RFC 3339 timestamp
+omitted when unknown; "title" is a string omitted when unavailable. Sessions
+sort by start time, falling back to modification time, most recent first.`
+
 const sessionPeriodHelp = `--since and --until select activity by event timestamps recorded in each
 transcript. File modification time and session start do not determine period
 membership or skip candidate transcripts. An event qualifies when
@@ -111,7 +119,7 @@ at local midnight on that date; --until ends at local midnight on the next date.
 Day counts (7d) and durations (36h) subtract elapsed time from one caller clock
 reading and resolve to exact instants at either bound. Remotes receive those
 resolved instants and never reinterpret dates. A since at or after until is a
-usage error naming both resolved instants.
+failure with exit 1 naming both resolved instants.
 
 Under a period, undated events never qualify. Search reports undated-events
 for events that match its other criteria but lack usable timestamps. List
@@ -131,8 +139,8 @@ machine. Without --remote nothing leaves this machine.
 
 Machines are [[machines]] entries in config.toml, identified by hostname;
 'esheep config --help' describes them. The entry whose first hostname label
-matches this machine's is skipped by 'all', and naming it is a usage error,
-as is naming an unknown machine. 'all' with no other machine configured
+matches this machine's is skipped by 'all', and naming it fails with exit 1,
+as does naming an unknown machine. 'all' with no other machine configured
 reports a no-machines diagnostic and scans locally.
 
 Each selected machine runs 'ssh -T -o BatchMode=yes -o ConnectTimeout=<n>
@@ -145,15 +153,18 @@ recent first, and every session names its machine. Text output adds a
 MACHINE column or header field. In text and JSON modes, stderr diagnostics
 carry the machine name only when --remote is present.
 
-A machine that cannot answer makes the report incomplete and the command
-exit 1 while every result that did arrive is printed. Its diagnostic is
+A machine that cannot answer or exits nonzero makes the report incomplete
+and the command exit 1 while every usable result that did arrive is printed,
+even if the remote JSON says "complete": true. Its diagnostic is
 machine-unreachable (ssh failed: name resolution, connection, batch-mode
 authentication, or an unknown host key), machine-timeout (no complete
 reply within the entry's timeout), machine-command (the remote command
-exited without a document, such as esheep missing from the login shell's
-PATH or an invalid remote configuration), or machine-reply (stdout was not
-one JSON document, such as a shell startup file printing to stdout). The
-message carries the last lines of the remote's stderr or the decoder error.
+failed, such as esheep missing from the login shell's PATH or an invalid
+remote configuration), or machine-reply (stdout was not one JSON document,
+such as a shell startup file printing to stdout). Each nonempty remote
+stderr line is forwarded as a machine-diagnostic with its machine's name;
+this includes diagnostics from successful scans. The failure diagnostic
+carries the process or decoder error.
 
 Builds are not version-checked. A remote rejects a request field it does
 not know and answers with a machine-command diagnostic, while replies
@@ -214,7 +225,7 @@ type sessionFilterFlags struct {
 }
 
 func registerSessionFilterFlags(command *cobra.Command, flags *sessionFilterFlags) {
-	command.Flags().StringVar(&flags.archiveState, "archive-state", "all", "limit to archive state (all, active, archived)")
+	command.Flags().StringVar(&flags.archiveState, "archive-state", config.DefaultArchiveState, "limit to archive state (all, active, archived)")
 	command.Flags().StringSliceVar(&flags.harnesses, "harness", nil, "limit to harnesses (chatgpt-work, claude, claude-cowork, codex, pi); repeatable or comma-separated")
 	command.Flags().StringArrayVar(&flags.ids, "id", nil, "limit to exact session IDs; repeatable or comma-separated")
 	command.Flags().BoolVar(&flags.noLocal, "no-local", false, "skip this machine; requires --remote")
@@ -278,12 +289,11 @@ type sessionScope struct {
 }
 
 // resolveSessionScope selects machines against the loaded configuration.
-// Selection failures are usage errors; a missing ssh client is an
-// application error and is only checked when a machine is selected.
+// The ssh client is only required when a machine is selected.
 func resolveSessionScope(operations commandOperations, loaded config.LoadResult, names remote.Names) (sessionScope, error) {
 	hostname, err := operations.localHostname()
 	if err != nil {
-		return sessionScope{}, apperr.Wrap(fmt.Errorf("determine hostname: %w", err))
+		return sessionScope{}, fmt.Errorf("determine hostname: %w", err)
 	}
 	selection, diagnostics, err := names.Select(loaded.ResolvedMachines, hostname)
 	if err != nil {
@@ -294,7 +304,7 @@ func resolveSessionScope(operations commandOperations, loaded config.LoadResult,
 	if len(selection.Machines) != 0 {
 		scope.ssh, err = exec.LookPath("ssh")
 		if err != nil {
-			return sessionScope{}, apperr.Wrap(fmt.Errorf("locate ssh client: %w", err))
+			return sessionScope{}, fmt.Errorf("locate ssh client: %w", err)
 		}
 	}
 	return scope, nil

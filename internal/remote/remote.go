@@ -2,8 +2,8 @@
 // session reports with the local one.
 //
 // Each machine answers with the JSON document its own 'sessions list --json'
-// or 'sessions search --json' would print plus a "diagnostics" array, which
-// the calling machine prints on stderr. Only results cross the wire;
+// or 'sessions search --json' would print and human diagnostics on stderr.
+// The calling machine forwards those diagnostics. Only results cross the wire;
 // transcripts stay where they are and no state survives a run.
 package remote
 
@@ -13,7 +13,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"math"
 	"os/exec"
 	"slices"
@@ -26,9 +25,10 @@ import (
 	"github.com/jmcampanini/esheep/internal/session"
 )
 
-// Diagnostic codes for machines that could not answer.
+// Diagnostic codes for remote stderr and machines that could not answer.
 const (
 	CodeCommand     = "machine-command"
+	CodeDiagnostic  = "machine-diagnostic"
 	CodeNoMachines  = "no-machines"
 	CodeReply       = "machine-reply"
 	CodeTimeout     = "machine-timeout"
@@ -161,37 +161,12 @@ func Search(ctx context.Context, ssh string, selection Selection, request sessio
 	return session.SearchReport(merged), err
 }
 
-// WriteListReply writes report as the reply 'sessions query' sends for a
-// list request.
-func WriteListReply(writer io.Writer, report session.ListReport) error {
-	return writeReply(writer, document[session.Session](report))
-}
-
-// WriteSearchReply writes report as the reply 'sessions query' sends for a
-// search request.
-func WriteSearchReply(writer io.Writer, report session.SearchReport) error {
-	return writeReply(writer, document[session.Match](report))
-}
-
-func writeReply[S any](writer io.Writer, reply document[S]) error {
-	if reply.Diagnostics == nil {
-		reply.Diagnostics = []session.Diagnostic{}
-	}
-	if reply.Sessions == nil {
-		reply.Sessions = []S{}
-	}
-	encoder := json.NewEncoder(writer)
-	encoder.SetEscapeHTML(false)
-	encoder.SetIndent("", "  ")
-	return encoder.Encode(reply)
-}
-
 // document is the reply shape shared by list and search, parameterized on
-// the session entry type so one merge serves both. Unlike the session
-// reports, it carries diagnostics in its JSON form.
+// the session entry type so one merge serves both. Diagnostics come from
+// stderr and process failures, never from the JSON payload.
 type document[S any] struct {
 	Complete    bool                 `json:"complete"`
-	Diagnostics []session.Diagnostic `json:"diagnostics"`
+	Diagnostics []session.Diagnostic `json:"-"`
 	Period      session.Period       `json:"period"`
 	Sessions    []S                  `json:"sessions"`
 }
@@ -199,7 +174,7 @@ type document[S any] struct {
 // run fans the request out to the local scan and every machine
 // concurrently, stamps each part with its machine name, and merges them.
 // Completeness is the conjunction of every part; a machine that cannot
-// answer contributes one diagnostic and makes the report incomplete.
+// answer contributes diagnostics and makes the report incomplete.
 func run[S any](ctx context.Context, ssh string, selection Selection, request session.Request, local func(context.Context) document[S], describe func(*S) *session.Session) (document[S], error) {
 	encoded, err := json.Marshal(request)
 	if err != nil {
@@ -259,8 +234,8 @@ func stamp[S any](part *document[S], machine string, describe func(*S) *session.
 }
 
 // query runs 'esheep sessions query' on one machine over ssh with the
-// encoded request on stdin and decodes the reply. Any failure becomes one
-// diagnostic and an incomplete part.
+// encoded request on stdin and decodes the reply. Process failures make
+// the part incomplete without discarding a valid payload.
 func query[S any](ctx context.Context, ssh string, machine config.ResolvedMachine, request []byte) document[S] {
 	ctx, cancel := context.WithTimeout(ctx, machine.Timeout)
 	defer cancel()
@@ -280,19 +255,31 @@ func query[S any](ctx context.Context, ssh string, machine config.ResolvedMachin
 	command.WaitDelay = time.Second
 	runErr := command.Run()
 
-	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		return failure[S](CodeTimeout, fmt.Sprintf("no reply within %s", machine.Timeout))
+	var reply document[S]
+	decodeErr := json.Unmarshal(stdout.Bytes(), &reply)
+	if decodeErr != nil {
+		reply = document[S]{}
+	}
+	for line := range strings.SplitSeq(stderr.String(), "\n") {
+		if line != "" {
+			reply.Diagnostics = append(reply.Diagnostics, session.Diagnostic{Code: CodeDiagnostic, Message: line})
+		}
 	}
 	var exit *exec.ExitError
-	if errors.As(runErr, &exit) && exit.ExitCode() == sshFailureExit {
-		return failure[S](CodeUnreachable, lastLines(stderr.String(), runErr))
+	var failure session.Diagnostic
+	switch {
+	case errors.Is(ctx.Err(), context.DeadlineExceeded):
+		failure = session.Diagnostic{Code: CodeTimeout, Message: fmt.Sprintf("no reply within %s", machine.Timeout)}
+	case errors.As(runErr, &exit) && exit.ExitCode() == sshFailureExit:
+		failure = session.Diagnostic{Code: CodeUnreachable, Message: runErr.Error()}
+	case runErr != nil:
+		failure = session.Diagnostic{Code: CodeCommand, Message: runErr.Error()}
+	case decodeErr != nil:
+		failure = session.Diagnostic{Code: CodeReply, Message: fmt.Sprintf("%s; stdout begins %q", decodeErr, leading(stdout.Bytes()))}
 	}
-	var reply document[S]
-	if decodeErr := json.Unmarshal(stdout.Bytes(), &reply); decodeErr != nil {
-		if runErr != nil {
-			return failure[S](CodeCommand, lastLines(stderr.String(), runErr))
-		}
-		return failure[S](CodeReply, fmt.Sprintf("%s; stdout begins %q", decodeErr, leading(stdout.Bytes())))
+	if failure.Code != "" {
+		reply.Complete = false
+		reply.Diagnostics = append(reply.Diagnostics, failure)
 	}
 	return reply
 }
@@ -301,31 +288,11 @@ func query[S any](ctx context.Context, ssh string, machine config.ResolvedMachin
 // resolution, connection, authentication, and host-key rejection.
 const sshFailureExit = 255
 
-func failure[S any](code, message string) document[S] {
-	return document[S]{Diagnostics: []session.Diagnostic{{Code: code, Message: message}}}
-}
-
 // connectTimeoutSeconds bounds ssh's own connection phase to the smaller
 // of ten seconds and the machine's timeout, in the whole seconds ssh accepts.
 func connectTimeoutSeconds(timeout time.Duration) int {
 	const ceiling = 10
 	return max(1, min(ceiling, int(math.Ceil(timeout.Seconds()))))
-}
-
-// lastLines keeps the tail of a process's stderr for a diagnostic message,
-// falling back to the run error when the process said nothing.
-func lastLines(stderr string, runErr error) string {
-	const keep = 5
-	var lines []string
-	for _, line := range strings.Split(stderr, "\n") {
-		if line = strings.TrimSpace(line); line != "" {
-			lines = append(lines, line)
-		}
-	}
-	if len(lines) == 0 {
-		return runErr.Error()
-	}
-	return strings.Join(lines[max(0, len(lines)-keep):], "; ")
 }
 
 func leading(data []byte) string {

@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"github.com/jmcampanini/esheep/internal/apperr"
 	"github.com/jmcampanini/esheep/internal/config"
 	"github.com/spf13/cobra"
 )
@@ -29,14 +28,13 @@ symlinks in it are resolved. The keys config.toml accepts:
 locate the harness-owned transcript roots the sessions commands read in
 place; Codex transcripts are the sessions and archived_sessions
 directories under the home. Each defaults to ~/.claude/projects,
-~/.pi/agent/sessions, and ~/.codex (or CODEX_HOME when set) and must not
+~/.pi/agent/sessions, and ~/.codex and must not
 be empty. [sessions.claude-cowork].path locates local Claude Cowork
 conversations; it defaults to the platform location on macOS, has no
 default on Linux, and an empty value disables Cowork discovery. 'esheep
 sessions --help' describes what is read under each root.
 
 [memory].path is the root 'memory record' appends under. It defaults to
-$XDG_DATA_HOME/esheep/memory when XDG_DATA_HOME is set, otherwise
 ~/.local/share/esheep/memory. It may not be '/' or the home directory.
 
 [[machines]] entries name other machines that run esheep, for
@@ -70,11 +68,11 @@ Any other key, in any table, is an error naming the key.
 			if err != nil {
 				return err
 			}
-			return apperr.Wrap(config.WriteReport(
+			return config.WriteReport(
 				command.OutOrStdout(),
 				loaded,
 				config.ReportOptions{Provenance: provenance, Redact: redactConfig},
-			))
+			)
 		},
 	}
 	command.Flags().BoolVar(&provenance, "provenance", false, "include field-level source information")
@@ -86,12 +84,15 @@ func redactConfig(loaded config.LoadResult) config.LoadResult {
 }
 
 const configResolutionHelp = `Settings load in this order, with later sources taking precedence: built-in
-session and memory defaults (CODEX_HOME supplies the Codex session home
-default and XDG_DATA_HOME the memory root default when set);
+session and memory defaults;
 $XDG_CONFIG_HOME/esheep/config.toml, or $HOME/.config/esheep/config.toml
 when XDG_CONFIG_HOME is unset, empty, or not an absolute path;
+CODEX_HOME for the Codex session home and $XDG_DATA_HOME/esheep/memory
+for the memory root when those variables are non-empty;
 ESHEEP_CLAUDE_SESSIONS_PATH, ESHEEP_CLAUDE_COWORK_SESSIONS_PATH,
 ESHEEP_PI_SESSIONS_PATH, ESHEEP_CODEX_HOME, and ESHEEP_MEMORY_PATH
-variables; then the session and memory flags. --config PATH replaces
-automatic discovery and requires a loadable file. Machines are configured
-only in the TOML file.`
+variables; then the session and memory flags. Paths are derived and
+validated after all overrides. XDG_DATA_HOME must be absolute when it
+supplies the effective memory root. --config PATH replaces automatic
+discovery and requires a loadable file, including when PATH is empty.
+Machines are configured only in the TOML file.`

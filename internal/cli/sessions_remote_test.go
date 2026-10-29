@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -27,18 +28,21 @@ func fleetLoader(t *testing.T) configLoader {
 }
 
 // fakeSSHOnPath places an ssh script first on PATH that answers every host
-// with one canned list or search document and exits 0.
-func fakeSSHOnPath(t *testing.T, document string) {
+// with a canned payload, stderr text, and exit status.
+func fakeSSHOnPath(t *testing.T, document, stderr string, exitCode int) {
 	t.Helper()
 	dir := t.TempDir()
-	script := "#!/bin/sh\ncat >/dev/null\nprintf '%s' '" + document + "'\n"
+	script := "#!/bin/sh\ncat >/dev/null\nprintf '%s' \"$REMOTE_STDOUT\"\nprintf '%s' \"$REMOTE_STDERR\" >&2\nexit \"$REMOTE_EXIT\"\n"
 	if err := os.WriteFile(filepath.Join(dir, "ssh"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("REMOTE_STDOUT", document)
+	t.Setenv("REMOTE_STDERR", stderr)
+	t.Setenv("REMOTE_EXIT", strconv.Itoa(exitCode))
 }
 
-func TestSessionsRemoteSelectionUsageErrorsExitTwo(t *testing.T) {
+func TestSessionsRemoteSelectionFailuresExitOne(t *testing.T) {
 	tests := []struct {
 		args []string
 		name string
@@ -53,15 +57,15 @@ func TestSessionsRemoteSelectionUsageErrorsExitTwo(t *testing.T) {
 
 			code, stdout, stderr := runCommandWithOperations(t, fleetLoader(t), operations, test.args...)
 
-			if code != 2 || stdout != "" || !strings.Contains(stderr, test.want) {
-				t.Fatalf("exit = %d, stdout = %q, stderr = %q, want usage error containing %q", code, stdout, stderr, test.want)
+			if code != 1 || stdout != "" || !strings.Contains(stderr, test.want) {
+				t.Fatalf("exit = %d, stdout = %q, stderr = %q, want application error containing %q", code, stdout, stderr, test.want)
 			}
 		})
 	}
 }
 
 func TestSessionsListMergesRemoteMachinesIntoTextAndJSON(t *testing.T) {
-	fakeSSHOnPath(t, `{"complete":true,"diagnostics":[],"sessions":[{"harness":"pi","id":"remote-1","path":"/home/j/.pi/one.jsonl","projects":[],"started_at":"2026-09-11T22:40:00Z"}]}`)
+	fakeSSHOnPath(t, `{"complete":true,"sessions":[{"harness":"pi","id":"remote-1","path":"/home/j/.pi/one.jsonl","projects":[],"started_at":"2026-09-11T22:40:00Z"}]}`, "", 0)
 	var gotFilter session.Filter
 	operations := commandOperations{
 		hostname: func() (string, error) { return "laptop.local", nil },
@@ -125,7 +129,7 @@ func TestSessionsSearchReportsUnreachableMachineAndKeepsLocalHits(t *testing.T) 
 	if !strings.HasPrefix(stdout, "laptop  claude") || !strings.Contains(stdout, ":4") {
 		t.Errorf("stdout = %q, want the local hit under a machine-led header", stdout)
 	}
-	if !strings.Contains(stderr, "nas: machine-unreachable: ssh: Could not resolve hostname nas") || !strings.Contains(stderr, "session search is incomplete") {
+	if !strings.Contains(stderr, "nas: machine-diagnostic: ssh: Could not resolve hostname nas") || !strings.Contains(stderr, "nas: machine-unreachable: exit status 255") || !strings.Contains(stderr, "session search is incomplete") {
 		t.Errorf("stderr = %q, want the machine diagnostic and the incomplete error", stderr)
 	}
 }
@@ -153,7 +157,7 @@ func TestSessionsRemoteAllWithoutMachinesScansLocally(t *testing.T) {
 }
 
 func TestSessionsListJSONPrintsRemoteDiagnosticsOnStderr(t *testing.T) {
-	fakeSSHOnPath(t, `{"complete":false,"diagnostics":[{"code":"walk","harness":"pi","message":"permission denied","path":"/home/j/.pi"}],"sessions":[]}`)
+	fakeSSHOnPath(t, `{"complete":false,"sessions":[]}`, "/home/j/project: archive/.pi [pi]: walk: permission denied\nesheep: session inventory is incomplete\n", 1)
 	operations := commandOperations{hostname: func() (string, error) { return "laptop.local", nil }}
 
 	code, stdout, stderr := runCommandWithOperations(t, fleetLoader(t), operations, "sessions", "list", "--remote", "nas", "--no-local", "--json")
@@ -161,11 +165,39 @@ func TestSessionsListJSONPrintsRemoteDiagnosticsOnStderr(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("exit = %d, want 1 (stderr %q)", code, stderr)
 	}
-	if want := "nas: /home/j/.pi [pi]: walk: permission denied\nesheep: session inventory is incomplete\n"; stderr != want {
+	if want := "nas: machine-diagnostic: /home/j/project: archive/.pi [pi]: walk: permission denied\nnas: machine-diagnostic: esheep: session inventory is incomplete\nnas: machine-command: exit status 1\nesheep: session inventory is incomplete\n"; stderr != want {
 		t.Errorf("stderr = %q, want %q", stderr, want)
 	}
 	if strings.Contains(stdout, "diagnostics") || !strings.Contains(stdout, `"complete": false`) {
 		t.Errorf("stdout = %q, want an incomplete document without diagnostics", stdout)
+	}
+}
+
+func TestSessionsRemoteFailureOverridesCompletePayload(t *testing.T) {
+	for _, command := range [][]string{{"list"}, {"search", "timeout"}} {
+		t.Run(command[0], func(t *testing.T) {
+			fakeSSHOnPath(t, `{"complete":true,"sessions":[{"id":"retained","path":"/home/j/session.jsonl","hits":[{"line":3,"role":"user","excerpt":"timeout"}]}]}`, "esheep: failed after writing results\n", 1)
+			operations := commandOperations{hostname: func() (string, error) { return "laptop", nil }}
+			args := append([]string{"sessions"}, command...)
+			args = append(args, "--remote", "nas", "--no-local", "--json")
+			code, stdout, stderr := runCommandWithOperations(t, fleetLoader(t), operations, args...)
+			if code != 1 || !strings.Contains(stderr, "nas: machine-diagnostic: esheep: failed after writing results") || !strings.Contains(stderr, "nas: machine-command: exit status 1") {
+				t.Fatalf("exit = %d, stderr = %q, want the remote process failure", code, stderr)
+			}
+			var report session.SearchReport
+			if err := json.Unmarshal([]byte(stdout), &report); err != nil {
+				t.Fatal(err)
+			}
+			if report.Complete || len(report.Sessions) != 1 || report.Sessions[0].ID != "retained" || report.Sessions[0].Machine != "nas" {
+				t.Fatalf("report = %+v, want incomplete with the remote session retained", report)
+			}
+			if command[0] == "search" && len(report.Sessions[0].Hits) != 1 {
+				t.Errorf("report = %+v, want the remote search hit retained", report)
+			}
+			if strings.Contains(stdout, "diagnostics") || strings.Contains(stdout, "failed after writing results") {
+				t.Errorf("stdout = %q, want only payload JSON", stdout)
+			}
+		})
 	}
 }
 
@@ -205,42 +237,45 @@ func TestSessionsQueryAnswersWithTheFlagDrivenDocument(t *testing.T) {
 	}
 }
 
-func TestSessionsQueryIncompleteReplyCarriesDiagnosticsAndAFailureLine(t *testing.T) {
-	diagnostics := []session.Diagnostic{{Code: "walk", Path: "/roots/pi"}}
-	operations := commandOperations{
-		hostname: func() (string, error) { return "box", nil },
-		sessionList: func(context.Context, session.Roots, session.Filter) session.ListReport {
-			return session.ListReport{Diagnostics: diagnostics}
-		},
-		sessionSearch: func(context.Context, session.Roots, session.Filter, session.SearchQuery) session.SearchReport {
-			return session.SearchReport{Diagnostics: diagnostics}
-		},
-	}
-	for _, test := range []struct {
-		mode    string
-		failure string
-	}{
-		{mode: "list", failure: "session inventory is incomplete"},
-		{mode: "search", failure: "session search is incomplete"},
-	} {
-		t.Run(test.mode, func(t *testing.T) {
-			request := `{"mode":"` + test.mode + `","filter":{"archive_state":"all"},"query":{"pattern":"needle"}}`
-			code, stdout, stderr := runCommandWithInput(t, sessionLoader(t), operations, request, "sessions", "query")
-
-			if want := "esheep: " + test.failure + "\n"; code != 1 || stderr != want {
-				t.Fatalf("exit = %d, stderr = %q, want 1 and %q", code, stderr, want)
-			}
-			var reply struct {
-				Complete    bool                 `json:"complete"`
-				Diagnostics []session.Diagnostic `json:"diagnostics"`
-			}
-			if err := json.Unmarshal([]byte(stdout), &reply); err != nil {
-				t.Fatal(err)
-			}
-			if reply.Complete || len(reply.Diagnostics) != 1 || reply.Diagnostics[0].Code != "walk" || reply.Diagnostics[0].Machine != "box" {
-				t.Errorf("stdout = %q, want the incomplete reply carrying the walk diagnostic stamped box", stdout)
-			}
-		})
+func TestSessionsQueryMatchesLocalJSONAndStderr(t *testing.T) {
+	diagnostics := []session.Diagnostic{{Code: "malformed-lines", Harness: session.HarnessPi, Message: "skipped 1 unparseable lines", Path: "/roots/project: archive/pi"}}
+	entry := session.Session{Harness: session.HarnessPi, ID: "one", Path: "/roots/project: archive/pi/one.jsonl"}
+	for _, complete := range []bool{true, false} {
+		for _, command := range [][]string{{"list"}, {"search", "needle"}} {
+			t.Run(command[0]+"/complete="+strconv.FormatBool(complete), func(t *testing.T) {
+				operations := commandOperations{
+					hostname: func() (string, error) { return "box", nil },
+					sessionList: func(context.Context, session.Roots, session.Filter) session.ListReport {
+						return session.ListReport{Complete: complete, Diagnostics: diagnostics, Sessions: []session.Session{entry}}
+					},
+					sessionSearch: func(context.Context, session.Roots, session.Filter, session.SearchQuery) session.SearchReport {
+						return session.SearchReport{Complete: complete, Diagnostics: diagnostics, Sessions: []session.Match{{Session: entry, Hits: []session.Hit{{Line: 2, Excerpt: "needle"}}}}}
+					},
+				}
+				request := `{"mode":"` + command[0] + `","filter":{"archive_state":"all"},"query":{"pattern":"needle"}}`
+				code, stdout, stderr := runCommandWithInput(t, sessionLoader(t), operations, request, "sessions", "query")
+				args := append([]string{"sessions"}, command...)
+				args = append(args, "--json")
+				localCode, localStdout, localStderr := runCommandWithOperations(t, sessionLoader(t), operations, args...)
+				if code != localCode || stdout != localStdout || stderr != localStderr {
+					t.Fatalf("query = (%d, %q, %q), local = (%d, %q, %q)", code, stdout, stderr, localCode, localStdout, localStderr)
+				}
+				wantCode := 0
+				if !complete {
+					wantCode = 1
+				}
+				if code != wantCode || !strings.HasPrefix(stderr, "/roots/project: archive/pi [pi]: malformed-lines: skipped 1 unparseable lines\n") {
+					t.Errorf("exit = %d, stderr = %q, want %d and the human diagnostic", code, stderr, wantCode)
+				}
+				var reply session.SearchReport
+				if err := json.Unmarshal([]byte(stdout), &reply); err != nil {
+					t.Fatal(err)
+				}
+				if reply.Complete != complete || len(reply.Sessions) != 1 || reply.Sessions[0].Machine != "box" || strings.Contains(stdout, "diagnostics") || strings.Contains(stdout, "malformed-lines") {
+					t.Errorf("stdout = %q, want only payload JSON with complete=%t", stdout, complete)
+				}
+			})
+		}
 	}
 }
 
@@ -266,8 +301,8 @@ func TestSessionsQueryRejectsInvalidRequestsBeforeConfiguration(t *testing.T) {
 
 			code, stdout, stderr := runCommandWithInput(t, load, commandOperations{}, test.request, "sessions", "query")
 
-			if code != 2 || stdout != "" || !strings.Contains(stderr, test.want) {
-				t.Fatalf("exit = %d, stdout = %q, stderr = %q, want usage error containing %q", code, stdout, stderr, test.want)
+			if code != 1 || stdout != "" || !strings.Contains(stderr, test.want) {
+				t.Fatalf("exit = %d, stdout = %q, stderr = %q, want application error containing %q", code, stdout, stderr, test.want)
 			}
 		})
 	}

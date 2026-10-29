@@ -58,8 +58,8 @@ func TestSessionPeriodWorkflow(t *testing.T) {
 		}
 	}
 	invalid := runEsheep(t, environment, "sessions", "search", ".", "--raw", "--since", "7d")
-	if invalid.exitCode != 2 || !strings.Contains(invalid.stderr, "--raw cannot combine with --since or --until") {
-		t.Errorf("raw period result = %+v, want usage error", invalid)
+	if invalid.exitCode != 1 || !strings.Contains(invalid.stderr, "--raw cannot combine with --since or --until") {
+		t.Errorf("raw period result = %+v, want application error", invalid)
 	}
 	if got := snapshotTree(t, home); got != before {
 		t.Fatal("period commands modified the session store")
