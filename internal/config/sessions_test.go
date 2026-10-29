@@ -70,6 +70,19 @@ func TestCoworkSessionLocationPrecedence(t *testing.T) {
 			if !strings.Contains(string(rendered), "[sessions.claude-cowork]") || !strings.Contains(string(rendered), "# sessions.claude-cowork.path = ") {
 				t.Errorf("config report missing Cowork configuration: %s", rendered)
 			}
+			wantSource := "<default>"
+			switch source {
+			case "TOML":
+				wantSource = options.ConfigPath
+			case "environment":
+				wantSource = "<env>"
+			case "flag", "disabled":
+				wantSource = "<pflag>"
+			}
+			provenance := fmt.Sprintf("# sessions.claude-cowork.path = %q (source: %s)\n", want, wantSource)
+			if strings.Count(string(rendered), provenance) != 1 {
+				t.Errorf("config report must contain exactly one provenance row %q:\n%s", provenance, rendered)
+			}
 			if resolved != "" {
 				if _, err := os.Stat(resolved); !os.IsNotExist(err) {
 					t.Errorf("configuration created Cowork storage: %v", err)
