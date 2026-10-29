@@ -26,9 +26,9 @@ each candidate transcript is also scanned until its first event in the period
 or the end of the file.
 
 Each row carries the harness, session ID, recorded start time (or file
-modification time when unavailable), archive state, recorded origin,
-project directories,
-title where the grammar records one, and the canonical transcript path.
+modification time when unavailable), archive state, recorded origin, project
+directories, title where the grammar records one, and the canonical transcript
+path.
 Subagent and sidechain transcripts are excluded unless --subagents is
 set. --since and --until keep sessions with at least one recorded event
 in the period. Best-effort fields a grammar does not record appear as -.

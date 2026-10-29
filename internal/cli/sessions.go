@@ -183,21 +183,21 @@ machine-unreachable (ssh failed: name resolution, connection, batch-mode
 authentication, or an unknown host key), machine-timeout (no complete
 reply within the entry's timeout), machine-command (the remote command
 failed, such as esheep missing from the login shell's PATH or an invalid
-remote configuration), or machine-reply (stdout was not one JSON document,
-such as a shell startup file printing to stdout). Each nonempty remote
-stderr line is forwarded as a machine-diagnostic with its machine's name;
-this includes diagnostics from successful scans. The failure diagnostic
-carries the process or decoder error.
+remote configuration), or machine-reply (stdout was not one valid reply,
+including non-JSON output or missing or invalid classifications). Each
+nonempty remote stderr line is forwarded as a machine-diagnostic with its
+machine's name, including diagnostics from successful scans. The failure
+diagnostic carries the process or decoder error.
 
 Builds are not version-checked. A remote rejects a request field it does
 not know and answers with a machine-command diagnostic, while replies
-ignore unknown fields. Session origin kinds and hit kinds and origin kinds
+ignore unknown fields. Session origin kinds, hit kinds, and hit origin kinds
 must be present and recognized, and subagent origin must agree with the
 subagent flag; invalid classifications produce machine-reply diagnostics.
 Other missing fields are zero-filled. A machine running a different esheep
-build can therefore
-refuse the request, ignore a filter, or return wrong or empty results
-after a change to the request or document shape until it is upgraded.`
+build can therefore refuse the request, ignore a filter, or return wrong
+or empty results after a change to the request or document shape until
+it is upgraded.`
 
 func newSessionsCommand(load configLoader, operations commandOperations) *cobra.Command {
 	command := &cobra.Command{

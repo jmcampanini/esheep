@@ -137,6 +137,22 @@ func TestSessionOriginsUseOnlyRecordedInitiation(t *testing.T) {
 	}
 }
 
+func TestMalformedCodexOriginatorCannotSupplyMetadata(t *testing.T) {
+	root := t.TempDir()
+	writeTranscript(t, filepath.Join(root, "fallback.jsonl"), time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC),
+		`{"type":"session_meta","payload":{"id":"untrusted","originator":7,"cwd":"/untrusted","source":{"subagent":"review"}}}`)
+
+	report := List(context.Background(), Roots{CodexSessions: root}, Filter{})
+
+	if !report.Complete || len(report.Sessions) != 1 {
+		t.Fatalf("List() = %+v, want one session without usable header metadata", report)
+	}
+	entry := report.Sessions[0]
+	if entry.ID != "fallback" || len(entry.Projects) != 0 || entry.Subagent || entry.Origin.Kind != OriginUnknown || len(entry.Origin.Evidence) != 0 {
+		t.Errorf("List() metadata = %+v, want filename ID and unknown origin", entry)
+	}
+}
+
 func TestClaudeAndCoworkEventOriginEvidence(t *testing.T) {
 	for _, test := range []struct {
 		metadata string

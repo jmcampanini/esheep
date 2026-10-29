@@ -66,12 +66,14 @@ func (codexAdapter) meta(t transcript, ids idFilter) describedSession {
 		if json.Unmarshal(envelope.Payload, &payload) != nil {
 			return ids.matches(entry.ID)
 		}
+		var originator string
+		if payload.Originator != nil && json.Unmarshal(payload.Originator, &originator) != nil {
+			return ids.matches(entry.ID)
+		}
 		if payload.ID != "" {
 			entry.ID = payload.ID
 		}
 		cwd = payload.Cwd
-		var originator string
-		_ = json.Unmarshal(payload.Originator, &originator)
 		if originator == "codex_work_desktop" {
 			entry.Harness = HarnessChatGPTWork
 			eligible = false
