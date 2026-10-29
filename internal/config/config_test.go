@@ -177,6 +177,8 @@ func TestMemoryPathRejectsEquivalentHomeSpellings(t *testing.T) {
 			{name: "composed home", home: "Jos\u00e9", memory: "Jose\u0301"},
 			{name: "decomposed home", home: "Jose\u0301", memory: "Jos\u00e9"},
 			{name: "case and normalization", home: "Jos\u00e9", memory: "JOSE\u0301"},
+			{name: "Greek iota case and accents", home: "\u0390", memory: "\u0399\u0308\u0301"},
+			{name: "Greek upsilon case and accents", home: "\u03b0", memory: "\u03a5\u0308\u0301"},
 			{name: "combining mark order", home: "a\u0323\u0302", memory: "a\u0302\u0323"},
 		} {
 			t.Run(fmt.Sprintf("%s/existing=%t", test.name, existing), func(t *testing.T) {

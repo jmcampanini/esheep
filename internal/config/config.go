@@ -372,10 +372,10 @@ func resolveMemory(path, home string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	// Symlink resolution preserves Unicode spelling. Compare normalized paths
-	// conservatively even when directories do not exist, without rewriting the
-	// path used for filesystem access on case- or normalization-sensitive disks.
-	if memory == string(filepath.Separator) || strings.EqualFold(norm.NFC.String(memory), norm.NFC.String(home)) {
+	// Symlink resolution preserves Unicode spelling. Decompose before folding
+	// case so accented letters compare equally even when their uppercase forms
+	// have no single code point. Keep filesystem access in the original spelling.
+	if memory == string(filepath.Separator) || strings.EqualFold(norm.NFD.String(memory), norm.NFD.String(home)) {
 		return "", errors.New("config: memory.path is too broad")
 	}
 	return memory, nil
