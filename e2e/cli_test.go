@@ -168,6 +168,85 @@ name = "nas"
 	}
 }
 
+func TestConfigurationEnvironmentPrecedenceAndProvenance(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	configHome := filepath.Join(root, "config")
+	settingsPath := filepath.Join(configHome, "esheep", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(settingsPath, []byte("[sessions.codex]\nhome = '~/file-codex'\n[memory]\npath = '~/file-memory'\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dataHome := filepath.Join(root, "data")
+	for _, test := range []struct {
+		name         string
+		env          map[string]string
+		flags        []string
+		wantCodex    string
+		wantMemory   string
+		codexSource  string
+		memorySource string
+	}{
+		{name: "TOML", wantCodex: "~/file-codex", wantMemory: "~/file-memory", codexSource: settingsPath, memorySource: settingsPath},
+		{name: "standard environment", env: map[string]string{"CODEX_HOME": "~/env-codex", "XDG_DATA_HOME": dataHome}, wantCodex: "~/env-codex", wantMemory: filepath.Join(dataHome, "esheep", "memory"), codexSource: "CODEX_HOME", memorySource: "XDG_DATA_HOME"},
+		{name: "empty standard environment", env: map[string]string{"CODEX_HOME": "", "XDG_DATA_HOME": ""}, wantCodex: "~/file-codex", wantMemory: "~/file-memory", codexSource: settingsPath, memorySource: settingsPath},
+		{name: "Esheep environment overrides invalid standard environment", env: map[string]string{"CODEX_HOME": "relative", "XDG_DATA_HOME": "relative", "ESHEEP_CODEX_HOME": "~/esheep-codex", "ESHEEP_MEMORY_PATH": "~/esheep-memory"}, wantCodex: "~/esheep-codex", wantMemory: "~/esheep-memory", codexSource: "<env>", memorySource: "<env>"},
+		{name: "flags override invalid environments", env: map[string]string{"CODEX_HOME": "relative", "XDG_DATA_HOME": "relative", "ESHEEP_CODEX_HOME": "relative", "ESHEEP_MEMORY_PATH": "relative"}, flags: []string{"--codex-home=~/flag-codex", "--memory-path=~/flag-memory"}, wantCodex: "~/flag-codex", wantMemory: "~/flag-memory", codexSource: "<pflag>", memorySource: "<pflag>"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			env := map[string]string{"HOME": home, "XDG_CONFIG_HOME": configHome}
+			for key, value := range test.env {
+				env[key] = value
+			}
+			args := append([]string{"config", "--provenance"}, test.flags...)
+			result := runEsheep(t, env, args...)
+			assertSuccess(t, result)
+			for _, line := range []string{
+				fmt.Sprintf("# sessions.codex.home = %q (source: %s)", test.wantCodex, test.codexSource),
+				fmt.Sprintf("# memory.path = %q (source: %s)", test.wantMemory, test.memorySource),
+			} {
+				if !strings.Contains(result.stdout, line) {
+					t.Fatalf("config report missing %q:\n%s", line, result.stdout)
+				}
+			}
+			var decoded struct {
+				Memory struct {
+					Path string `toml:"path"`
+				} `toml:"memory"`
+				Sessions struct {
+					Codex struct {
+						Home string `toml:"home"`
+					} `toml:"codex"`
+				} `toml:"sessions"`
+			}
+			if _, err := toml.Decode(result.stdout, &decoded); err != nil {
+				t.Fatal(err)
+			}
+			if decoded.Memory.Path != test.wantMemory || decoded.Sessions.Codex.Home != test.wantCodex {
+				t.Fatalf("config = %#v, want memory %q and Codex home %q", decoded, test.wantMemory, test.wantCodex)
+			}
+			redirected := filepath.Join(t.TempDir(), "config.toml")
+			if err := os.WriteFile(redirected, []byte(result.stdout), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			reloaded := runEsheep(t, map[string]string{"HOME": home, "XDG_CONFIG_HOME": configHome}, "--config", redirected, "config")
+			assertSuccess(t, reloaded)
+			if _, err := toml.Decode(reloaded.stdout, &decoded); err != nil {
+				t.Fatal(err)
+			}
+			if decoded.Memory.Path != test.wantMemory || decoded.Sessions.Codex.Home != test.wantCodex {
+				t.Fatalf("reloaded config = %#v, want memory %q and Codex home %q", decoded, test.wantMemory, test.wantCodex)
+			}
+		})
+	}
+	invalid := runEsheep(t, map[string]string{"HOME": home, "XDG_CONFIG_HOME": configHome, "XDG_DATA_HOME": "relative"}, "config")
+	if invalid.exitCode != 1 || invalid.stdout != "" || !strings.Contains(invalid.stderr, "XDG_DATA_HOME must be absolute") {
+		t.Fatalf("invalid winning XDG_DATA_HOME result = %#v", invalid)
+	}
+}
+
 func snapshotTree(t *testing.T, root string) string {
 	t.Helper()
 	var snapshot strings.Builder

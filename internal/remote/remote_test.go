@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -131,8 +132,19 @@ cat > "$RECORD_DIR/stdin"
 host="$6"
 case "$host" in
 ok)
-  printf '%s' '{"complete":true,"diagnostics":[{"code":"root-missing","harness":"pi","message":"skipped","path":"/home/j/.pi"}],"sessions":[{"harness":"claude","id":"remote-1","machine":"ignored","modified_at":"2026-09-10T10:00:00Z","path":"/home/j/.claude/a.jsonl","projects":[],"started_at":"2026-09-10T10:00:00Z","subagent":false,"hits":[{"line":3,"role":"user","excerpt":"timeout"}]}],"future_field":1}'
-  exit 1 ;;
+  printf '%s' '{"complete":true,"sessions":[{"harness":"claude","id":"remote-1","machine":"ignored","modified_at":"2026-09-10T10:00:00Z","path":"/home/j/.claude/a.jsonl","projects":[],"started_at":"2026-09-10T10:00:00Z","subagent":false,"hits":[{"line":3,"role":"user","excerpt":"timeout"}]}],"future_field":1}'
+  echo '/home/j/.pi [pi]: root-missing: skipped' >&2 ;;
+failed|silent|disconnected|timed-out)
+  printf '%s' '{"complete":true,"sessions":[{"id":"retained","path":"/home/j/session.jsonl","hits":[{"line":3,"role":"user","excerpt":"timeout"}]}]}'
+  case "$host" in
+    failed) echo 'esheep: failed after writing results' >&2; exit 1 ;;
+    silent) exit 1 ;;
+    disconnected) echo 'ssh: connection lost' >&2; exit 255 ;;
+    timed-out) echo 'still waiting for the remote process' >&2; sleep 5 ;;
+  esac ;;
+warnings)
+  printf '%s' '{"complete":true,"sessions":[]}'
+  printf '%s' "$REMOTE_STDERR" >&2 ;;
 down)
   echo "ssh: connect to host down port 22: Connection refused" >&2
   exit 255 ;;
@@ -140,8 +152,11 @@ slow)
   sleep 5
   exit 0 ;;
 banner)
+  echo 'shell startup warning: before stdout' >&2
   echo "Welcome to the shell"
   printf '%s' '{"complete":true}' ;;
+invalid-field)
+  printf '%s' '{"complete":true,"sessions":[{"id":"invalid","started_at":"not a timestamp"}]}' ;;
 missing)
   echo "fish: Unknown command: esheep" >&2
   exit 127 ;;
@@ -181,7 +196,7 @@ func TestSearchMergesLocalAndRemoteReplies(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !report.Complete {
-		t.Errorf("complete = false, want the remote document's completeness to win over its exit status")
+		t.Errorf("complete = false, want a complete report despite the nonfatal remote warning")
 	}
 	if report.Period.Since == nil || !report.Period.Since.Equal(since) || report.Period.Until != nil {
 		t.Errorf("period = %+v, want the local resolved period", report.Period)
@@ -193,7 +208,7 @@ func TestSearchMergesLocalAndRemoteReplies(t *testing.T) {
 	if got := strings.Join(ids, " "); got != "laptop:local-tie nas:remote-1 laptop:local-old" {
 		t.Errorf("merged order = %q, want time descending with machine tiebreak", got)
 	}
-	if len(report.Diagnostics) != 1 || report.Diagnostics[0].Machine != "nas" || report.Diagnostics[0].Code != "root-missing" {
+	if len(report.Diagnostics) != 1 || report.Diagnostics[0].Machine != "nas" || report.Diagnostics[0].Code != CodeDiagnostic || report.Diagnostics[0].Message != "/home/j/.pi [pi]: root-missing: skipped" {
 		t.Errorf("diagnostics = %+v, want the remote diagnostic stamped nas", report.Diagnostics)
 	}
 	if report.Sessions[1].Path != "/home/j/.claude/a.jsonl" || len(report.Sessions[1].Hits) != 1 {
@@ -262,11 +277,13 @@ func TestQueryFailuresBecomeDiagnostics(t *testing.T) {
 		timeout     time.Duration
 		wantCode    string
 		wantMessage string
+		wantStderr  string
 	}{
-		{name: "ssh failure", host: "down", timeout: time.Minute, wantCode: CodeUnreachable, wantMessage: "Connection refused"},
+		{name: "ssh failure", host: "down", timeout: time.Minute, wantCode: CodeUnreachable, wantMessage: "exit status 255", wantStderr: "ssh: connect to host down port 22: Connection refused"},
 		{name: "timeout", host: "slow", timeout: 300 * time.Millisecond, wantCode: CodeTimeout, wantMessage: "no reply within 300ms"},
-		{name: "stdout not a document", host: "banner", timeout: time.Minute, wantCode: CodeReply, wantMessage: `stdout begins "Welcome`},
-		{name: "remote command failed", host: "missing", timeout: time.Minute, wantCode: CodeCommand, wantMessage: "Unknown command: esheep"},
+		{name: "stdout not a document", host: "banner", timeout: time.Minute, wantCode: CodeReply, wantMessage: `stdout begins "Welcome`, wantStderr: "shell startup warning: before stdout"},
+		{name: "invalid field discards partial decoding", host: "invalid-field", timeout: time.Minute, wantCode: CodeReply, wantMessage: `not a timestamp`},
+		{name: "remote command failed", host: "missing", timeout: time.Minute, wantCode: CodeCommand, wantMessage: "exit status 127", wantStderr: "fish: Unknown command: esheep"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -280,14 +297,85 @@ func TestQueryFailuresBecomeDiagnostics(t *testing.T) {
 			if report.Complete || len(report.Sessions) != 0 {
 				t.Errorf("report = %+v, want incomplete and empty", report)
 			}
-			if len(report.Diagnostics) != 1 {
-				t.Fatalf("diagnostics = %+v, want exactly one", report.Diagnostics)
+			wantCount := 1
+			if test.wantStderr != "" {
+				wantCount++
 			}
-			diagnostic := report.Diagnostics[0]
+			if len(report.Diagnostics) != wantCount {
+				t.Fatalf("diagnostics = %+v, want %d", report.Diagnostics, wantCount)
+			}
+			if test.wantStderr != "" {
+				want := session.Diagnostic{Code: CodeDiagnostic, Machine: "box", Message: test.wantStderr}
+				if report.Diagnostics[0] != want {
+					t.Errorf("stderr diagnostic = %+v, want %+v", report.Diagnostics[0], want)
+				}
+			}
+			diagnostic := report.Diagnostics[wantCount-1]
 			if diagnostic.Code != test.wantCode || diagnostic.Machine != "box" || !strings.Contains(diagnostic.Message, test.wantMessage) {
 				t.Errorf("diagnostic = %+v, want %s on box containing %q", diagnostic, test.wantCode, test.wantMessage)
 			}
 		})
+	}
+}
+
+func TestQueryKeepsRecordsButForcesIncompleteOnProcessFailure(t *testing.T) {
+	ssh, _ := fakeSSH(t)
+	for _, test := range []struct {
+		host       string
+		timeout    time.Duration
+		wantCode   string
+		wantStderr string
+	}{
+		{host: "failed", timeout: time.Minute, wantCode: CodeCommand, wantStderr: "esheep: failed after writing results"},
+		{host: "silent", timeout: time.Minute, wantCode: CodeCommand},
+		{host: "disconnected", timeout: time.Minute, wantCode: CodeUnreachable, wantStderr: "ssh: connection lost"},
+		{host: "timed-out", timeout: 300 * time.Millisecond, wantCode: CodeTimeout, wantStderr: "still waiting for the remote process"},
+	} {
+		t.Run(test.host, func(t *testing.T) {
+			selection := Selection{Machines: []config.ResolvedMachine{machine("box", test.host, test.timeout)}}
+			report, err := Search(context.Background(), ssh, selection, session.Request{Mode: session.ModeSearch}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if report.Complete || len(report.Sessions) != 1 || report.Sessions[0].ID != "retained" || report.Sessions[0].Machine != "box" || len(report.Sessions[0].Hits) != 1 {
+				t.Fatalf("report = %+v, want incomplete with the remote match retained", report)
+			}
+			if len(report.Diagnostics) == 0 || report.Diagnostics[len(report.Diagnostics)-1].Code != test.wantCode {
+				t.Fatalf("diagnostics = %+v, want %s", report.Diagnostics, test.wantCode)
+			}
+			if test.wantStderr != "" && (report.Diagnostics[0].Code != CodeDiagnostic || report.Diagnostics[0].Message != test.wantStderr) {
+				t.Errorf("diagnostics = %+v, want remote stderr %q", report.Diagnostics, test.wantStderr)
+			}
+		})
+	}
+}
+
+func TestQueryPreservesEveryStderrLineAsOpaqueText(t *testing.T) {
+	ssh, _ := fakeSSH(t)
+	lines := []string{
+		"/home/j/project: archive/session.jsonl [pi]: malformed-lines: skipped 1 unparseable lines",
+		"warning: first",
+		"warning: second",
+		"warning: third",
+		"warning: fourth",
+		"warning: fifth",
+		"  an unstructured message: with trailing spaces  ",
+	}
+	t.Setenv("REMOTE_STDERR", strings.Join(lines, "\n"))
+	selection := Selection{Machines: []config.ResolvedMachine{machine("box", "warnings", time.Minute)}}
+	report, err := List(context.Background(), ssh, selection, session.Request{Mode: session.ModeList}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.Complete {
+		t.Fatal("stderr warnings made a successful report incomplete")
+	}
+	want := make([]session.Diagnostic, 0, len(lines))
+	for _, line := range lines {
+		want = append(want, session.Diagnostic{Code: CodeDiagnostic, Machine: "box", Message: line})
+	}
+	if !reflect.DeepEqual(report.Diagnostics, want) {
+		t.Errorf("diagnostics = %+v, want %+v", report.Diagnostics, want)
 	}
 }
 

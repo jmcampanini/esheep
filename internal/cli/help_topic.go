@@ -18,6 +18,7 @@ func newHelpTopic(use, short, long string) *cobra.Command {
 		Use:         use,
 		Short:       short,
 		Long:        long + "\n\n" + helpTopicContractHelp,
+		GroupID:     "help-topics",
 		Annotations: map[string]string{helpTopicAnnotation: "true"},
 		Args:        cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {

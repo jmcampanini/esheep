@@ -1,11 +1,6 @@
 # Security Policy
 
 
-## Supported versions
-
-esheep is supported only at the latest commit on the `main` branch. There are no stable releases or supported older versions.
-
-
 ## Reporting a vulnerability
 
 Report suspected vulnerabilities through [GitHub private vulnerability reporting](https://github.com/jmcampanini/esheep/security/advisories/new).

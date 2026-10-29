@@ -53,4 +53,9 @@ func TestColorAlwaysStylesHumanOutputButNeverJSON(t *testing.T) {
 	if code != 0 || strings.ContainsRune(plain, '\x1b') {
 		t.Fatalf("never: exit = %d, stderr = %q, stdout = %q, want no escapes", code, stderr, plain)
 	}
+
+	code, defaultOutput, stderr := runCommandWithOperations(t, load, operations, "sessions", "list")
+	if code != 0 || defaultOutput != plain {
+		t.Fatalf("default: exit = %d, stderr = %q, stdout = %q, want redirected output %q", code, stderr, defaultOutput, plain)
+	}
 }

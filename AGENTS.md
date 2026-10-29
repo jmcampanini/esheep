@@ -1,24 +1,21 @@
 ## Build and verification
 
-- Run tasks with `mise run <task>`; do not call `go`, `golangci-lint`, or similar tools directly.
-- Run `mise run check` before handing off changes; keep it read-only.
+- Run tasks with `mise run <task>`.
+- Do not call pinned tools such as `go` or `golangci-lint` directly.
+- Run `mise run check` before handing off changes.
 - Keep formatting, dependency updates, and generation in their separate write-mode tasks such as `mise run fmt` and `mise run tidy`.
-- Bump a tool with `mise upgrade --bump <tool>`, run `mise lock` and `mise run check`, and commit `mise.toml`, `mise.lock`, and `.mise/locks/`.
+- Follow this sequence when updating a tool:
+  1. Bump it with `mise upgrade --bump <tool>`.
+  2. Run `mise lock` and `mise run check`.
+  3. Commit `mise.toml`, `mise.lock`, and `.mise/locks/` together.
 
 
-## Repository design
+## Product contracts
 
-- Support macOS and Linux only.
-- Treat harness session transcripts as read-only inputs; write only under the configured memory root.
-- Contact another machine only when `--remote` names it, and only to run esheep there over ssh; every other command stays offline.
-
-
-## CLI behavior
-
-- Use Cobra `RunE` handlers and explicit argument validators on every command.
-- Keep payloads on stdout and diagnostics or progress on stderr.
-- Avoid unexpected prompts and return actionable nonzero errors.
-- Keep command help the canonical documentation of user-facing contracts, keep the README a landing page, and keep both consistent with observable behavior.
+- Follow the supported platforms and safety properties in [README.md](README.md).
+- Treat command help as the canonical documentation of user-facing contracts.
+- Keep the README a landing page.
+- Keep command help and the README consistent with observable behavior.
 
 
 ## Breaking changes

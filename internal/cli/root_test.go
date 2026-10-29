@@ -42,6 +42,9 @@ func TestEveryCommandDeclaresPositionalGrammar(t *testing.T) {
 	if !root.DisableSuggestions {
 		t.Error("root: DisableSuggestions is false")
 	}
+	if root.Version != "" {
+		t.Error("root: Version enables Cobra's version handling")
+	}
 	for _, name := range []string{"help", "version"} {
 		if root.Flags().Lookup(name) == nil {
 			t.Errorf("root: --%s is not registered at construction", name)
@@ -72,6 +75,58 @@ func TestEveryCommandDeclaresPositionalGrammar(t *testing.T) {
 	}
 
 	assertGrammar(root)
+}
+
+func TestVersionValidatesInvocationBeforeWriting(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		args []string
+		code int
+	}{
+		{name: "version", args: []string{"--version"}},
+		{name: "following flag", args: []string{"--version", "--config", "missing.toml"}},
+		{name: "preceding flag", args: []string{"--config", "missing.toml", "--version"}},
+		{name: "unknown operand", args: []string{"--version", "unexpected"}, code: 2},
+		{name: "unknown flag", args: []string{"--version", "--unexpected"}, code: 2},
+		{name: "invalid flag value", args: []string{"--version=invalid"}, code: 2},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			code, stdout, stderr := runCommand(t, loadNeverCalled(t), test.args...)
+			if code != test.code {
+				t.Fatalf("exit = %d, want %d; stderr = %q", code, test.code, stderr)
+			}
+			if code == 0 {
+				if stdout != "esheep version "+effectiveVersion()+"\n" || stderr != "" {
+					t.Fatalf("stdout = %q, stderr = %q", stdout, stderr)
+				}
+			} else if stdout != "" || !strings.HasPrefix(stderr, "esheep: ") || strings.Count(stderr, "\n") != 1 {
+				t.Fatalf("stdout = %q, stderr = %q, want one failure diagnostic", stdout, stderr)
+			}
+		})
+	}
+}
+
+func TestRunnerOutputFailuresExitOne(t *testing.T) {
+	for _, args := range [][]string{
+		{"--version"}, {"completion", "bash"}, {"config"},
+		{"--help"}, {"help", "sessions", "list"}, {"sessions"}, {"exit-codes"},
+	} {
+		t.Run(strings.Join(args, "/"), func(t *testing.T) {
+			root := newRootCommand(successfulLoad)
+			root.SetOut(failingWriter{})
+			var stderr bytes.Buffer
+			root.SetErr(&stderr)
+			if code := execute(root, args); code != 1 || stderr.String() != "esheep: output unavailable\n" {
+				t.Fatalf("exit = %d, stderr = %q, want output failure", code, stderr.String())
+			}
+		})
+	}
+}
+
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) {
+	return 0, errors.New("output unavailable")
 }
 
 func TestUsageErrorPrintsOneLineWithoutUsage(t *testing.T) {

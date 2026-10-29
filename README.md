@@ -5,44 +5,40 @@ esheep finds historical sessions from Claude Code, Pi, Codex, local ChatGPT Work
 
 ## Install
 
-esheep supports macOS and Linux on amd64 and arm64. Versioned releases will provide prebuilt archives and a Homebrew cask in the shared tap. The first release has not been published; until then, use the HEAD formula or build from source.
+esheep ships versioned releases for macOS and Linux on amd64 and arm64 as prebuilt archives and a Homebrew cask, with a HEAD formula and source builds also available.
 
-
-### Versioned releases
-
-After the first stable release, install and upgrade with [mise](https://mise.jdx.dev) or the shared Homebrew tap:
+Install and upgrade with [mise](https://mise.jdx.dev):
 
 ```sh
 mise use -g github:jmcampanini/esheep
 mise upgrade github:jmcampanini/esheep
+```
+
+Install and upgrade the shared cask with Homebrew, which removes macOS quarantine before generating shell completions:
+
+```sh
 brew install --cask jmcampanini/tap/esheep
 brew upgrade --cask jmcampanini/tap/esheep
 ```
 
-Alternatively, download the archive for your OS and architecture from the [releases page](https://github.com/jmcampanini/esheep/releases), extract it, and copy `esheep` onto your `PATH`. To upgrade, download the new archive and replace the binary. Archives include `README.md` and `LICENSE`; releases include SHA-256 checksums and GitHub build provenance attestations.
+Download your OS and architecture's archive from [releases](https://github.com/jmcampanini/esheep/releases), which include SHA-256 checksums and build provenance attestations, then extract it with `tar` and install or replace the binary:
 
-For a browser-downloaded archive on macOS, remove quarantine from the extracted binary with `xattr -d com.apple.quarantine esheep` before running it. The Homebrew cask handles this before generating bash, zsh, and fish completions.
+```sh
+tar -xzf <downloaded-archive>.tar.gz # Contains esheep, README.md, and LICENSE.
+# macOS only: remove quarantine from a browser-downloaded binary before running it.
+xattr -d com.apple.quarantine esheep
+# Copy ./esheep to a directory on your PATH, replacing it when upgrading.
+```
 
-
-### Homebrew HEAD alternative
-
-The existing HEAD formula remains available for installation from the latest source commit:
+Install the HEAD formula with Homebrew and upgrade to the latest source commit:
 
 ```sh
 brew tap jmcampanini/esheep https://github.com/jmcampanini/esheep
 brew install --HEAD jmcampanini/esheep/esheep
-```
-
-Upgrade to the latest commit:
-
-```sh
 brew upgrade --fetch-HEAD jmcampanini/esheep/esheep
 ```
 
-
-### From source
-
-With Git and [mise](https://mise.jdx.dev) installed (`brew install mise` on macOS), mise supplies the pinned Go toolchain from `mise.toml`:
+Build from source with Git and mise, then copy the binary onto your `PATH`:
 
 ```sh
 git clone https://github.com/jmcampanini/esheep
@@ -50,7 +46,7 @@ cd esheep
 mise trust
 mise install
 mise run build
-# then copy ./build/esheep to a directory on your PATH
+# Copy ./build/esheep to a directory on your PATH.
 ```
 
 

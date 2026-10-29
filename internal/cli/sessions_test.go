@@ -229,7 +229,7 @@ func TestSessionsUntilDateEndsAtNextLocalMidnight(t *testing.T) {
 	}
 }
 
-func TestSessionsUsageErrorsDoNotLoadConfiguration(t *testing.T) {
+func TestSessionsInvalidValuesFailBeforeConfiguration(t *testing.T) {
 	tests := []struct {
 		args []string
 		name string
@@ -264,8 +264,8 @@ func TestSessionsUsageErrorsDoNotLoadConfiguration(t *testing.T) {
 
 			code, stdout, stderr := runCommandWithOperations(t, load, commandOperations{}, test.args...)
 
-			if code != 2 {
-				t.Fatalf("exit code = %d, want 2 (stderr %q)", code, stderr)
+			if code != 1 {
+				t.Fatalf("exit code = %d, want 1 (stderr %q)", code, stderr)
 			}
 			if calls != 0 {
 				t.Fatalf("configuration loads = %d, want 0", calls)

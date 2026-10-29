@@ -92,9 +92,13 @@ func TestCodexHomePrecedenceAndDerivedLocations(t *testing.T) {
 		{name: "default", want: "~/.codex", wantSource: "<default>"},
 		{name: "empty Codex environment", codexHome: "", want: "~/.codex", wantSource: "<default>"},
 		{name: "Codex environment", codexHome: "~/codex-env", want: "~/codex-env", wantSource: "CODEX_HOME"},
-		{name: "TOML", codexHome: "~/codex-env", tomlHome: "~/configured", want: "~/configured", wantSource: "file"},
+		{name: "TOML", tomlHome: "~/configured", want: "~/configured", wantSource: "file"},
+		{name: "Codex environment overrides TOML", codexHome: "~/codex-env", tomlHome: "~/configured", want: "~/codex-env", wantSource: "CODEX_HOME"},
 		{name: "Esheep environment", codexHome: "~/codex-env", tomlHome: "~/configured", esheepHome: "~/esheep-env", want: "~/esheep-env", wantSource: "<env>"},
 		{name: "flag", codexHome: "~/codex-env", tomlHome: "~/configured", esheepHome: "~/esheep-env", flagHome: "~/flag", want: "~/flag", wantSource: "<pflag>"},
+		{name: "Codex environment overrides invalid TOML", codexHome: "~/codex-env", tomlHome: "relative", want: "~/codex-env", wantSource: "CODEX_HOME"},
+		{name: "Esheep environment overrides invalid Codex environment", codexHome: "~another-user", tomlHome: "relative", esheepHome: "~/esheep-env", want: "~/esheep-env", wantSource: "<env>"},
+		{name: "flag overrides invalid environments", codexHome: "relative", tomlHome: "relative", esheepHome: "~another-user", flagHome: "~/flag", want: "~/flag", wantSource: "<pflag>"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			home, err := filepath.EvalSymlinks(t.TempDir())
@@ -148,13 +152,46 @@ func TestCodexHomePrecedenceAndDerivedLocations(t *testing.T) {
 			if got := result.Report.Updates["sessions.codex.home"]; got != wantSource {
 				t.Errorf("home provenance = %q, want %q", got, wantSource)
 			}
-			for _, want := range []string{wantHome, filepath.Join(wantHome, "sessions"), filepath.Join(wantHome, "archived_sessions"), "source: " + wantSource} {
+			provenance := fmt.Sprintf("# sessions.codex.home = %q (source: %s)", test.want, wantSource)
+			for _, want := range []string{wantHome, filepath.Join(wantHome, "sessions"), filepath.Join(wantHome, "archived_sessions"), provenance} {
 				if !strings.Contains(string(rendered), want) {
 					t.Errorf("config output missing %q: %s", want, rendered)
 				}
 			}
 			if _, err := os.Stat(wantHome); !os.IsNotExist(err) {
 				t.Errorf("Load created a Codex home: %v", err)
+			}
+		})
+	}
+}
+
+func TestCodexHomeRejectsInvalidWinningInput(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		env   map[string]string
+		flags []string
+	}{
+		{name: "Codex environment", env: map[string]string{"CODEX_HOME": "relative"}},
+		{name: "Esheep environment", env: map[string]string{"CODEX_HOME": "~/valid", "ESHEEP_CODEX_HOME": "~another-user"}},
+		{name: "empty Esheep environment", env: map[string]string{"CODEX_HOME": "~/valid", "ESHEEP_CODEX_HOME": ""}},
+		{name: "flag", env: map[string]string{"CODEX_HOME": "~/valid", "ESHEEP_CODEX_HOME": "~/valid"}, flags: []string{"--codex-home=relative"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			env := testEnv(t.TempDir(), t.TempDir())
+			for key, value := range test.env {
+				env[key] = value
+			}
+			flags := pflag.NewFlagSet("test", pflag.ContinueOnError)
+			flags.SetOutput(io.Discard)
+			if err := RegisterFlags(flags); err != nil {
+				t.Fatal(err)
+			}
+			if err := flags.Parse(test.flags); err != nil {
+				t.Fatal(err)
+			}
+			_, err := Load(LoadOptions{Env: env, Flags: flags})
+			if err == nil || !strings.Contains(err.Error(), "sessions.codex.home") {
+				t.Fatalf("Load() error = %v, want sessions.codex.home", err)
 			}
 		})
 	}

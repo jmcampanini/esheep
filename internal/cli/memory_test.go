@@ -1,8 +1,10 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -75,18 +77,19 @@ func TestMemoryRecordReadsStdinForDash(t *testing.T) {
 	}
 }
 
-func TestMemoryRecordUsageErrorsDoNotLoadConfiguration(t *testing.T) {
+func TestMemoryRecordInvalidInputFailsBeforeConfiguration(t *testing.T) {
 	tests := []struct {
 		args  []string
 		name  string
+		code  int
 		stdin string
 		want  string
 	}{
-		{name: "blank operand", args: []string{"memory", "record", "  "}, want: "TEXT must not be blank"},
-		{name: "blank stdin", args: []string{"memory", "record", "-"}, stdin: "\n", want: "TEXT must not be blank"},
-		{name: "missing operand", args: []string{"memory", "record"}, want: "accepts 1 arg"},
-		{name: "unsafe session", args: []string{"memory", "record", "t", "--session", "a/b"}, want: "--session"},
-		{name: "blank source", args: []string{"memory", "record", "t", "--source", " "}, want: "--source must not be blank"},
+		{code: 1, name: "blank operand", args: []string{"memory", "record", "  "}, want: "TEXT must not be blank"},
+		{code: 1, name: "blank stdin", args: []string{"memory", "record", "-"}, stdin: "\n", want: "TEXT must not be blank"},
+		{code: 2, name: "missing operand", args: []string{"memory", "record"}, want: "accepts 1 arg"},
+		{code: 1, name: "unsafe session", args: []string{"memory", "record", "t", "--session", "a/b"}, want: "--session"},
+		{code: 1, name: "blank source", args: []string{"memory", "record", "t", "--source", " "}, want: "--source must not be blank"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -102,7 +105,7 @@ func TestMemoryRecordUsageErrorsDoNotLoadConfiguration(t *testing.T) {
 
 			code, stdout, stderr := runCommandWithInput(t, load, operations, test.stdin, test.args...)
 
-			if code != 2 || stdout != "" || !strings.Contains(stderr, test.want) || loads != 0 {
+			if code != test.code || stdout != "" || !strings.Contains(stderr, test.want) || loads != 0 {
 				t.Fatalf("exit = %d, stdout = %q, stderr = %q, loads = %d", code, stdout, stderr, loads)
 			}
 		})
@@ -121,5 +124,33 @@ func TestMemoryRecordFailureIsAnApplicationError(t *testing.T) {
 
 	if code != 1 || stdout != "" || stderr != "esheep: no session detected\n" {
 		t.Fatalf("exit = %d, stdout = %q, stderr = %q", code, stdout, stderr)
+	}
+}
+
+func TestMemoryRecordReportsOutputFailureAfterAppend(t *testing.T) {
+	for _, diagnostic := range []bool{false, true} {
+		t.Run(fmt.Sprint("diagnostic=", diagnostic), func(t *testing.T) {
+			calls := 0
+			operations := commandOperations{memoryRecord: func(context.Context, memory.Request) (memory.Result, error) {
+				calls++
+				result := memory.Result{Path: "/memories/project/memory/session.jsonl"}
+				if diagnostic {
+					result.Diagnostics = []string{"git is unavailable"}
+				}
+				return result, nil
+			}}
+			root := newRootCommandWithOperations(successfulLoad, operations)
+			var output bytes.Buffer
+			root.SetOut(&output)
+			root.SetErr(&output)
+			if diagnostic {
+				root.SetErr(failingWriter{})
+			} else {
+				root.SetOut(failingWriter{})
+			}
+			if code := execute(root, []string{"memory", "record", "text", "--session", "manual"}); code != 1 || calls != 1 {
+				t.Fatalf("exit = %d, appends = %d, want one append and output failure", code, calls)
+			}
+		})
 	}
 }

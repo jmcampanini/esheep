@@ -67,6 +67,50 @@ func TestHelpRejectsUnknownOperands(t *testing.T) {
 	}
 }
 
+func TestRootHelpSeparatesTopicsFromCommands(t *testing.T) {
+	code, help, stderr := runCommand(t, loadNeverCalled(t), "--help")
+	if code != 0 || stderr != "" {
+		t.Fatalf("exit = %d, stderr = %q", code, stderr)
+	}
+	commands, topics, found := strings.Cut(help, "Help topics:\n")
+	if !found || !strings.Contains(commands, "Commands:\n") || !strings.Contains(topics, "  exit-codes ") {
+		t.Fatalf("root help does not group commands and topics:\n%s", help)
+	}
+	if strings.Contains(commands, "  exit-codes ") {
+		t.Fatalf("exit-codes appears among commands:\n%s", commands)
+	}
+}
+
+func TestHelpCompletesCommandsAndTopics(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		args []string
+		want []string
+	}{
+		{name: "root", args: []string{""}, want: []string{"sessions", "exit-codes", "help"}},
+		{name: "group", args: []string{"sessions", ""}, want: []string{"list", "query", "search"}},
+		{name: "prefix", args: []string{"sessions", "se"}, want: []string{"search"}},
+		{name: "unknown", args: []string{"unknown", ""}},
+		{name: "leaf", args: []string{"sessions", "list", ""}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			args := append([]string{"__complete", "help"}, test.args...)
+			code, stdout, stderr := runCommand(t, loadNeverCalled(t), args...)
+			if code != 0 || !strings.HasSuffix(stdout, ":4\n") {
+				t.Fatalf("exit = %d, stdout = %q, stderr = %q, want no file completion", code, stdout, stderr)
+			}
+			for _, name := range test.want {
+				if !strings.Contains(stdout, name+"\t") {
+					t.Errorf("stdout = %q, want completion for %s", stdout, name)
+				}
+			}
+			if len(test.want) == 0 && stdout != ":4\n" {
+				t.Errorf("stdout = %q, want no suggestions", stdout)
+			}
+		})
+	}
+}
+
 // loadNeverCalled fails the test if a command loads configuration while
 // printing help.
 func loadNeverCalled(t *testing.T) configLoader {
