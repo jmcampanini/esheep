@@ -154,14 +154,14 @@ func sessionArchiveState(entry session.Session) string {
 }
 
 func hitRole(hit session.Hit) string {
-	if hit.Kind == session.KindToolCall || hit.Kind == session.KindToolResult {
-		tool := "?"
-		if hit.Tool != "" {
-			tool = clean(hit.Tool)
-		}
-		if hit.Kind == session.KindToolCall {
-			return "call:" + tool
-		}
+	tool := "?"
+	if hit.Tool != "" {
+		tool = clean(hit.Tool)
+	}
+	switch hit.Kind {
+	case session.KindToolCall:
+		return "call:" + tool
+	case session.KindToolResult:
 		return "result:" + tool
 	}
 	return clean(string(hit.Role))

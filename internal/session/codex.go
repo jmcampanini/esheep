@@ -207,10 +207,7 @@ func codexResponseEvents(raw json.RawMessage, base event, toolNames map[string]s
 		return false, visit(base)
 	case "function_call_output", "custom_tool_call_output":
 		base.callID, base.kind, base.origin = payload.CallID, KindToolResult, EventOrigin{Kind: EventOriginTool}
-		base.role, base.text = RoleTool, flattenText(payload.Output)
-		if payload.CallID != "" {
-			base.tool = toolNames[payload.CallID]
-		}
+		base.role, base.tool, base.text = RoleTool, toolNames[payload.CallID], flattenText(payload.Output)
 		return false, visit(base)
 	}
 	return false, true

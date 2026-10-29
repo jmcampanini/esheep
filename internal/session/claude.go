@@ -142,10 +142,7 @@ func claudeUserEvents(message json.RawMessage, isMeta bool, base event, toolName
 		case "tool_result":
 			e := base
 			e.callID, e.kind, e.origin = item.ToolUseID, KindToolResult, EventOrigin{Kind: EventOriginTool}
-			e.role = RoleTool
-			if item.ToolUseID != "" {
-				e.tool = toolNames[item.ToolUseID]
-			}
+			e.role, e.tool = RoleTool, toolNames[item.ToolUseID]
 			e.text = flattenText(item.Content)
 			e.failed = item.IsError != nil && *item.IsError
 			if !visit(e) {
