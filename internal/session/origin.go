@@ -80,43 +80,60 @@ func transcriptOrigin(subagent bool) Origin {
 	return Origin{Kind: kind}
 }
 
+const (
+	evidenceMaxDepth   = 4
+	evidenceMaxEntries = 32
+	evidenceMaxKey     = 256
+	evidenceMaxValue   = 256
+)
+
 func originEvidence(roots map[string]json.RawMessage) map[string]string {
 	evidence := make(map[string]string)
 	for _, key := range slices.Sorted(maps.Keys(roots)) {
-		var value any
-		decoder := json.NewDecoder(bytes.NewReader(roots[key]))
-		decoder.UseNumber()
-		if decoder.Decode(&value) == nil {
-			appendOriginEvidence(evidence, key, value, 0)
-		}
+		appendOriginEvidence(evidence, key, roots[key], 0)
 	}
 	return evidence
 }
 
-func appendOriginEvidence(evidence map[string]string, key string, value any, depth int) {
-	if len(evidence) >= 32 || len(key) > 256 {
+func appendOriginEvidence(evidence map[string]string, key string, raw json.RawMessage, depth int) {
+	if len(evidence) >= evidenceMaxEntries || len(key) > evidenceMaxKey {
 		return
 	}
-	switch value := value.(type) {
-	case string:
-		evidence[key] = boundedEvidenceValue(value)
-	case json.Number:
-		evidence[key] = boundedEvidenceValue(string(value))
-	case map[string]any:
-		if depth >= 4 {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 {
+		return
+	}
+	switch raw[0] {
+	case '"':
+		var value string
+		if json.Unmarshal(raw, &value) == nil {
+			evidence[key] = boundedEvidenceValue(value)
+		}
+	case '{':
+		if depth >= evidenceMaxDepth {
 			return
 		}
-		for _, child := range slices.Sorted(maps.Keys(value)) {
-			appendOriginEvidence(evidence, key+"."+child, value[child], depth+1)
+		var members map[string]json.RawMessage
+		if json.Unmarshal(raw, &members) != nil {
+			return
+		}
+		for _, child := range slices.Sorted(maps.Keys(members)) {
+			appendOriginEvidence(evidence, key+"."+child, members[child], depth+1)
+		}
+	case 'n', 't', 'f', '[':
+	default:
+		var number json.Number
+		if json.Unmarshal(raw, &number) == nil {
+			evidence[key] = boundedEvidenceValue(string(number))
 		}
 	}
 }
 
 func boundedEvidenceValue(value string) string {
-	if len(value) <= 256 {
+	if len(value) <= evidenceMaxValue {
 		return value
 	}
-	end := 253
+	end := evidenceMaxValue - len("...")
 	for !utf8.RuneStart(value[end]) {
 		end--
 	}

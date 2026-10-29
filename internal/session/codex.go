@@ -118,7 +118,7 @@ func (codexAdapter) scan(path string, visit func(event) bool) (int, error) {
 			malformed++
 			return true
 		}
-		base := event{kind: KindMessage, line: line, origin: EventOrigin{Kind: EventOriginUnknown}, timestamp: parseTimestamp(envelope.Timestamp)}
+		base := event{line: line, timestamp: parseTimestamp(envelope.Timestamp)}
 		return decoder.decode(envelope, base, visit)
 	})
 	return malformed, err
@@ -131,6 +131,7 @@ type codexDecoder struct {
 }
 
 func (d *codexDecoder) decode(envelope codexEnvelope, base event, visit func(event) bool) bool {
+	base.kind, base.origin = KindMessage, EventOrigin{Kind: EventOriginUnknown}
 	switch envelope.Type {
 	case "response_item":
 		provenance, more := codexResponseEvents(envelope.Payload, base, d.toolNames, visit)

@@ -1,6 +1,7 @@
 package session
 
 import (
+	"bytes"
 	"encoding/json"
 	"io/fs"
 	"path/filepath"
@@ -81,9 +82,10 @@ func (claudeAdapter) scan(path string, visit func(event) bool) (int, error) {
 			malformed++
 			return true
 		}
-		base := event{kind: KindMessage, line: line, origin: envelope.eventOrigin(), timestamp: parseTimestamp(envelope.Timestamp)}
+		base := event{line: line, timestamp: parseTimestamp(envelope.Timestamp)}
 		switch envelope.Type {
 		case "user":
+			base.origin = envelope.eventOrigin()
 			return claudeUserEvents(envelope.Message, envelope.IsMeta, base, toolNames, visit)
 		case "assistant":
 			return claudeAssistantEvents(envelope.Message, base, toolNames, visit)
@@ -108,6 +110,7 @@ type claudeContentItem struct {
 // is either the typed prompt string or an array mixing text and tool_result
 // blocks; isMeta marks injected text the human never wrote.
 func claudeUserEvents(message json.RawMessage, isMeta bool, base event, toolNames map[string]string, visit func(event) bool) bool {
+	base.kind = KindMessage
 	var wrapper struct {
 		Content json.RawMessage `json:"content"`
 	}
@@ -154,6 +157,7 @@ func claudeUserEvents(message json.RawMessage, isMeta bool, base event, toolName
 }
 
 func claudeAssistantEvents(message json.RawMessage, base event, toolNames map[string]string, visit func(event) bool) bool {
+	base.kind = KindMessage
 	base.origin = EventOrigin{Kind: EventOriginAgent}
 	var wrapper struct {
 		Content []claudeContentItem `json:"content"`
@@ -195,16 +199,10 @@ type claudeOriginMetadata struct {
 func (m claudeOriginMetadata) eventOrigin() EventOrigin {
 	var origin map[string]json.RawMessage
 	_ = json.Unmarshal(m.Origin, &origin)
-	evidence := make(map[string]json.RawMessage)
-	for key, raw := range map[string]json.RawMessage{"origin.kind": origin["kind"], "turnOrigin": m.TurnOrigin, "promptSource": m.PromptSource} {
-		var scalar any
-		if json.Unmarshal(raw, &scalar) == nil {
-			switch scalar.(type) {
-			case string, float64:
-				evidence[key] = raw
-			}
-		}
-	}
+	evidence := make(map[string]string)
+	appendOriginEvidence(evidence, "origin.kind", origin["kind"], evidenceMaxDepth)
+	appendOriginEvidence(evidence, "promptSource", m.PromptSource, 0)
+	appendOriginEvidence(evidence, "turnOrigin", m.TurnOrigin, 0)
 
 	var kind, turn string
 	_ = json.Unmarshal(origin["kind"], &kind)
@@ -219,12 +217,12 @@ func (m claudeOriginMetadata) eventOrigin() EventOrigin {
 	case "task_notification":
 		turnMapped = EventOriginHarness
 	}
-	if len(m.Origin) == 0 || string(m.Origin) == "null" {
+	if len(m.Origin) == 0 || bytes.Equal(bytes.TrimSpace(m.Origin), []byte("null")) {
 		mapped = turnMapped
 	} else if turn != "" && turnMapped != mapped {
 		mapped = EventOriginUnknown
 	}
-	return EventOrigin{Evidence: originEvidence(evidence), Kind: mapped}
+	return EventOrigin{Evidence: evidence, Kind: mapped}
 }
 
 func claudeRecordedOrigin(kind string) EventOriginKind {

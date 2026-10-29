@@ -138,7 +138,7 @@ func (e coworkEnvelope) event(line int) event {
 	if timestamp.IsZero() {
 		timestamp = parseTimestamp(e.AuditTimestamp)
 	}
-	return event{kind: KindMessage, line: line, origin: e.eventOrigin(), parentCallID: e.ParentToolUseID, subagent: e.ParentToolUseID != "", timestamp: timestamp}
+	return event{line: line, parentCallID: e.ParentToolUseID, subagent: e.ParentToolUseID != "", timestamp: timestamp}
 }
 
 type coworkDecoder struct {
@@ -156,6 +156,7 @@ func (d *coworkDecoder) decode(envelope coworkEnvelope, base event, visit func(e
 	}
 	switch envelope.Type {
 	case "user":
+		base.origin = envelope.eventOrigin()
 		return claudeUserEvents(envelope.Message, envelope.IsMeta || envelope.IsSynthetic, base, names, visit)
 	case "assistant":
 		return claudeAssistantEvents(envelope.Message, base, names, visit)

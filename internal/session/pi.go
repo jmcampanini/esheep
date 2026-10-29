@@ -76,12 +76,13 @@ func (piAdapter) scan(path string, visit func(event) bool) (int, error) {
 		if envelope.Type != "message" {
 			return true
 		}
-		return piMessageEvents(envelope.Message, event{kind: KindMessage, line: line, origin: EventOrigin{Kind: EventOriginUnknown}, timestamp: parseTimestamp(envelope.Timestamp)}, visit)
+		return piMessageEvents(envelope.Message, event{line: line, timestamp: parseTimestamp(envelope.Timestamp)}, visit)
 	})
 	return malformed, err
 }
 
 func piMessageEvents(raw json.RawMessage, base event, visit func(event) bool) bool {
+	base.kind, base.origin = KindMessage, EventOrigin{Kind: EventOriginUnknown}
 	var message struct {
 		Content []struct {
 			Arguments json.RawMessage `json:"arguments"`

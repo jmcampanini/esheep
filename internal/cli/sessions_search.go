@@ -104,7 +104,8 @@ origin and no decoded call relationships.
 
 "call_id", when recorded, identifies a tool call or the call a result belongs
 to. "parent_call_id" identifies the enclosing call for every Cowork child
-event, including messages. Associate calls and results by machine, canonical
+event, including messages. It names the spawning call in the enclosing scope,
+not the event's own call. Associate calls and results by machine, canonical
 path, parent_call_id, and nonempty call_id, never by adjacency or tool name.
 An absent parent_call_id denotes the main scope. A missing call_id means the
 relationship is unknown. A call may have zero, one, or multiple results, and

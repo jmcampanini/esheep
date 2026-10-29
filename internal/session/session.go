@@ -97,6 +97,9 @@ type Session struct {
 }
 
 // Hit is one matching event addressed by its transcript line number.
+// CallID joins calls and results within a machine, Path, and ParentCallID.
+// ParentCallID names the spawning call in the enclosing Cowork scope.
+// An empty CallID means the relationship is unknown.
 type Hit struct {
 	CallID       string      `json:"call_id,omitempty"`
 	Error        bool        `json:"error,omitempty"`

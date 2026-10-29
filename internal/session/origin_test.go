@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"path/filepath"
 	"reflect"
 	"regexp"
@@ -213,5 +214,51 @@ func TestOriginEvidenceBounds(t *testing.T) {
 		if len(key) > 256 || len(value) > 256 || !utf8.ValidString(value) || !strings.HasSuffix(value, "...") {
 			t.Errorf("evidence[%q] = %q, want bounded UTF-8 value", key, value)
 		}
+	}
+	boundary := originEvidence(map[string]json.RawMessage{
+		"source": json.RawMessage(`{"` + strings.Repeat("k", 256) + `":"omitted","n":-1.5e3,"control":"esc\u001b[31m","at_limit":"` + strings.Repeat("a", 256) + `"}`),
+	})
+	boundaryWant := map[string]string{"source.n": "-1.5e3", "source.control": "esc\x1b[31m", "source.at_limit": strings.Repeat("a", 256)}
+	if !reflect.DeepEqual(boundary, boundaryWant) {
+		t.Errorf("boundary evidence = %q, want %q", boundary, boundaryWant)
+	}
+}
+
+func TestClaudeEvidencePreservesScalarsWithoutOriginBodies(t *testing.T) {
+	for _, test := range []struct {
+		metadata string
+		want     map[string]string
+	}{
+		{metadata: `{"origin":{"kind":{"nested":"human"},"body":"excluded"}}`},
+		{metadata: `{"origin":{"kind":1e400},"turnOrigin":"sdk"}`, want: map[string]string{"origin.kind": "1e400", "turnOrigin": "sdk"}},
+		{metadata: `{"origin":{"kind":"human"},"turnOrigin":"peer","promptSource":"queued"}`, want: map[string]string{"origin.kind": "human", "turnOrigin": "peer", "promptSource": "queued"}},
+		{metadata: `{"promptSource":{"future":"source"},"turnOrigin":{"future":42}}`, want: map[string]string{"promptSource.future": "source", "turnOrigin.future": "42"}},
+	} {
+		t.Run(test.metadata, func(t *testing.T) {
+			var metadata claudeOriginMetadata
+			if err := json.Unmarshal([]byte(test.metadata), &metadata); err != nil {
+				t.Fatal(err)
+			}
+
+			origin := metadata.eventOrigin()
+
+			if origin.Kind != EventOriginUnknown || !maps.Equal(origin.Evidence, test.want) {
+				t.Errorf("eventOrigin() = %+v, want unknown with evidence %v", origin, test.want)
+			}
+		})
+	}
+}
+
+func TestEvidenceTruncationDoesNotChangeClassification(t *testing.T) {
+	root := t.TempDir()
+	label := strings.Repeat("x", 300)
+	writeTranscript(t, filepath.Join(root, "rollout.jsonl"), time.Date(2026, 9, 20, 0, 0, 0, 0, time.UTC),
+		`{"type":"session_meta","payload":{"id":"one","thread_source":"user","source":{"internal":"`+label+`"}}}`,
+	)
+
+	list := List(context.Background(), Roots{CodexSessions: root}, Filter{})
+
+	if len(list.Sessions) != 1 || list.Sessions[0].Origin.Kind != OriginAgent || len(list.Sessions[0].Origin.Evidence["source.internal"]) != 256 {
+		t.Errorf("List = %+v, want an agent origin with truncated evidence", list.Sessions)
 	}
 }
