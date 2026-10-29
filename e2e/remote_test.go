@@ -40,7 +40,6 @@ func TestRemoteSessionsWorkflow(t *testing.T) {
 	// The fake ssh answers e2e-remote by running the received command line
 	// in the remote fixture home and refuses every other host like ssh does.
 	script := `#!/bin/sh
-cat > "$REMOTE_RECORD"
 shift 5
 host="$1"
 shift
@@ -48,6 +47,7 @@ if [ "$host" != "e2e-remote" ]; then
   echo "ssh: Could not resolve hostname $host" >&2
   exit 255
 fi
+cat > "$REMOTE_RECORD"
 export HOME="$REMOTE_HOME" XDG_CONFIG_HOME="$REMOTE_CONFIG"
 sh -c "$1" < "$REMOTE_RECORD" > "$REMOTE_REPLY"
 result=$?
@@ -132,7 +132,7 @@ exit "$result"
 		t.Fatalf("list --remote all with an unreachable machine = %#v, want exit 1", listed)
 	}
 	if !strings.Contains(listed.stdout, "MACHINE") || !strings.Contains(listed.stdout, "e2e-remote") || !strings.Contains(listed.stdout, "claude") {
-		t.Errorf("list stdout = %q, want a MACHINE column with both machines' sessions", listed.stdout)
+		t.Errorf("list stdout = %q, stderr = %q; want a MACHINE column with both machines' sessions", listed.stdout, listed.stderr)
 	}
 	if !strings.Contains(listed.stderr, "e2e-down: machine-diagnostic: ssh: Could not resolve hostname e2e-down") || !strings.Contains(listed.stderr, "e2e-down: machine-unreachable: exit status 255") || !strings.Contains(listed.stderr, "session inventory is incomplete") {
 		t.Errorf("list stderr = %q, want the unreachable diagnostic and the incomplete error", listed.stderr)
