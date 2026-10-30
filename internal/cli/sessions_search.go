@@ -118,12 +118,8 @@ and shows origin and recorded call IDs.`,
 			if err != nil {
 				return err
 			}
-			request := session.Request{
-				Filter: requestFilter,
-				Mode:   session.ModeSearch,
-				Query:  session.RequestQuery{Errors: errorsOnly, Pattern: strings.Join(args, ""), Raw: raw, Role: role, Tool: tool},
-			}
-			filter, query, err := request.Resolve()
+			requestQuery := session.RequestQuery{Errors: errorsOnly, Pattern: strings.Join(args, ""), Raw: raw, Role: role, Tool: tool}
+			filter, query, err := session.ResolveSearch(requestFilter, requestQuery)
 			if err != nil {
 				return err
 			}

@@ -102,9 +102,9 @@ const sessionJSONHelp = `The JSON object contains "complete", "period", and "ses
 result has "sessions": []. Each session contains "harness" and "id" strings,
 "path" naming the canonical transcript, "projects" as an array of directory
 paths, "archived" and "subagent" booleans, and "modified_at" as an RFC 3339
-timestamp. "started_at" is an RFC 3339 timestamp
-omitted when unknown; "title" is a string omitted when unavailable. Sessions
-sort by start time, falling back to modification time, most recent first.
+timestamp. "started_at" is an RFC 3339 timestamp omitted when unknown; "title"
+is a string omitted when unavailable. Sessions sort by start time, falling
+back to modification time, most recent first.
 
 Each session has an "origin" object with "kind": unknown, human, automation,
 agent, or subagent. This describes recorded initiation, independently of each

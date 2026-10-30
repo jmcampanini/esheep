@@ -301,8 +301,7 @@ func locationsFromEnv(env map[string]string, home string) Locations {
 	return Locations{ConfigFile: filepath.Join(filepath.Clean(configHome), appName, configName)}
 }
 
-// resolveSessions resolves the read-only session transcript roots. Session
-// roots are harness-owned inputs, so they need no breadth restriction.
+// resolveSessions resolves the read-only session transcript roots.
 func resolveSessions(cfg Sessions, home string) (ResolvedSessions, error) {
 	codexHome, err := resolveManagedPath("sessions.codex.home", cfg.Codex.Home, home)
 	if err != nil {

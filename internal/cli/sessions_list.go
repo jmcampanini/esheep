@@ -4,7 +4,6 @@ import (
 	"errors"
 	"time"
 
-	"github.com/jmcampanini/esheep/internal/session"
 	"github.com/jmcampanini/esheep/internal/ui"
 	"github.com/spf13/cobra"
 )
@@ -54,8 +53,7 @@ diagnostic.
 			if err != nil {
 				return err
 			}
-			request := session.Request{Filter: requestFilter, Mode: session.ModeList}
-			filter, _, err := request.Resolve()
+			filter, err := requestFilter.Resolve()
 			if err != nil {
 				return err
 			}
