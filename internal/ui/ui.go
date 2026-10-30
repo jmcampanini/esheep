@@ -21,7 +21,7 @@ func WriteSessionList(writer io.Writer, report session.ListReport, color bool) e
 	headers := []string{"HARNESS", "ID", "STARTED", "ARCHIVE STATE", "ORIGIN", "PROJECTS", "TITLE", "PATH"}
 	rows := make([][]string, 0, len(report.Sessions))
 	for _, entry := range report.Sessions {
-		row := []string{
+		rows = append(rows, []string{
 			string(entry.Harness),
 			dashIfEmpty(clean(entry.ID)),
 			sessionTime(entry),
@@ -30,8 +30,7 @@ func WriteSessionList(writer io.Writer, report session.ListReport, color bool) e
 			dashIfEmpty(clean(strings.Join(entry.Projects, ", "))),
 			dashIfEmpty(clean(entry.Title)),
 			clean(entry.Path),
-		}
-		rows = append(rows, row)
+		})
 	}
 	return writeTable(writer, headers, rows, color)
 }

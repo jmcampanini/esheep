@@ -209,7 +209,7 @@ func registerSessionFilterFlags(command *cobra.Command, flags *sessionFilterFlag
 // requestFilter converts the flag values into the request form, resolving
 // relative times against now.
 func (f sessionFilterFlags) requestFilter(now time.Time) (session.RequestFilter, error) {
-	filter := session.RequestFilter{ArchiveState: f.archiveState, Harnesses: append([]string{}, f.harnesses...), IDs: []string{}, Project: f.project, Subagents: f.subagents}
+	filter := session.RequestFilter{ArchiveState: f.archiveState, Harnesses: f.harnesses, Project: f.project, Subagents: f.subagents}
 	for _, value := range f.ids {
 		if value == "" {
 			return session.RequestFilter{}, errors.New("--id must not be empty")
