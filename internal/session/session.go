@@ -79,14 +79,12 @@ type event struct {
 }
 
 // Session is metadata about one historical session transcript. Path is the
-// canonical transcript file on the machine named by Machine; best-effort
-// fields may be zero when a grammar does not record them. Reading leaves
-// Machine empty; the caller that merges machines stamps it.
+// canonical transcript file; best-effort fields may be zero when a grammar
+// does not record them.
 type Session struct {
 	Archived   bool      `json:"archived"`
 	Harness    Harness   `json:"harness"`
 	ID         string    `json:"id"`
-	Machine    string    `json:"machine"`
 	ModifiedAt time.Time `json:"modified_at"`
 	Origin     Origin    `json:"origin"`
 	Path       string    `json:"path"`
@@ -97,7 +95,7 @@ type Session struct {
 }
 
 // Hit is one matching event addressed by its transcript line number.
-// CallID joins calls and results within a machine, Path, and ParentCallID.
+// CallID joins calls and results within a Path and ParentCallID.
 // ParentCallID names the spawning call in the enclosing Cowork scope.
 // An empty CallID means the relationship is unknown.
 type Hit struct {
@@ -119,12 +117,10 @@ type Match struct {
 	Hits []Hit `json:"hits"`
 }
 
-// Diagnostic is a stable record of a session-reading issue. Machine names
-// the machine the issue occurred on and is stamped by the merging caller.
+// Diagnostic is a stable record of a session-reading issue.
 type Diagnostic struct {
 	Code    string  `json:"code"`
 	Harness Harness `json:"harness,omitempty"`
-	Machine string  `json:"machine"`
 	Message string  `json:"message,omitempty"`
 	Path    string  `json:"path,omitempty"`
 }
@@ -150,7 +146,7 @@ func affectsCompleteness(code string) bool {
 }
 
 // ListReport is the historical session inventory. Its JSON form omits
-// Diagnostics, which commands print on stderr, including across machines.
+// Diagnostics, which commands print on stderr.
 type ListReport struct {
 	Complete    bool         `json:"complete"`
 	Diagnostics []Diagnostic `json:"-"`

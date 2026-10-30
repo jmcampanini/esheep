@@ -4,13 +4,10 @@ import (
 	"encoding/csv"
 	"errors"
 	"fmt"
-	"os"
-	"os/exec"
 	"strings"
 	"time"
 
 	"github.com/jmcampanini/esheep/internal/config"
-	"github.com/jmcampanini/esheep/internal/remote"
 	"github.com/jmcampanini/esheep/internal/session"
 	"github.com/spf13/cobra"
 )
@@ -103,11 +100,11 @@ matching transcripts still affect completeness.`
 
 const sessionJSONHelp = `The JSON object contains "complete", "period", and "sessions". An empty
 result has "sessions": []. Each session contains "harness" and "id" strings,
-"machine" naming its host, "path" naming the canonical transcript, "projects"
-as an array of directory paths, "archived" and "subagent" booleans, and
-"modified_at" as an RFC 3339 timestamp. "started_at" is an RFC 3339 timestamp
-omitted when unknown; "title" is a string omitted when unavailable. Sessions
-sort by start time, falling back to modification time, most recent first.
+"path" naming the canonical transcript, "projects" as an array of directory
+paths, "archived" and "subagent" booleans, and "modified_at" as an RFC 3339
+timestamp. "started_at" is an RFC 3339 timestamp omitted when unknown; "title"
+is a string omitted when unavailable. Sessions sort by start time, falling
+back to modification time, most recent first.
 
 Each session has an "origin" object with "kind": unknown, human, automation,
 agent, or subagent. This describes recorded initiation, independently of each
@@ -137,12 +134,11 @@ transcript. File modification time and session start do not determine period
 membership or skip candidate transcripts. An event qualifies when
 since <= timestamp < until; omitted bounds are unrestricted.
 
-Dates are inclusive local calendar days on the calling machine. --since starts
-at local midnight on that date; --until ends at local midnight on the next date.
-Day counts (7d) and durations (36h) subtract elapsed time from one caller clock
-reading and resolve to exact instants at either bound. Remotes receive those
-resolved instants and never reinterpret dates. A since at or after until is a
-failure with exit 1 naming both resolved instants.
+Dates are inclusive local calendar days. --since starts at local midnight on
+that date; --until ends at local midnight on the next date. Day counts (7d)
+and durations (36h) subtract elapsed time from one clock reading and resolve
+to exact instants at either bound. A since at or after until is a failure with
+exit 1 naming both resolved instants.
 
 Under a period, undated events never qualify. Search reports undated-events
 for events that match its other criteria but lack usable timestamps. List
@@ -153,51 +149,6 @@ with --since or --until.
 
 List and search JSON always include period with resolved since and until
 instants, each null when open.`
-
-const sessionRemoteHelp = `--remote NAME[,NAME...] adds configured machines to the scan. Repeat the flag
-or separate names with commas; 'all' selects every configured machine and
-cannot combine with names. --no-local drops this machine and requires
---remote. Every other flag keeps its meaning and is forwarded to each
-machine. Without --remote nothing leaves this machine.
-
-Machines are [[machines]] entries in config.toml, identified by hostname;
-'esheep config --help' describes them. The entry whose first hostname label
-matches this machine's is skipped by 'all', and naming it fails with exit 1,
-as does naming an unknown machine. 'all' with no other machine configured
-reports a no-machines diagnostic and scans locally.
-
-Each selected machine runs 'ssh -T -o BatchMode=yes -o ConnectTimeout=<n>
-<host> <command> sessions query' with the request on stdin, concurrently
-with the local scan and under the entry's timeout. The remote esheep reads
-its own configuration and transcripts and returns only results, so a
-remote host key or passphrase prompt cannot appear: connect to the host
-with ssh once by hand instead. Local and remote results interleave most
-recent first, and every session names its machine. Text output adds a
-MACHINE column or header field. In text and JSON modes, stderr diagnostics
-carry the machine name only when --remote is present.
-
-A machine that cannot answer or exits nonzero makes the report incomplete
-and the command exit 1 while every usable result that did arrive is printed,
-even if the remote JSON says "complete": true. Its diagnostic is
-machine-unreachable (ssh failed: name resolution, connection, batch-mode
-authentication, or an unknown host key), machine-timeout (no complete
-reply within the entry's timeout), machine-command (the remote command
-failed, such as esheep missing from the login shell's PATH or an invalid
-remote configuration), or machine-reply (stdout was not one valid reply,
-including non-JSON output or missing or invalid classifications). Each
-nonempty remote stderr line is forwarded as a machine-diagnostic with its
-machine's name, including diagnostics from successful scans. The failure
-diagnostic carries the process or decoder error.
-
-Builds are not version-checked. A remote rejects a request field it does
-not know and answers with a machine-command diagnostic, while replies
-ignore unknown fields. Session origin kinds, hit kinds, and hit origin kinds
-must be present and recognized, and subagent origin must agree with the
-subagent flag; invalid classifications produce machine-reply diagnostics.
-Other missing fields are zero-filled. A machine running a different esheep
-build can therefore refuse the request, ignore a filter, or return wrong
-or empty results after a change to the request or document shape until
-it is upgraded.`
 
 func newSessionsCommand(load configLoader, operations commandOperations) *cobra.Command {
 	command := &cobra.Command{
@@ -219,9 +170,7 @@ described below. A missing root skips that location with a diagnostic.
 
 A bare 'esheep sessions' prints this help on stdout. Every command in
 this group writes its report to stdout and diagnostics to stderr, offers
-the report as one JSON document, and never prompts. Commands that accept
---remote run esheep on configured machines over ssh; without it nothing
-leaves this machine.
+the report as one JSON document, and never prompts.
 
 ` + sessionHarnessHelp,
 		Args: cobra.NoArgs,
@@ -231,7 +180,6 @@ leaves this machine.
 	}
 	command.AddCommand(
 		newSessionsListCommand(load, operations),
-		newSessionsQueryCommand(load, operations),
 		newSessionsSearchCommand(load, operations),
 	)
 	return command
@@ -242,9 +190,7 @@ type sessionFilterFlags struct {
 	archiveState string
 	harnesses    []string
 	ids          []string
-	noLocal      bool
 	project      string
-	remote       []string
 	since        string
 	subagents    bool
 	until        string
@@ -254,18 +200,16 @@ func registerSessionFilterFlags(command *cobra.Command, flags *sessionFilterFlag
 	command.Flags().StringVar(&flags.archiveState, "archive-state", config.DefaultArchiveState, "limit to archive state (all, active, archived)")
 	command.Flags().StringSliceVar(&flags.harnesses, "harness", nil, "limit to harnesses (chatgpt-work, claude, claude-cowork, codex, pi); repeatable or comma-separated")
 	command.Flags().StringArrayVar(&flags.ids, "id", nil, "limit to exact session IDs; repeatable or comma-separated")
-	command.Flags().BoolVar(&flags.noLocal, "no-local", false, "skip this machine; requires --remote")
 	command.Flags().StringVar(&flags.project, "project", "", "limit to sessions with any project path containing this text")
-	command.Flags().StringSliceVar(&flags.remote, "remote", nil, "also query configured machines by name, or all; repeatable or comma-separated")
 	command.Flags().StringVar(&flags.since, "since", "", "keep activity recorded at or after a day count (7d), duration (36h), or local date (2026-01-02)")
 	command.Flags().BoolVar(&flags.subagents, "subagents", false, "include subagent transcripts and embedded child activity")
 	command.Flags().StringVar(&flags.until, "until", "", "keep activity recorded before a day count, duration, or the end of a local date")
 }
 
 // requestFilter converts the flag values into the request form, resolving
-// relative times against now so every machine applies the same instants.
+// relative times against now.
 func (f sessionFilterFlags) requestFilter(now time.Time) (session.RequestFilter, error) {
-	filter := session.RequestFilter{ArchiveState: f.archiveState, Harnesses: append([]string{}, f.harnesses...), IDs: []string{}, Project: f.project, Subagents: f.subagents}
+	filter := session.RequestFilter{ArchiveState: f.archiveState, Harnesses: f.harnesses, Project: f.project, Subagents: f.subagents}
 	for _, value := range f.ids {
 		if value == "" {
 			return session.RequestFilter{}, errors.New("--id must not be empty")
@@ -304,43 +248,4 @@ func sessionRoots(loaded config.LoadResult) session.Roots {
 		CodexSessions:         loaded.ResolvedSessions.Codex.Sessions,
 		Pi:                    loaded.ResolvedSessions.Pi,
 	}
-}
-
-// sessionScope is the set of machines one session command queries, the ssh
-// client that reaches them, and any selection diagnostic to report.
-type sessionScope struct {
-	diagnostics []session.Diagnostic
-	selection   remote.Selection
-	ssh         string
-}
-
-// resolveSessionScope selects machines against the loaded configuration.
-// The ssh client is only required when a machine is selected.
-func resolveSessionScope(operations commandOperations, loaded config.LoadResult, names remote.Names) (sessionScope, error) {
-	hostname, err := operations.localHostname()
-	if err != nil {
-		return sessionScope{}, fmt.Errorf("determine hostname: %w", err)
-	}
-	selection, diagnostics, err := names.Select(loaded.ResolvedMachines, hostname)
-	if err != nil {
-		return sessionScope{}, err
-	}
-
-	scope := sessionScope{diagnostics: diagnostics, selection: selection}
-	if len(selection.Machines) != 0 {
-		scope.ssh, err = exec.LookPath("ssh")
-		if err != nil {
-			return sessionScope{}, fmt.Errorf("locate ssh client: %w", err)
-		}
-	}
-	return scope, nil
-}
-
-// localHostname names this machine, using the operating system when no
-// hostname operation is injected.
-func (o commandOperations) localHostname() (string, error) {
-	if o.hostname == nil {
-		return os.Hostname()
-	}
-	return o.hostname()
 }

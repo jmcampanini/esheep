@@ -48,7 +48,7 @@ release:
 homebrew_casks:
   - name: esheep
     homepage: https://github.com/jmcampanini/esheep
-    description: Find historical harness sessions and record session memories
+    description: Find historical harness sessions
     binaries:
       - esheep
     directory: Casks

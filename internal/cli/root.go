@@ -11,7 +11,6 @@ import (
 
 	"github.com/jmcampanini/esheep/internal/apperr"
 	"github.com/jmcampanini/esheep/internal/config"
-	"github.com/jmcampanini/esheep/internal/memory"
 	"github.com/jmcampanini/esheep/internal/session"
 	"github.com/spf13/cobra"
 )
@@ -32,8 +31,6 @@ func effectiveVersion() string {
 type configLoader func(config.LoadOptions) (config.LoadResult, error)
 
 type commandOperations struct {
-	hostname      func() (string, error)
-	memoryRecord  func(context.Context, memory.Request) (memory.Result, error)
 	sessionList   func(context.Context, session.Roots, session.Filter) session.ListReport
 	sessionSearch func(context.Context, session.Roots, session.Filter, session.SearchQuery) session.SearchReport
 }
@@ -86,8 +83,6 @@ func execute(root *cobra.Command, args []string) int {
 
 func newRootCommand(load configLoader) *cobra.Command {
 	return newRootCommandWithOperations(load, commandOperations{
-		hostname:      os.Hostname,
-		memoryRecord:  memory.Record,
 		sessionList:   session.List,
 		sessionSearch: session.Search,
 	})
@@ -97,19 +92,13 @@ func newRootCommandWithOperations(load configLoader, operations commandOperation
 	var version bool
 	root := &cobra.Command{
 		Use:   "esheep",
-		Short: "Find harness session transcripts and record memories",
-		Long: `Find historical coding-harness session transcripts and record memories
-for the session in progress.
+		Short: "Find harness session transcripts",
+		Long: `Find historical coding-harness session transcripts.
 
 esheep reads Claude Code, Pi, Codex, local ChatGPT Work, and local Claude
-Cowork transcripts in place and never modifies them. It writes only under
-the memory root. Commands accept only the arguments shown and never
-prompt. esheep contacts another machine only when --remote names it, and
-only to run esheep there over ssh; every other command is offline.
-
-External programs: ssh carries --remote session queries and must already
-reach each named machine without a prompt; git 2.31 or later identifies
-the project when a memory is recorded. Nothing else is required.
+Cowork transcripts in place and never modifies them. It writes nothing,
+requires no external programs, and never contacts another machine.
+Commands accept only the arguments shown and never prompt.
 
 A bare 'esheep' prints this help on stdout. Every command writes its
 payload to stdout and diagnostics to stderr; a failure ends with one
@@ -121,11 +110,9 @@ help exit-codes' for exit statuses and the failure format.
 Common tasks:
   List recent sessions:          esheep sessions list
   Find a session by content:     esheep sessions search 'budget review'
-  Record a memory:               esheep memory record 'prefers table tests'
 
 Command groups:
-  memory    Memories recorded for harness sessions:  esheep memory --help
-  sessions  Historical session transcripts:          esheep sessions --help`,
+  sessions  Historical session transcripts:  esheep sessions --help`,
 		DisableSuggestions: true,
 		SilenceErrors:      true,
 		SilenceUsage:       true,
@@ -162,7 +149,6 @@ Command groups:
 		newCompletionCommand(),
 		newConfigCommand(load),
 		newExitCodesTopic(),
-		newMemoryCommand(load, operations.memoryRecord),
 		newSessionsCommand(load, operations),
 	)
 	for _, command := range root.Commands() {

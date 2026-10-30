@@ -15,8 +15,6 @@ func TestDocumentedCommandsMatchBinaryHelp(t *testing.T) {
 	assertSuccess(t, rootHelp)
 	sessionsHelp := runEsheep(t, nil, "sessions", "--help")
 	assertSuccess(t, sessionsHelp)
-	memoryHelp := runEsheep(t, nil, "memory", "--help")
-	assertSuccess(t, memoryHelp)
 	readme := readRepositoryFile(t, "README.md")
 
 	commands := []struct {
@@ -25,9 +23,7 @@ func TestDocumentedCommandsMatchBinaryHelp(t *testing.T) {
 		name          string
 	}{
 		{documentation: "esheep config", help: rootHelp.stdout, name: "config"},
-		{documentation: "esheep memory record", help: memoryHelp.stdout, name: "record"},
 		{documentation: "esheep sessions list", help: sessionsHelp.stdout, name: "list"},
-		{documentation: "esheep sessions query", help: sessionsHelp.stdout, name: "query"},
 		{documentation: "esheep sessions search", help: sessionsHelp.stdout, name: "search"},
 	}
 	for _, command := range commands {

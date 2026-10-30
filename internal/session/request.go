@@ -8,75 +8,51 @@ import (
 	"time"
 )
 
-// Mode selects the operation a Request performs.
-type Mode string
-
-// Request modes.
-const (
-	ModeList   Mode = "list"
-	ModeSearch Mode = "search"
-)
-
-// Request is the machine-to-machine form of one list or search invocation.
-// It mirrors the command flags one-to-one and carries times as instants, so
-// the same request means the same window on every machine that resolves it.
-type Request struct {
-	Filter RequestFilter `json:"filter"`
-	Mode   Mode          `json:"mode"`
-	Query  RequestQuery  `json:"query"`
-}
-
-// RequestFilter is the wire form of Filter. A nil Since or Until leaves that
-// bound open.
+// RequestFilter is the unvalidated form of Filter. It mirrors the command
+// flags one-to-one and carries times as resolved instants. A nil Since or
+// Until leaves that bound open.
 type RequestFilter struct {
-	ArchiveState string     `json:"archive_state"`
-	Harnesses    []string   `json:"harnesses"`
-	IDs          []string   `json:"ids"`
-	Project      string     `json:"project"`
-	Since        *time.Time `json:"since"`
-	Subagents    bool       `json:"subagents"`
-	Until        *time.Time `json:"until"`
+	ArchiveState string
+	Harnesses    []string
+	IDs          []string
+	Project      string
+	Since        *time.Time
+	Subagents    bool
+	Until        *time.Time
 }
 
-// RequestQuery is the wire form of SearchQuery. Pattern is the user's
-// regular expression source before case folding is applied; it is ignored
-// for list requests.
+// RequestQuery is the unvalidated form of SearchQuery. Pattern is the user's
+// regular expression source before case folding is applied.
 type RequestQuery struct {
-	Errors  bool   `json:"errors"`
-	Pattern string `json:"pattern"`
-	Raw     bool   `json:"raw"`
-	Role    string `json:"role"`
-	Tool    string `json:"tool"`
+	Errors  bool
+	Pattern string
+	Raw     bool
+	Role    string
+	Tool    string
 }
 
-// Resolve validates the request and converts it into the filter and query
-// List and Search accept. Every rule the command flags enforce applies here
-// with the same message, so a remote request fails exactly as the local
-// flags would.
-func (r Request) Resolve() (Filter, SearchQuery, error) {
-	filter, err := r.Filter.resolve()
+// ResolveSearch validates a search's filter and query and converts them into
+// the filter and query Search accepts. The filter is checked first. Every
+// rule the command flags enforce applies here with the flag's own message.
+func ResolveSearch(f RequestFilter, q RequestQuery) (Filter, SearchQuery, error) {
+	filter, err := f.Resolve()
 	if err != nil {
 		return Filter{}, SearchQuery{}, err
 	}
-
-	switch r.Mode {
-	case ModeList:
-		return filter, SearchQuery{}, nil
-	case ModeSearch:
-		query, err := r.Query.resolve()
-		if err != nil {
-			return Filter{}, SearchQuery{}, err
-		}
-		if query.Raw && filter.hasPeriod() {
-			return Filter{}, SearchQuery{}, errors.New("--raw cannot combine with --since or --until")
-		}
-		return filter, query, nil
-	default:
-		return Filter{}, SearchQuery{}, fmt.Errorf("session: unknown mode %q (expected list or search)", r.Mode)
+	query, err := q.resolve()
+	if err != nil {
+		return Filter{}, SearchQuery{}, err
 	}
+	if query.Raw && filter.hasPeriod() {
+		return Filter{}, SearchQuery{}, errors.New("--raw cannot combine with --since or --until")
+	}
+	return filter, query, nil
 }
 
-func (f RequestFilter) resolve() (Filter, error) {
+// Resolve validates the filter and converts it into the Filter List and
+// Search accept. Every rule the command flags enforce applies here with the
+// flag's own message.
+func (f RequestFilter) Resolve() (Filter, error) {
 	archiveState, err := ParseArchiveState(f.ArchiveState)
 	if err != nil {
 		return Filter{}, err

@@ -43,7 +43,7 @@ func TestAdaptersStopAtRequestedEvent(t *testing.T) {
 			if err != nil || malformed != 0 || len(events) != 1 || events[0].line != 1 {
 				t.Fatalf("scan = %+v, %d malformed, %v; want only the first event", events, malformed, err)
 			}
-			if !events[0].kind.Valid() || !events[0].origin.Kind.Valid() {
+			if events[0].kind == "" || events[0].origin.Kind == "" {
 				t.Errorf("decoded event = %+v, want classification before matching", events[0])
 			}
 		})

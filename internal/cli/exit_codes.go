@@ -8,12 +8,8 @@ func newExitCodesTopic() *cobra.Command {
   0  Success.
   1  Application failure: a value rejected by the command after parsing,
      invalid configuration, transcript input, or output prevented the
-     command from succeeding. 'sessions list', 'sessions search', and
-     'sessions query' exit 1 when the scan is
-     incomplete, including when a machine selected by --remote cannot
-     answer or exits nonzero after writing valid results, or when ssh or
-     the local hostname cannot be found. 'memory record' exits 1 when no
-     session can be derived or the project lookup, append, or output fails.
+     command from succeeding. 'sessions list' and 'sessions search' exit 1
+     when the scan is incomplete.
   2  Usage error: an unknown command, flag, or operand; operands that
      fail a command's positional grammar; or a flag value the command
      library cannot parse.
@@ -32,9 +28,6 @@ These conditions keep status 0 because the command's own work completed.
 Every output mode reports them as diagnostics on stderr.
 
   'sessions list' and 'sessions search' report a missing or unconfigured
-  session root, malformed transcript lines, undated events, invalid or
-  mismatched Cowork companion metadata, and '--remote all' with no
-  machine configured while the scan is complete.
-  'memory record' reports a missing git binary or a local-path origin on
-  stderr and still records the memory under the fallback project.`)
+  session root, malformed transcript lines, undated events, and invalid or
+  mismatched Cowork companion metadata while the scan is complete.`)
 }

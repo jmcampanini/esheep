@@ -1,12 +1,10 @@
 package cli
 
 import (
-	"context"
 	"errors"
 	"strings"
 	"time"
 
-	"github.com/jmcampanini/esheep/internal/remote"
 	"github.com/jmcampanini/esheep/internal/session"
 	"github.com/jmcampanini/esheep/internal/ui"
 	"github.com/spf13/cobra"
@@ -61,8 +59,6 @@ saved history. Use --raw to inspect other records in qualifying audits.
 
 ` + sessionIDHelp + `
 
-` + sessionRemoteHelp + `
-
 Unparseable transcript lines are skipped and reported as diagnostics without
 failing the search. The command exits nonzero when filesystem failures
 prevent a complete search.
@@ -105,8 +101,8 @@ origin and no decoded call relationships.
 "call_id", when recorded, identifies a tool call or the call a result belongs
 to. "parent_call_id" identifies the enclosing call for every Cowork child
 event, including messages. It names the spawning call in the enclosing scope,
-not the event's own call. Associate calls and results by machine, canonical
-path, parent_call_id, and nonempty call_id, never by adjacency or tool name.
+not the event's own call. Associate calls and results by canonical path,
+parent_call_id, and nonempty call_id, never by adjacency or tool name.
 An absent parent_call_id denotes the main scope. A missing call_id means the
 relationship is unknown. A call may have zero, one, or multiple results, and
 a result may refer to a call absent from the saved history. Search filters
@@ -118,20 +114,12 @@ and shows origin and recorded call IDs.`,
   esheep sessions search --errors --since 7d --json`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
-			names, err := remote.ParseNames(filterFlags.remote, filterFlags.noLocal)
-			if err != nil {
-				return err
-			}
 			requestFilter, err := filterFlags.requestFilter(time.Now())
 			if err != nil {
 				return err
 			}
-			request := session.Request{
-				Filter: requestFilter,
-				Mode:   session.ModeSearch,
-				Query:  session.RequestQuery{Errors: errorsOnly, Pattern: strings.Join(args, ""), Raw: raw, Role: role, Tool: tool},
-			}
-			filter, query, err := request.Resolve()
+			requestQuery := session.RequestQuery{Errors: errorsOnly, Pattern: strings.Join(args, ""), Raw: raw, Role: role, Tool: tool}
+			filter, query, err := session.ResolveSearch(requestFilter, requestQuery)
 			if err != nil {
 				return err
 			}
@@ -140,27 +128,16 @@ and shows origin and recorded call IDs.`,
 			if err != nil {
 				return err
 			}
-			scope, err := resolveSessionScope(operations, loaded, names)
-			if err != nil {
-				return err
-			}
-			report, err := remote.Search(command.Context(), scope.ssh, scope.selection, request, func(ctx context.Context) session.SearchReport {
-				return operations.sessionSearch(ctx, sessionRoots(loaded), filter, query)
-			})
-			if err != nil {
-				return err
-			}
-			report.Diagnostics = append(scope.diagnostics, report.Diagnostics...)
+			report := operations.sessionSearch(command.Context(), sessionRoots(loaded), filter, query)
 
-			machines := len(filterFlags.remote) != 0
 			if jsonOutput {
 				if err := ui.WriteSessionSearchJSON(command.OutOrStdout(), report); err != nil {
 					return err
 				}
-			} else if err := ui.WriteSessionSearch(command.OutOrStdout(), report, machines); err != nil {
+			} else if err := ui.WriteSessionSearch(command.OutOrStdout(), report); err != nil {
 				return err
 			}
-			if err := ui.WriteSessionDiagnostics(command.ErrOrStderr(), report.Diagnostics, machines); err != nil {
+			if err := ui.WriteSessionDiagnostics(command.ErrOrStderr(), report.Diagnostics); err != nil {
 				return err
 			}
 			if !report.Complete {

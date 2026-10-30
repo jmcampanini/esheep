@@ -1,6 +1,6 @@
 # esheep
 
-esheep finds historical sessions from Claude Code, Pi, Codex, local ChatGPT Work tasks, and local Claude Cowork conversations by reading their transcripts in place and read-only. It also records memories for the harness session in progress. esheep writes only under its memory root and contacts another machine only when `--remote` names one.
+esheep finds historical sessions from Claude Code, Pi, Codex, local ChatGPT Work tasks, and local Claude Cowork conversations by reading their transcripts in place and read-only. It writes nothing and never contacts another machine.
 
 
 ## Install
@@ -56,23 +56,15 @@ mise run build
 |---|---|
 | `esheep sessions list [--json]` | List historical harness sessions with their canonical transcript paths. |
 | `esheep sessions search [pattern] [--json]` | Search session transcripts in place; hits address transcript lines. |
-| `esheep sessions query` | Answer a list or search request read from stdin; the endpoint `--remote` runs over ssh. |
-| `esheep memory record TEXT` | Append one memory for the current harness session under the memory root. |
 
 The canonical reference is `esheep --help`, each command's `--help`, and the help topic `esheep help exit-codes`.
 
 
-## Required external programs
-
-- `ssh`: `esheep sessions list --remote` and `esheep sessions search --remote` run it with `BatchMode=yes`, so the connection to each machine must already work without a prompt.
-- `git` 2.31 or later: `esheep memory record` runs it to identify the project by its origin remote or main worktree root.
-
-
 ## Configuration
 
-esheep discovers its settings at `$XDG_CONFIG_HOME/esheep/config.toml`, or `$HOME/.config/esheep/config.toml`. Every setting has a default, so esheep works without the file. `esheep config --help` describes the load order and the session, memory, and machine settings. A machine entry lets `--remote` search another machine's sessions:
+esheep discovers its settings at `$XDG_CONFIG_HOME/esheep/config.toml`, or `$HOME/.config/esheep/config.toml`. Every setting has a default, so esheep works without the file. `esheep config --help` describes the load order and the session path settings:
 
 ```toml
-[[machines]]
-name = "nas"
+[sessions.claude]
+path = "~/.claude/projects"
 ```

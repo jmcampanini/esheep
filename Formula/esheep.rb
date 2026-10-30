@@ -1,5 +1,5 @@
 class Esheep < Formula
-  desc "Find Claude Code, Pi, and Codex sessions and record memories"
+  desc "Find Claude Code, Pi, Codex, and Claude Cowork sessions"
   homepage "https://github.com/jmcampanini/esheep"
   license "MIT"
   head "https://github.com/jmcampanini/esheep.git", branch: "main"

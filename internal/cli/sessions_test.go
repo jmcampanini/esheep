@@ -250,9 +250,6 @@ func TestSessionsInvalidValuesFailBeforeConfiguration(t *testing.T) {
 		{name: "reversed period", args: []string{"sessions", "list", "--since", "2026-09-21", "--until", "2026-09-14"}},
 		{name: "bad since", args: []string{"sessions", "list", "--since", "yesterday"}},
 		{name: "bad pattern", args: []string{"sessions", "search", "(unclosed"}},
-		{name: "no-local without remote", args: []string{"sessions", "list", "--no-local"}},
-		{name: "remote all with names", args: []string{"sessions", "search", "x", "--remote", "all,nas"}},
-		{name: "empty query request", args: []string{"sessions", "query"}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

@@ -1,12 +1,9 @@
 package cli
 
 import (
-	"context"
 	"errors"
 	"time"
 
-	"github.com/jmcampanini/esheep/internal/remote"
-	"github.com/jmcampanini/esheep/internal/session"
 	"github.com/jmcampanini/esheep/internal/ui"
 	"github.com/spf13/cobra"
 )
@@ -41,8 +38,6 @@ diagnostic.
 
 ` + sessionIDHelp + `
 
-` + sessionRemoteHelp + `
-
 ` + ui.StreamContractHelp + `
 
 ` + ui.ColorContractHelp + `
@@ -54,16 +49,11 @@ diagnostic.
 ` + sessionJSONHelp,
 		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
-			names, err := remote.ParseNames(filterFlags.remote, filterFlags.noLocal)
-			if err != nil {
-				return err
-			}
 			requestFilter, err := filterFlags.requestFilter(time.Now())
 			if err != nil {
 				return err
 			}
-			request := session.Request{Filter: requestFilter, Mode: session.ModeList}
-			filter, _, err := request.Resolve()
+			filter, err := requestFilter.Resolve()
 			if err != nil {
 				return err
 			}
@@ -72,27 +62,16 @@ diagnostic.
 			if err != nil {
 				return err
 			}
-			scope, err := resolveSessionScope(operations, loaded, names)
-			if err != nil {
-				return err
-			}
-			report, err := remote.List(command.Context(), scope.ssh, scope.selection, request, func(ctx context.Context) session.ListReport {
-				return operations.sessionList(ctx, sessionRoots(loaded), filter)
-			})
-			if err != nil {
-				return err
-			}
-			report.Diagnostics = append(scope.diagnostics, report.Diagnostics...)
+			report := operations.sessionList(command.Context(), sessionRoots(loaded), filter)
 
-			machines := len(filterFlags.remote) != 0
 			if jsonOutput {
 				if err := ui.WriteSessionListJSON(command.OutOrStdout(), report); err != nil {
 					return err
 				}
-			} else if err := ui.WriteSessionList(command.OutOrStdout(), report, useColor(command, command.OutOrStdout()), machines); err != nil {
+			} else if err := ui.WriteSessionList(command.OutOrStdout(), report, useColor(command, command.OutOrStdout())); err != nil {
 				return err
 			}
-			if err := ui.WriteSessionDiagnostics(command.ErrOrStderr(), report.Diagnostics, machines); err != nil {
+			if err := ui.WriteSessionDiagnostics(command.ErrOrStderr(), report.Diagnostics); err != nil {
 				return err
 			}
 			if !report.Complete {
