@@ -54,13 +54,10 @@ mise run build
 
 | Command | Result |
 |---|---|
-| `esheep --version` | Print the build version. |
-| `esheep completion zsh` | Write Zsh completion; bash, fish, and powershell work the same way. |
 | `esheep sessions list [--json]` | List historical harness sessions with their canonical transcript paths. |
 | `esheep sessions search [pattern] [--json]` | Search session transcripts in place; hits address transcript lines. |
 | `esheep sessions query` | Answer a list or search request read from stdin; the endpoint `--remote` runs over ssh. |
 | `esheep memory record TEXT` | Append one memory for the current harness session under the memory root. |
-| `esheep config [--provenance]` | Print the effective configuration and resolved paths. |
 
 The canonical reference is `esheep --help`, each command's `--help`, and the help topic `esheep help exit-codes`.
 
