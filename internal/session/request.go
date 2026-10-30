@@ -17,42 +17,41 @@ const (
 	ModeSearch Mode = "search"
 )
 
-// Request is the machine-to-machine form of one list or search invocation.
-// It mirrors the command flags one-to-one and carries times as instants, so
-// the same request means the same window on every machine that resolves it.
+// Request is the unvalidated form of one list or search invocation. It
+// mirrors the command flags one-to-one and carries times as resolved
+// instants.
 type Request struct {
-	Filter RequestFilter `json:"filter"`
-	Mode   Mode          `json:"mode"`
-	Query  RequestQuery  `json:"query"`
+	Filter RequestFilter
+	Mode   Mode
+	Query  RequestQuery
 }
 
-// RequestFilter is the wire form of Filter. A nil Since or Until leaves that
-// bound open.
+// RequestFilter is the unvalidated form of Filter. A nil Since or Until
+// leaves that bound open.
 type RequestFilter struct {
-	ArchiveState string     `json:"archive_state"`
-	Harnesses    []string   `json:"harnesses"`
-	IDs          []string   `json:"ids"`
-	Project      string     `json:"project"`
-	Since        *time.Time `json:"since"`
-	Subagents    bool       `json:"subagents"`
-	Until        *time.Time `json:"until"`
+	ArchiveState string
+	Harnesses    []string
+	IDs          []string
+	Project      string
+	Since        *time.Time
+	Subagents    bool
+	Until        *time.Time
 }
 
-// RequestQuery is the wire form of SearchQuery. Pattern is the user's
+// RequestQuery is the unvalidated form of SearchQuery. Pattern is the user's
 // regular expression source before case folding is applied; it is ignored
 // for list requests.
 type RequestQuery struct {
-	Errors  bool   `json:"errors"`
-	Pattern string `json:"pattern"`
-	Raw     bool   `json:"raw"`
-	Role    string `json:"role"`
-	Tool    string `json:"tool"`
+	Errors  bool
+	Pattern string
+	Raw     bool
+	Role    string
+	Tool    string
 }
 
 // Resolve validates the request and converts it into the filter and query
 // List and Search accept. Every rule the command flags enforce applies here
-// with the same message, so a remote request fails exactly as the local
-// flags would.
+// with the flag's own message.
 func (r Request) Resolve() (Filter, SearchQuery, error) {
 	filter, err := r.Filter.resolve()
 	if err != nil {

@@ -1,13 +1,12 @@
 package session
 
 import (
-	"encoding/json"
 	"strings"
 	"testing"
 	"time"
 )
 
-func TestRequestRoundTripsThroughJSON(t *testing.T) {
+func TestRequestResolvesFilterAndQuery(t *testing.T) {
 	since := time.Date(2026, 9, 6, 21, 47, 6, 0, time.FixedZone("EDT", -4*3600))
 	request := Request{
 		Filter: RequestFilter{
@@ -22,21 +21,10 @@ func TestRequestRoundTripsThroughJSON(t *testing.T) {
 		Query: RequestQuery{Pattern: `time(out)?\b`, Role: "tool", Tool: "Bash"},
 	}
 
-	encoded, err := json.Marshal(request)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var decoded Request
-	if err := json.Unmarshal(encoded, &decoded); err != nil {
-		t.Fatal(err)
-	}
-	filter, query, err := decoded.Resolve()
+	filter, query, err := request.Resolve()
+
 	if err != nil {
 		t.Fatalf("Resolve() error = %v", err)
-	}
-
-	if !strings.Contains(string(encoded), `"until":null`) || !strings.Contains(string(encoded), `"since":"2026-09-06T21:47:06-04:00"`) {
-		t.Errorf("encoded = %s, want null until and RFC 3339 since", encoded)
 	}
 	if filter.ArchiveState != ArchiveArchived || !filter.IncludeSubagents || filter.Project != "esheep" {
 		t.Errorf("filter = %+v", filter)
@@ -72,16 +60,8 @@ func TestListRequestPreservesPeriodInstants(t *testing.T) {
 	since := time.Date(2026, 11, 1, 0, 0, 0, 0, time.FixedZone("EDT", -4*3600))
 	until := time.Date(2026, 11, 2, 0, 0, 0, 0, time.FixedZone("EST", -5*3600))
 	request := Request{Mode: ModeList, Filter: RequestFilter{ArchiveState: "all", Since: &since, Until: &until}}
-	encoded, err := json.Marshal(request)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var decoded Request
-	if err := json.Unmarshal(encoded, &decoded); err != nil {
-		t.Fatal(err)
-	}
 
-	filter, _, err := decoded.Resolve()
+	filter, _, err := request.Resolve()
 
 	if err != nil || !filter.Since.Equal(since) || !filter.Until.Equal(until) {
 		t.Fatalf("resolved filter = %+v, error = %v; want original instants", filter, err)

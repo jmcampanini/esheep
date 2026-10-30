@@ -16,13 +16,9 @@ import (
 	"github.com/jmcampanini/esheep/internal/session"
 )
 
-// WriteSessionList writes a human session inventory table. machines adds a
-// leading MACHINE column for reports that span more than this machine.
-func WriteSessionList(writer io.Writer, report session.ListReport, color bool, machines bool) error {
+// WriteSessionList writes a human session inventory table.
+func WriteSessionList(writer io.Writer, report session.ListReport, color bool) error {
 	headers := []string{"HARNESS", "ID", "STARTED", "ARCHIVE STATE", "ORIGIN", "PROJECTS", "TITLE", "PATH"}
-	if machines {
-		headers = append([]string{"MACHINE"}, headers...)
-	}
 	rows := make([][]string, 0, len(report.Sessions))
 	for _, entry := range report.Sessions {
 		row := []string{
@@ -34,9 +30,6 @@ func WriteSessionList(writer io.Writer, report session.ListReport, color bool, m
 			dashIfEmpty(clean(strings.Join(entry.Projects, ", "))),
 			dashIfEmpty(clean(entry.Title)),
 			clean(entry.Path),
-		}
-		if machines {
-			row = append([]string{clean(entry.Machine)}, row...)
 		}
 		rows = append(rows, row)
 	}
@@ -53,8 +46,7 @@ func WriteSessionListJSON(writer io.Writer, report session.ListReport) error {
 
 // WriteSessionSearch writes matching sessions grouped with their hits, each
 // hit addressed as a line number within the canonical transcript path.
-// machines leads each session header with its machine name.
-func WriteSessionSearch(writer io.Writer, report session.SearchReport, machines bool) error {
+func WriteSessionSearch(writer io.Writer, report session.SearchReport) error {
 	for index, entry := range report.Sessions {
 		if index > 0 {
 			if _, err := fmt.Fprintln(writer); err != nil {
@@ -62,9 +54,6 @@ func WriteSessionSearch(writer io.Writer, report session.SearchReport, machines 
 			}
 		}
 		header := []string{string(entry.Harness), sessionTime(entry.Session)}
-		if machines {
-			header = append([]string{clean(entry.Machine)}, header...)
-		}
 		if len(entry.Projects) != 0 {
 			header = append(header, clean(strings.Join(entry.Projects, ", ")))
 		}
@@ -116,17 +105,11 @@ func WriteSessionSearchJSON(writer io.Writer, report session.SearchReport) error
 }
 
 // WriteSessionDiagnostics writes actionable human session diagnostics.
-// machines prefixes every line with the machine the diagnostic came from.
-func WriteSessionDiagnostics(writer io.Writer, diagnostics []session.Diagnostic, machines bool) error {
+func WriteSessionDiagnostics(writer io.Writer, diagnostics []session.Diagnostic) error {
 	for _, diagnostic := range diagnostics {
 		location := diagnostic.Path
 		if diagnostic.Harness != "" {
 			location += " [" + string(diagnostic.Harness) + "]"
-		}
-		if machines && location == "" {
-			location = diagnostic.Machine
-		} else if machines {
-			location = diagnostic.Machine + ": " + location
 		}
 		if _, err := fmt.Fprintf(writer, "%s: %s: %s\n", clean(location), diagnostic.Code, clean(diagnostic.Message)); err != nil {
 			return err

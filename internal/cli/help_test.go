@@ -97,7 +97,7 @@ func TestHelpCompletesCommandsAndTopics(t *testing.T) {
 		want []string
 	}{
 		{name: "root", args: []string{""}, want: []string{"sessions", "exit-codes", "help"}},
-		{name: "group", args: []string{"sessions", ""}, want: []string{"list", "query", "search"}},
+		{name: "group", args: []string{"sessions", ""}, want: []string{"list", "search"}},
 		{name: "prefix", args: []string{"sessions", "se"}, want: []string{"search"}},
 		{name: "unknown", args: []string{"unknown", ""}},
 		{name: "leaf", args: []string{"sessions", "list", ""}},

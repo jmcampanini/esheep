@@ -10,22 +10,19 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/jmcampanini/go-config-loader/configloader"
 	"github.com/jmcampanini/go-config-loader/configreporter"
 	"github.com/jmcampanini/go-config-loader/pflagloader"
 	"github.com/spf13/pflag"
-	"golang.org/x/text/unicode/norm"
 )
 
 const (
-	appName         = "esheep"
-	configName      = "config.toml"
-	configFlag      = "config"
-	envPrefix       = "esheep"
-	configHelp      = "path to the configuration file (replaces discovered files)"
-	memoryDirectory = "memory"
+	appName    = "esheep"
+	configName = "config.toml"
+	configFlag = "config"
+	envPrefix  = "esheep"
+	configHelp = "path to the configuration file (replaces discovered files)"
 )
 
 // Defaults for command-only settings, which are not TOML configuration keys.
@@ -54,17 +51,6 @@ type CodexSessions struct {
 	Home string `toml:"home" config:"codex-home" help:"Codex home containing sessions and archived_sessions for Codex and local ChatGPT Work"`
 }
 
-// Machine configures one other machine that runs esheep. Name is its
-// hostname and identifies it on the command line and in output; Host,
-// Command, and Timeout are optional and default to the name, "esheep", and
-// one minute.
-type Machine struct {
-	Command string `toml:"command"`
-	Host    string `toml:"host"`
-	Name    string `toml:"name"`
-	Timeout string `toml:"timeout"`
-}
-
 // Sessions contains the session transcript roots.
 type Sessions struct {
 	Claude       ClaudeSessions `toml:"claude"`
@@ -73,16 +59,9 @@ type Sessions struct {
 	Codex        CodexSessions  `toml:"codex"`
 }
 
-// Memory locates the root directory 'memory record' appends to.
-type Memory struct {
-	Path string `toml:"path" config:"memory-path" help:"root directory for recorded memories"`
-}
-
 // Config is the complete human-owned esheep configuration.
 type Config struct {
-	Sessions Sessions  `toml:"sessions"`
-	Memory   Memory    `toml:"memory"`
-	Machines []Machine `toml:"machines"`
+	Sessions Sessions `toml:"sessions"`
 }
 
 // Locations contains the discovered or explicit settings path.
@@ -113,20 +92,10 @@ type ResolvedSessions struct {
 	Pi           string
 }
 
-// ResolvedMachine is a machine entry with every default applied.
-type ResolvedMachine struct {
-	Command string
-	Host    string
-	Name    string
-	Timeout time.Duration
-}
-
 // LoadResult is an effective configuration together with provenance and resolved paths.
 type LoadResult struct {
 	Config           Config
 	Locations        Locations
-	ResolvedMachines []ResolvedMachine
-	ResolvedMemory   string
 	ResolvedSessions ResolvedSessions
 	Report           configloader.LoadReport
 }
@@ -143,9 +112,8 @@ func RegisterFlags(flags *pflag.FlagSet) error {
 	return pflagloader.Register[flagConfig](flags)
 }
 
-// Load applies defaults, discovered or explicit TOML, CODEX_HOME and
-// XDG_DATA_HOME, ESHEEP_* variables, and parsed flags in that order.
-// Machines are configured only by TOML.
+// Load applies defaults, discovered or explicit TOML, CODEX_HOME, ESHEEP_*
+// variables, and parsed flags in that order.
 func Load(options LoadOptions) (LoadResult, error) {
 	env := options.Env
 	if env == nil {
@@ -195,15 +163,6 @@ func Load(options LoadOptions) (LoadResult, error) {
 			}}, nil
 		})
 	}
-	if dataHome := env["XDG_DATA_HOME"]; dataHome != "" {
-		loaders = append(loaders, func(base flagConfig) (flagConfig, configloader.LoadReport, error) {
-			// Keep the input raw until all overrides have been applied.
-			base.Memory.Path = dataHome
-			return base, configloader.LoadReport{Updates: configloader.Updates{
-				"memory.path": "XDG_DATA_HOME",
-			}}, nil
-		})
-	}
 	loaders = append(loaders, envLoader)
 	if options.Flags != nil {
 		flagLoader, loaderErr := pflagloader.NewLoader[flagConfig](options.Flags)
@@ -217,29 +176,13 @@ func Load(options LoadOptions) (LoadResult, error) {
 		return LoadResult{}, err
 	}
 	cfg := Config(loaded)
-	if report.Updates["memory.path"] == "XDG_DATA_HOME" {
-		if !filepath.IsAbs(cfg.Memory.Path) {
-			return LoadResult{}, fmt.Errorf("config: XDG_DATA_HOME must be absolute")
-		}
-		cfg.Memory.Path = filepath.Join(cfg.Memory.Path, appName, memoryDirectory)
-	}
-	resolvedMemory, err := resolveMemory(cfg.Memory.Path, home)
-	if err != nil {
-		return LoadResult{}, err
-	}
 	resolvedSessions, err := resolveSessions(cfg.Sessions, home)
-	if err != nil {
-		return LoadResult{}, err
-	}
-	resolvedMachines, err := resolveMachines(cfg.Machines)
 	if err != nil {
 		return LoadResult{}, err
 	}
 	return LoadResult{
 		Config:           cfg,
 		Locations:        locations,
-		ResolvedMachines: resolvedMachines,
-		ResolvedMemory:   resolvedMemory,
 		ResolvedSessions: resolvedSessions,
 		Report:           report,
 	}, nil
@@ -281,12 +224,6 @@ func Render(result LoadResult, options ReportOptions) ([]byte, error) {
 	writeResolved("sessions.codex.home", result.ResolvedSessions.Codex.Home)
 	writeResolved("sessions.codex.sessions", result.ResolvedSessions.Codex.Sessions)
 	writeResolved("sessions.codex.archived_sessions", result.ResolvedSessions.Codex.ArchivedSessions)
-	writeResolved("memory.path", result.ResolvedMemory)
-	for _, machine := range result.ResolvedMachines {
-		writeResolved("machines."+machine.Name+".host", machine.Host)
-		writeResolved("machines."+machine.Name+".command", machine.Command)
-		writeResolved("machines."+machine.Name+".timeout", machine.Timeout.String())
-	}
 	if options.Provenance {
 		b.WriteString("\n# Provenance\n")
 		for _, row := range reporter.ProvenanceRows() {
@@ -334,7 +271,6 @@ func defaults() flagConfig {
 			Pi:           PiSessions{Path: "~/.pi/agent/sessions"},
 			Codex:        CodexSessions{Home: "~/.codex"},
 		},
-		Memory: Memory{Path: "~/.local/share/" + appName + "/" + memoryDirectory},
 	}
 }
 
@@ -365,25 +301,8 @@ func locationsFromEnv(env map[string]string, home string) Locations {
 	return Locations{ConfigFile: filepath.Join(filepath.Clean(configHome), appName, configName)}
 }
 
-// resolveMemory resolves the memory root, the one location esheep writes,
-// and rejects the filesystem root and the home directory as too broad.
-func resolveMemory(path, home string) (string, error) {
-	memory, err := resolveManagedPath("memory.path", path, home)
-	if err != nil {
-		return "", err
-	}
-	// Symlink resolution preserves Unicode spelling. Decompose before folding
-	// case so accented letters compare equally even when their uppercase forms
-	// have no single code point. Keep filesystem access in the original spelling.
-	if memory == string(filepath.Separator) || strings.EqualFold(norm.NFD.String(memory), norm.NFD.String(home)) {
-		return "", errors.New("config: memory.path is too broad")
-	}
-	return memory, nil
-}
-
 // resolveSessions resolves the read-only session transcript roots. Session
-// roots are harness-owned inputs, so unlike the memory root they need no
-// breadth restriction.
+// roots are harness-owned inputs, so they need no breadth restriction.
 func resolveSessions(cfg Sessions, home string) (ResolvedSessions, error) {
 	codexHome, err := resolveManagedPath("sessions.codex.home", cfg.Codex.Home, home)
 	if err != nil {
@@ -412,52 +331,6 @@ func resolveSessions(cfg Sessions, home string) (ResolvedSessions, error) {
 			return ResolvedSessions{}, err
 		}
 		*root.resolved = path
-	}
-	return resolved, nil
-}
-
-// Machine entry defaults.
-const (
-	defaultMachineCommand = "esheep"
-	defaultMachineTimeout = time.Minute
-)
-
-// resolveMachines validates machine entries and applies their defaults.
-// Names are hostnames, so they compare case-insensitively; "all" is reserved
-// for the --remote selector.
-func resolveMachines(configured []Machine) ([]ResolvedMachine, error) {
-	resolved := make([]ResolvedMachine, 0, len(configured))
-	for _, machine := range configured {
-		if machine.Name == "" || strings.ContainsAny(machine.Name, ", \t\r\n") {
-			return nil, fmt.Errorf("config: machine name %q must be a non-empty hostname without commas or whitespace", machine.Name)
-		}
-		if strings.EqualFold(machine.Name, "all") {
-			return nil, errors.New(`config: machine name "all" is reserved`)
-		}
-		for _, prior := range resolved {
-			if strings.EqualFold(prior.Name, machine.Name) {
-				return nil, fmt.Errorf("config: duplicate machine name %q", machine.Name)
-			}
-		}
-
-		entry := ResolvedMachine{Command: defaultMachineCommand, Host: machine.Name, Name: machine.Name, Timeout: defaultMachineTimeout}
-		if machine.Host != "" {
-			entry.Host = machine.Host
-		}
-		if machine.Command != "" {
-			entry.Command = machine.Command
-		}
-		if machine.Timeout != "" {
-			timeout, err := time.ParseDuration(machine.Timeout)
-			if err != nil {
-				return nil, fmt.Errorf("config: machine %q timeout: %w", machine.Name, err)
-			}
-			if timeout <= 0 {
-				return nil, fmt.Errorf("config: machine %q timeout must be positive", machine.Name)
-			}
-			entry.Timeout = timeout
-		}
-		resolved = append(resolved, entry)
 	}
 	return resolved, nil
 }

@@ -74,13 +74,13 @@ func TestFoundationConfigurationWorkflow(t *testing.T) {
 	}
 	settingsPath := filepath.Join(configHome, "esheep", "config.toml")
 
-	configuration := runEsheep(t, environment, "--memory-path=~/memories", "config", "--provenance")
+	configuration := runEsheep(t, environment, "--claude-sessions-path=~/claude-flag", "config", "--provenance")
 	assertSuccess(t, configuration)
-	if !strings.Contains(configuration.stdout, "[memory]\npath = \"~/memories\"\n") ||
-		!strings.Contains(configuration.stdout, `# memory.path = "~/memories" (source: <pflag>)`) ||
+	if !strings.Contains(configuration.stdout, "[sessions.claude]\npath = \"~/claude-flag\"\n") ||
+		!strings.Contains(configuration.stdout, `# sessions.claude.path = "~/claude-flag" (source: <pflag>)`) ||
 		!strings.Contains(configuration.stdout, `# sessions.pi.path = "~/pi-sessions" (source: <env>)`) ||
 		!strings.Contains(configuration.stdout, "# Resolved paths") ||
-		!strings.Contains(configuration.stdout, filepath.Join(home, "memories")) ||
+		!strings.Contains(configuration.stdout, filepath.Join(home, "claude-flag")) ||
 		!strings.Contains(configuration.stdout, "# Provenance") {
 		t.Fatalf("config output = %s", configuration.stdout)
 	}
@@ -94,9 +94,6 @@ func TestFoundationConfigurationWorkflow(t *testing.T) {
 
 	settings := []byte(`[sessions.claude]
 path = "~/claude-sessions"
-
-[[machines]]
-name = "nas"
 `)
 	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o755); err != nil {
 		t.Fatal(err)
@@ -116,9 +113,6 @@ name = "nas"
 	discovered := runEsheep(t, environment, "config", "--provenance")
 	assertSuccess(t, discovered)
 	var decoded struct {
-		Machines []struct {
-			Name string `toml:"name"`
-		} `toml:"machines"`
 		Sessions struct {
 			Claude struct {
 				Path string `toml:"path"`
@@ -131,16 +125,11 @@ name = "nas"
 	if _, err := toml.Decode(discovered.stdout, &decoded); err != nil {
 		t.Fatalf("config output is not TOML: %v\n%s", err, discovered.stdout)
 	}
-	if len(decoded.Machines) != 1 || decoded.Machines[0].Name != "nas" {
-		t.Fatalf("machines = %#v", decoded.Machines)
-	}
 	if decoded.Sessions.Claude.Path != "~/claude-sessions" || decoded.Sessions.Pi.Path != "~/pi-sessions" {
 		t.Fatalf("sessions = %#v", decoded.Sessions)
 	}
-	for _, content := range []string{filepath.Join(home, "claude-sessions"), `# machines.nas.host = "nas"`} {
-		if !strings.Contains(discovered.stdout, content) {
-			t.Fatalf("config output missing %q:\n%s", content, discovered.stdout)
-		}
+	if !strings.Contains(discovered.stdout, filepath.Join(home, "claude-sessions")) {
+		t.Fatalf("config output missing resolved Claude path:\n%s", discovered.stdout)
 	}
 
 	settingsAfter, err := os.Stat(settingsPath)
@@ -176,24 +165,23 @@ func TestConfigurationEnvironmentPrecedenceAndProvenance(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(settingsPath, []byte("[sessions.codex]\nhome = '~/file-codex'\n[memory]\npath = '~/file-memory'\n"), 0o600); err != nil {
+	if err := os.WriteFile(settingsPath, []byte("[sessions.codex]\nhome = '~/file-codex'\n[sessions.pi]\npath = '~/file-pi'\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	dataHome := filepath.Join(root, "data")
 	for _, test := range []struct {
-		name         string
-		env          map[string]string
-		flags        []string
-		wantCodex    string
-		wantMemory   string
-		codexSource  string
-		memorySource string
+		name        string
+		env         map[string]string
+		flags       []string
+		wantCodex   string
+		wantPi      string
+		codexSource string
+		piSource    string
 	}{
-		{name: "TOML", wantCodex: "~/file-codex", wantMemory: "~/file-memory", codexSource: settingsPath, memorySource: settingsPath},
-		{name: "standard environment", env: map[string]string{"CODEX_HOME": "~/env-codex", "XDG_DATA_HOME": dataHome}, wantCodex: "~/env-codex", wantMemory: filepath.Join(dataHome, "esheep", "memory"), codexSource: "CODEX_HOME", memorySource: "XDG_DATA_HOME"},
-		{name: "empty standard environment", env: map[string]string{"CODEX_HOME": "", "XDG_DATA_HOME": ""}, wantCodex: "~/file-codex", wantMemory: "~/file-memory", codexSource: settingsPath, memorySource: settingsPath},
-		{name: "Esheep environment overrides invalid standard environment", env: map[string]string{"CODEX_HOME": "relative", "XDG_DATA_HOME": "relative", "ESHEEP_CODEX_HOME": "~/esheep-codex", "ESHEEP_MEMORY_PATH": "~/esheep-memory"}, wantCodex: "~/esheep-codex", wantMemory: "~/esheep-memory", codexSource: "<env>", memorySource: "<env>"},
-		{name: "flags override invalid environments", env: map[string]string{"CODEX_HOME": "relative", "XDG_DATA_HOME": "relative", "ESHEEP_CODEX_HOME": "relative", "ESHEEP_MEMORY_PATH": "relative"}, flags: []string{"--codex-home=~/flag-codex", "--memory-path=~/flag-memory"}, wantCodex: "~/flag-codex", wantMemory: "~/flag-memory", codexSource: "<pflag>", memorySource: "<pflag>"},
+		{name: "TOML", wantCodex: "~/file-codex", wantPi: "~/file-pi", codexSource: settingsPath, piSource: settingsPath},
+		{name: "standard environment", env: map[string]string{"CODEX_HOME": "~/env-codex"}, wantCodex: "~/env-codex", wantPi: "~/file-pi", codexSource: "CODEX_HOME", piSource: settingsPath},
+		{name: "empty standard environment", env: map[string]string{"CODEX_HOME": ""}, wantCodex: "~/file-codex", wantPi: "~/file-pi", codexSource: settingsPath, piSource: settingsPath},
+		{name: "Esheep environment overrides invalid standard environment", env: map[string]string{"CODEX_HOME": "relative", "ESHEEP_CODEX_HOME": "~/esheep-codex", "ESHEEP_PI_SESSIONS_PATH": "~/esheep-pi"}, wantCodex: "~/esheep-codex", wantPi: "~/esheep-pi", codexSource: "<env>", piSource: "<env>"},
+		{name: "flags override invalid environments", env: map[string]string{"CODEX_HOME": "relative", "ESHEEP_CODEX_HOME": "relative", "ESHEEP_PI_SESSIONS_PATH": "relative"}, flags: []string{"--codex-home=~/flag-codex", "--pi-sessions-path=~/flag-pi"}, wantCodex: "~/flag-codex", wantPi: "~/flag-pi", codexSource: "<pflag>", piSource: "<pflag>"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			env := map[string]string{"HOME": home, "XDG_CONFIG_HOME": configHome}
@@ -205,27 +193,27 @@ func TestConfigurationEnvironmentPrecedenceAndProvenance(t *testing.T) {
 			assertSuccess(t, result)
 			for _, line := range []string{
 				fmt.Sprintf("# sessions.codex.home = %q (source: %s)", test.wantCodex, test.codexSource),
-				fmt.Sprintf("# memory.path = %q (source: %s)", test.wantMemory, test.memorySource),
+				fmt.Sprintf("# sessions.pi.path = %q (source: %s)", test.wantPi, test.piSource),
 			} {
 				if !strings.Contains(result.stdout, line) {
 					t.Fatalf("config report missing %q:\n%s", line, result.stdout)
 				}
 			}
 			var decoded struct {
-				Memory struct {
-					Path string `toml:"path"`
-				} `toml:"memory"`
 				Sessions struct {
 					Codex struct {
 						Home string `toml:"home"`
 					} `toml:"codex"`
+					Pi struct {
+						Path string `toml:"path"`
+					} `toml:"pi"`
 				} `toml:"sessions"`
 			}
 			if _, err := toml.Decode(result.stdout, &decoded); err != nil {
 				t.Fatal(err)
 			}
-			if decoded.Memory.Path != test.wantMemory || decoded.Sessions.Codex.Home != test.wantCodex {
-				t.Fatalf("config = %#v, want memory %q and Codex home %q", decoded, test.wantMemory, test.wantCodex)
+			if decoded.Sessions.Pi.Path != test.wantPi || decoded.Sessions.Codex.Home != test.wantCodex {
+				t.Fatalf("config = %#v, want Pi path %q and Codex home %q", decoded, test.wantPi, test.wantCodex)
 			}
 			redirected := filepath.Join(t.TempDir(), "config.toml")
 			if err := os.WriteFile(redirected, []byte(result.stdout), 0o600); err != nil {
@@ -236,14 +224,14 @@ func TestConfigurationEnvironmentPrecedenceAndProvenance(t *testing.T) {
 			if _, err := toml.Decode(reloaded.stdout, &decoded); err != nil {
 				t.Fatal(err)
 			}
-			if decoded.Memory.Path != test.wantMemory || decoded.Sessions.Codex.Home != test.wantCodex {
-				t.Fatalf("reloaded config = %#v, want memory %q and Codex home %q", decoded, test.wantMemory, test.wantCodex)
+			if decoded.Sessions.Pi.Path != test.wantPi || decoded.Sessions.Codex.Home != test.wantCodex {
+				t.Fatalf("reloaded config = %#v, want Pi path %q and Codex home %q", decoded, test.wantPi, test.wantCodex)
 			}
 		})
 	}
-	invalid := runEsheep(t, map[string]string{"HOME": home, "XDG_CONFIG_HOME": configHome, "XDG_DATA_HOME": "relative"}, "config")
-	if invalid.exitCode != 1 || invalid.stdout != "" || !strings.Contains(invalid.stderr, "XDG_DATA_HOME must be absolute") {
-		t.Fatalf("invalid winning XDG_DATA_HOME result = %#v", invalid)
+	invalid := runEsheep(t, map[string]string{"HOME": home, "XDG_CONFIG_HOME": configHome, "ESHEEP_PI_SESSIONS_PATH": "relative"}, "config")
+	if invalid.exitCode != 1 || invalid.stdout != "" || !strings.Contains(invalid.stderr, "sessions.pi.path must be absolute") {
+		t.Fatalf("invalid winning session path result = %#v", invalid)
 	}
 }
 
@@ -338,10 +326,7 @@ func assertSuccessWithDiagnostics(t *testing.T, result processResult, codes ...s
 }
 
 func processEnvironment(overrides map[string]string) []string {
-	blocked := map[string]struct{}{
-		"CLAUDE_CODE_SESSION_ID": {}, "CODEX_HOME": {}, "CODEX_THREAD_ID": {}, "HOME": {},
-		"PI_SESSION_ID": {}, "XDG_CONFIG_HOME": {}, "XDG_DATA_HOME": {},
-	}
+	blocked := map[string]struct{}{"CODEX_HOME": {}, "HOME": {}, "XDG_CONFIG_HOME": {}}
 	var environment []string
 	for _, entry := range os.Environ() {
 		key, _, _ := strings.Cut(entry, "=")
