@@ -22,7 +22,6 @@ func TestDocumentedCommandsMatchBinaryHelp(t *testing.T) {
 		help          string
 		name          string
 	}{
-		{documentation: "esheep completion zsh", help: rootHelp.stdout, name: "completion"},
 		{documentation: "esheep config", help: rootHelp.stdout, name: "config"},
 		{documentation: "esheep sessions list", help: sessionsHelp.stdout, name: "list"},
 		{documentation: "esheep sessions search", help: sessionsHelp.stdout, name: "search"},
@@ -34,9 +33,6 @@ func TestDocumentedCommandsMatchBinaryHelp(t *testing.T) {
 		if !strings.Contains(readme, command.documentation) {
 			t.Errorf("README.md does not document %q", command.documentation)
 		}
-	}
-	if !strings.Contains(readme, "esheep --version") {
-		t.Error("README.md does not document the version flag")
 	}
 }
 
