@@ -19,11 +19,6 @@ const (
 	KindToolResult EventKind = "tool_result"
 )
 
-// Valid reports whether k names a supported event kind.
-func (k EventKind) Valid() bool {
-	return k == KindMessage || k == KindRaw || k == KindToolCall || k == KindToolResult
-}
-
 // OriginKind classifies recorded session initiation.
 type OriginKind string
 
@@ -36,11 +31,6 @@ const (
 	OriginUnknown    OriginKind = "unknown"
 )
 
-// Valid reports whether k names a supported session origin.
-func (k OriginKind) Valid() bool {
-	return k == OriginAgent || k == OriginAutomation || k == OriginHuman || k == OriginSubagent || k == OriginUnknown
-}
-
 // EventOriginKind classifies the recorded producer of an event.
 type EventOriginKind string
 
@@ -52,11 +42,6 @@ const (
 	EventOriginTool    EventOriginKind = "tool"
 	EventOriginUnknown EventOriginKind = "unknown"
 )
-
-// Valid reports whether k names a supported event origin.
-func (k EventOriginKind) Valid() bool {
-	return k == EventOriginAgent || k == EventOriginHarness || k == EventOriginHuman || k == EventOriginTool || k == EventOriginUnknown
-}
 
 // Origin separates recorded initiation from the authorship of events.
 // Evidence contains bounded scalar metadata keyed by native field path.
