@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
+	"github.com/klauspost/compress/zstd"
 )
 
 // binaryPath is the binary under test. The mise test task builds it through
@@ -366,6 +367,10 @@ func TestSessionsWorkflow(t *testing.T) {
 		`{"timestamp":"2026-08-25T09:00:00Z","type":"session_meta","payload":{"id":"33333333-dddd-eeee-ffff-444444444444","timestamp":"2026-08-25T09:00:00Z","cwd":"/Users/u/codexproj","cli_version":"0.151.0"}}`,
 		`{"timestamp":"2026-08-25T09:00:02Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"fix the flaky test"}]}}`,
 	)
+	writeCompressedSessionTranscript(t, filepath.Join(home, ".codex", "sessions", "2026", "10", "03", "rollout-2026-10-03T12-00-00-11111111-1111-4111-8111-111111111111.jsonl.zst"),
+		`{"timestamp":"2026-10-03T12:00:00Z","type":"session_meta","payload":{"id":"11111111-1111-4111-8111-111111111111","timestamp":"2026-10-03T12:00:00Z","cwd":"/Users/u/codexproj"}}`,
+		`{"timestamp":"2026-10-03T12:00:02Z","type":"event_msg","payload":{"type":"user_message","message":"compressed-session-probe"}}`,
+	)
 	writeSessionTranscript(t, filepath.Join(piProject, "2026-08-10T08-00-00-000Z_55555555-aaaa-bbbb-cccc-666666666666.jsonl"),
 		`{"type":"session","version":3,"id":"55555555-aaaa-bbbb-cccc-666666666666","timestamp":"2026-08-10T08:00:00Z","cwd":"/Users/u/piproj"}`,
 		`{"type":"message","id":"ad","parentId":null,"timestamp":"2026-08-10T08:00:08Z","message":{"role":"toolResult","toolName":"bash","isError":true,"content":[{"type":"text","text":"make: *** [test] Error 1"}]}}`,
@@ -393,13 +398,20 @@ func TestSessionsWorkflow(t *testing.T) {
 	if err := json.Unmarshal([]byte(listed.stdout), &inventory); err != nil {
 		t.Fatalf("decode inventory: %v\n%s", err, listed.stdout)
 	}
-	if !inventory.Complete || len(inventory.Sessions) != 3 {
+	if !inventory.Complete || len(inventory.Sessions) != 4 {
 		t.Fatalf("inventory = %#v", inventory)
 	}
+	compressedListed := false
 	for _, entry := range inventory.Sessions {
 		if _, err := os.Stat(entry.Path); err != nil {
 			t.Fatalf("session %q path does not resolve: %v", entry.ID, err)
 		}
+		if entry.ID == "11111111-1111-4111-8111-111111111111" && strings.HasSuffix(entry.Path, ".jsonl.zst") {
+			compressedListed = true
+		}
+	}
+	if !compressedListed {
+		t.Fatalf("inventory lacks the compressed rollout under its .jsonl.zst path: %#v", inventory)
 	}
 
 	withSubagents := runEsheep(t, environment, "sessions", "list", "--json", "--subagents")
@@ -407,8 +419,8 @@ func TestSessionsWorkflow(t *testing.T) {
 	if err := json.Unmarshal([]byte(withSubagents.stdout), &inventory); err != nil {
 		t.Fatalf("decode subagent inventory: %v\n%s", err, withSubagents.stdout)
 	}
-	if got := len(inventory.Sessions); got != 5 {
-		t.Fatalf("subagent inventory sessions = %d, want 5\n%s", got, withSubagents.stdout)
+	if got := len(inventory.Sessions); got != 6 {
+		t.Fatalf("subagent inventory sessions = %d, want 6\n%s", got, withSubagents.stdout)
 	}
 
 	searched := runEsheep(t, environment, "sessions", "search", "--json", "GOMODCACHE")
@@ -416,6 +428,7 @@ func TestSessionsWorkflow(t *testing.T) {
 	var matches struct {
 		Sessions []struct {
 			Harness string `json:"harness"`
+			Path    string `json:"path"`
 			Hits    []struct {
 				Line int    `json:"line"`
 				Role string `json:"role"`
@@ -432,6 +445,18 @@ func TestSessionsWorkflow(t *testing.T) {
 		t.Fatalf("first hit = %#v", matches.Sessions[0].Hits[0])
 	}
 
+	compressedSearch := runEsheep(t, environment, "sessions", "search", "--json", "compressed-session-probe")
+	assertSuccessWithDiagnostics(t, compressedSearch, "root-missing")
+	if err := json.Unmarshal([]byte(compressedSearch.stdout), &matches); err != nil {
+		t.Fatalf("decode compressed search: %v\n%s", err, compressedSearch.stdout)
+	}
+	if len(matches.Sessions) != 1 || matches.Sessions[0].Harness != "codex" || !strings.HasSuffix(matches.Sessions[0].Path, ".jsonl.zst") {
+		t.Fatalf("compressed search = %#v", matches)
+	}
+	if hits := matches.Sessions[0].Hits; len(hits) != 1 || hits[0].Line != 2 || hits[0].Role != "user" {
+		t.Fatalf("compressed hits = %#v, want one user hit on decompressed line 2", hits)
+	}
+
 	failures := runEsheep(t, environment, "sessions", "search", "--json", "--errors")
 	assertSuccessWithDiagnostics(t, failures, "root-missing")
 	if got := strings.Count(failures.stdout, `"error": true`); got != 2 {
@@ -440,6 +465,20 @@ func TestSessionsWorkflow(t *testing.T) {
 
 	if got := snapshotTree(t, home); got != storesBefore {
 		t.Fatal("sessions commands modified a session store")
+	}
+}
+
+func writeCompressedSessionTranscript(t *testing.T, path string, lines ...string) {
+	t.Helper()
+	encoder, err := zstd.NewWriter(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, encoder.EncodeAll([]byte(strings.Join(lines, "\n")+"\n"), nil), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
 
