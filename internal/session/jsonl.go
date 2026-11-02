@@ -44,6 +44,9 @@ func forEachLine(path string, visit func(line int, data []byte) bool) error {
 	var input io.Reader = file
 	compressed := isZstdTranscript(path)
 	if compressed {
+		if info.Size() == 0 {
+			return errors.New("decompress transcript: empty file is not a Zstandard stream")
+		}
 		decoder, err := zstd.NewReader(file, zstd.WithDecoderConcurrency(1), zstd.WithDecoderLowmem(true))
 		if err != nil {
 			return fmt.Errorf("decompress transcript: %w", err)

@@ -206,6 +206,7 @@ func TestUndecodableCompressedRolloutsAreDiagnosed(t *testing.T) {
 		data []byte
 		name string
 	}{
+		{name: "empty file"},
 		{name: "not zstd", data: []byte("{\"type\":\"session_meta\"}\n")},
 		{name: "truncated frame", data: valid[:len(valid)/2]},
 		{name: "corrupt payload", data: bytes.Replace(valid, valid[len(valid)-12:], bytes.Repeat([]byte{0xff}, 12), 1)},
@@ -243,6 +244,22 @@ func TestUndecodableCompressedRolloutsAreDiagnosed(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestCompressedFrameWithEmptyContentListsLikeEmptyRollout(t *testing.T) {
+	base := t.TempDir()
+	roots := Roots{CodexSessions: filepath.Join(base, "sessions")}
+	encoder, err := zstd.NewWriter(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(roots.CodexSessions, "rollout-2026-10-03T12-00-00-11111111-1111-4111-8111-111111111111.jsonl.zst"), time.Now(), encoder.EncodeAll(nil, nil))
+
+	report := List(context.Background(), roots, Filter{})
+
+	if !report.Complete || len(report.Diagnostics) != 0 || len(report.Sessions) != 1 || report.Sessions[0].ID != "11111111-1111-4111-8111-111111111111" {
+		t.Fatalf("List = %+v, want one complete headerless session", report)
 	}
 }
 
