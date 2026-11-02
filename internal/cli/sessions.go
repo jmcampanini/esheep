@@ -33,6 +33,16 @@ home is scanned. Shared storage is discovered once; root diagnostics use
 codex. Omit --harness to include all harnesses, or use
 --harness codex,chatgpt-work to select both.
 
+Codex and Work rollouts are discovered as .jsonl files and as
+Zstandard-compressed .jsonl.zst files in both directories. A compressed
+rollout is decompressed while streaming and never written back out; its
+result path names the compressed file, and hit line numbers address lines of
+the decompressed content. A compressed rollout and a plain rollout of the same
+session are distinct files and remain separate results. Corrupt, truncated,
+or otherwise undecodable compressed rollouts produce transcript-read
+diagnostics and make the scan incomplete. Other harnesses discover only
+.jsonl transcripts.
+
 Work and Cowork transcripts qualify when they contain a supported user message,
 assistant message, tool call, or tool result. Title-only and
 injected-context-only records are excluded, including from --raw searches.

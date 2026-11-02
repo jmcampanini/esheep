@@ -6,10 +6,11 @@ import (
 	"strings"
 )
 
-// codexAdapter reads Codex and ChatGPT Work rollouts: JSONL files whose
-// first line is a session_meta header. Subagents are identified by the
-// header's source marker. The grammar has no tool error flag except the Ok/Err
-// union on MCP call results, so only MCP Err results are marked failed.
+// codexAdapter reads Codex and ChatGPT Work rollouts: JSONL files, plain or
+// Zstandard-compressed, whose first line is a session_meta header. Subagents
+// are identified by the header's source marker. The grammar has no tool error
+// flag except the Ok/Err union on MCP call results, so only MCP Err results
+// are marked failed.
 type codexAdapter struct{}
 
 type codexEnvelope struct {
@@ -19,7 +20,7 @@ type codexEnvelope struct {
 }
 
 func (codexAdapter) discover(root string, _ bool) ([]transcript, []Diagnostic) {
-	return walkJSONLTranscripts(root, walkRules{})
+	return walkJSONLTranscripts(root, walkRules{zstd: true})
 }
 
 func (codexAdapter) meta(t transcript, ids idFilter) describedSession {
@@ -101,9 +102,10 @@ func codexSubagentSource(raw json.RawMessage) bool {
 }
 
 // codexFallbackID derives the session UUID from a rollout filename
-// (rollout-<local timestamp>-<uuid>.jsonl) for headerless legacy files.
+// (rollout-<local timestamp>-<uuid>.jsonl, optionally .zst) for headerless
+// legacy files.
 func codexFallbackID(path string) string {
-	stem := strings.TrimSuffix(filepath.Base(path), ".jsonl")
+	stem := strings.TrimSuffix(strings.TrimSuffix(filepath.Base(path), ".zst"), ".jsonl")
 	rest, found := strings.CutPrefix(stem, "rollout-")
 	if timestampWidth := len("2006-01-02T15-04-05-"); found && len(rest) > timestampWidth {
 		return rest[timestampWidth:]

@@ -13,11 +13,23 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/klauspost/compress/zstd"
 )
+
+// zstdSuffix names a Zstandard-compressed JSONL transcript. Its decompressed
+// stream is read in place; nothing is written beside the original.
+const zstdSuffix = ".jsonl.zst"
+
+func isZstdTranscript(path string) bool {
+	return strings.HasSuffix(path, zstdSuffix)
+}
 
 // forEachLine streams a transcript file line by line, calling visit with
 // 1-based line numbers until it returns false or the file ends. Lines can be
-// arbitrarily long; the trailing newline is trimmed.
+// arbitrarily long; the trailing newline is trimmed. A Zstandard-compressed
+// transcript is decompressed while streaming, so line numbers address the
+// decompressed content and memory stays bounded by the frame's window.
 func forEachLine(path string, visit func(line int, data []byte) bool) error {
 	file, err := os.Open(path)
 	if err != nil {
@@ -28,7 +40,21 @@ func forEachLine(path string, visit func(line int, data []byte) bool) error {
 	if err != nil {
 		return err
 	}
-	if err := readLines(file, visit); err != nil {
+
+	var input io.Reader = file
+	compressed := isZstdTranscript(path)
+	if compressed {
+		decoder, err := zstd.NewReader(file, zstd.WithDecoderConcurrency(1), zstd.WithDecoderLowmem(true))
+		if err != nil {
+			return fmt.Errorf("decompress transcript: %w", err)
+		}
+		defer decoder.Close()
+		input = decoder
+	}
+	if err := readLines(input, visit); err != nil {
+		if compressed {
+			return fmt.Errorf("decompress transcript: %w", err)
+		}
 		return err
 	}
 	current, err := os.Stat(path)
@@ -74,6 +100,12 @@ type walkRules struct {
 	isSubagent func(path string) bool
 	// skipDir reports whether a directory subtree holds no wanted transcripts.
 	skipDir func(path string, entry fs.DirEntry) bool
+	// zstd reports whether Zstandard-compressed .jsonl.zst files are transcripts too.
+	zstd bool
+}
+
+func (r walkRules) isTranscript(path string) bool {
+	return filepath.Ext(path) == ".jsonl" || (r.zstd && isZstdTranscript(path))
 }
 
 // walkJSONLTranscripts discovers transcript files under root, tolerating and
@@ -92,7 +124,7 @@ func walkJSONLTranscripts(root string, rules walkRules) ([]transcript, []Diagnos
 			}
 			return nil
 		}
-		if !entry.Type().IsRegular() || filepath.Ext(path) != ".jsonl" {
+		if !entry.Type().IsRegular() || !rules.isTranscript(path) {
 			return nil
 		}
 		if rules.accept != nil && !rules.accept(path) {
