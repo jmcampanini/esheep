@@ -406,7 +406,9 @@ func TestSessionsWorkflow(t *testing.T) {
 		if _, err := os.Stat(entry.Path); err != nil {
 			t.Fatalf("session %q path does not resolve: %v", entry.ID, err)
 		}
-		compressedListed = compressedListed || (entry.ID == "11111111-1111-4111-8111-111111111111" && strings.HasSuffix(entry.Path, ".jsonl.zst"))
+		if entry.ID == "11111111-1111-4111-8111-111111111111" && strings.HasSuffix(entry.Path, ".jsonl.zst") {
+			compressedListed = true
+		}
 	}
 	if !compressedListed {
 		t.Fatalf("inventory lacks the compressed rollout under its .jsonl.zst path: %#v", inventory)

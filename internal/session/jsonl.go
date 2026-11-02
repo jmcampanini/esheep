@@ -40,24 +40,11 @@ func forEachLine(path string, visit func(line int, data []byte) bool) error {
 	if err != nil {
 		return err
 	}
-
-	var input io.Reader = file
-	compressed := isZstdTranscript(path)
-	if compressed {
-		if info.Size() == 0 {
-			return errors.New("decompress transcript: empty file is not a Zstandard stream")
-		}
-		decoder, err := zstd.NewReader(file, zstd.WithDecoderConcurrency(1), zstd.WithDecoderLowmem(true))
-		if err != nil {
+	if isZstdTranscript(path) {
+		if err := readZstdLines(file, info.Size(), visit); err != nil {
 			return fmt.Errorf("decompress transcript: %w", err)
 		}
-		defer decoder.Close()
-		input = decoder
-	}
-	if err := readLines(input, visit); err != nil {
-		if compressed {
-			return fmt.Errorf("decompress transcript: %w", err)
-		}
+	} else if err := readLines(file, visit); err != nil {
 		return err
 	}
 	current, err := os.Stat(path)
@@ -68,6 +55,21 @@ func forEachLine(path string, visit func(line int, data []byte) bool) error {
 		return fmt.Errorf("transcript %q was replaced while reading; rerun the command", path)
 	}
 	return nil
+}
+
+// readZstdLines decodes one transcript of size bytes with a single-goroutine,
+// low-memory decoder. An empty file fails because the decoder would read it as
+// an empty transcript.
+func readZstdLines(file io.Reader, size int64, visit func(int, []byte) bool) error {
+	if size == 0 {
+		return errors.New("empty file is not a Zstandard stream")
+	}
+	decoder, err := zstd.NewReader(file, zstd.WithDecoderConcurrency(1), zstd.WithDecoderLowmem(true))
+	if err != nil {
+		return err
+	}
+	defer decoder.Close()
+	return readLines(decoder, visit)
 }
 
 func readLines(input io.Reader, visit func(int, []byte) bool) error {
