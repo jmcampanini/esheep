@@ -43,14 +43,16 @@ func WriteSessionListJSON(writer io.Writer, report session.ListReport) error {
 	return writeJSON(writer, report)
 }
 
-// WriteSessionSearch writes matching sessions grouped with their hits, each
-// hit addressed as a line number within the canonical transcript path.
+// WriteSessionSearch writes a summary of the whole search, then the page's
+// matching sessions grouped with their hits, each hit addressed as a line
+// number within the canonical transcript path.
 func WriteSessionSearch(writer io.Writer, report session.SearchReport) error {
-	for index, entry := range report.Sessions {
-		if index > 0 {
-			if _, err := fmt.Fprintln(writer); err != nil {
-				return err
-			}
+	if err := writeSearchSummary(writer, report); err != nil {
+		return err
+	}
+	for _, entry := range report.Sessions {
+		if _, err := fmt.Fprintln(writer); err != nil {
+			return err
 		}
 		header := []string{string(entry.Harness), sessionTime(entry.Session)}
 		if len(entry.Projects) != 0 {
@@ -91,14 +93,81 @@ func WriteSessionSearch(writer io.Writer, report session.SearchReport) error {
 				return err
 			}
 		}
+		if entry.OmittedHits > 0 {
+			if _, err := fmt.Fprintf(writer, "  %d more %s in this session\n", entry.OmittedHits, plural(entry.OmittedHits, "hit", "hits")); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
+}
+
+func writeSearchSummary(writer io.Writer, report session.SearchReport) error {
+	returnedHits := 0
+	for _, entry := range report.Sessions {
+		returnedHits += len(entry.Hits)
+	}
+	lines := []string{
+		fmt.Sprintf("Matched %d %s and %d %s; showing %d %s and %d %s.",
+			report.MatchedSessions, plural(report.MatchedSessions, "session", "sessions"),
+			report.MatchedHits, plural(report.MatchedHits, "hit", "hits"),
+			len(report.Sessions), plural(len(report.Sessions), "session", "sessions"),
+			returnedHits, plural(returnedHits, "hit", "hits")),
+		"Sources: " + formatSources(report.Sources) + ".",
+	}
+	if report.NextCursor != nil {
+		lines = append(lines, fmt.Sprintf("%d more %s; next page: --cursor %s",
+			report.RemainingSessions, plural(report.RemainingSessions, "session", "sessions"), *report.NextCursor))
+	}
+	for _, line := range lines {
+		if _, err := fmt.Fprintln(writer, line); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// formatSources lists searched roots as matched-session counts per harness,
+// then every other root with its status.
+func formatSources(sources []session.Source) string {
+	var searched []string
+	counts := make(map[session.Harness]int)
+	var other []string
+	for _, source := range sources {
+		if source.Status != session.SourceSearched {
+			other = append(other, strings.TrimSpace(fmt.Sprintf("%s %s %s", source.Harness, source.Status, clean(source.Path))))
+			continue
+		}
+		if _, seen := counts[source.Harness]; !seen {
+			searched = append(searched, string(source.Harness))
+		}
+		counts[source.Harness] += source.MatchedSessions
+	}
+	parts := make([]string, 0, len(searched)+len(other))
+	for _, harness := range searched {
+		parts = append(parts, fmt.Sprintf("%s %d", harness, counts[session.Harness(harness)]))
+	}
+	parts = append(parts, other...)
+	if len(parts) == 0 {
+		return "none"
+	}
+	return strings.Join(parts, ", ")
+}
+
+func plural(count int, singular, many string) string {
+	if count == 1 {
+		return singular
+	}
+	return many
 }
 
 // WriteSessionSearchJSON writes one complete search JSON document.
 func WriteSessionSearchJSON(writer io.Writer, report session.SearchReport) error {
 	if report.Sessions == nil {
 		report.Sessions = []session.Match{}
+	}
+	if report.Sources == nil {
+		report.Sources = []session.Source{}
 	}
 	return writeJSON(writer, report)
 }

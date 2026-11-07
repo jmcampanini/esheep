@@ -29,5 +29,8 @@ Every output mode reports them as diagnostics on stderr.
 
   'sessions list' and 'sessions search' report a missing or unconfigured
   session root, malformed transcript lines, undated events, and invalid or
-  mismatched Cowork companion metadata while the scan is complete.`)
+  mismatched Cowork companion metadata while the scan is complete.
+
+'sessions search' also keeps status 0 when it stops at a page limit; its
+report says how many sessions remain.`)
 }

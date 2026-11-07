@@ -31,6 +31,48 @@ type RequestQuery struct {
 	Tool    string
 }
 
+// RequestPage is the unvalidated form of Page. A nil field was not given.
+type RequestPage struct {
+	All      bool
+	Cursor   *string
+	HitLimit *int
+	Limit    *int
+}
+
+// Resolve validates the page flags and converts them into the Page
+// SearchReport.Paginate accepts, applying the default limits unless All is
+// set.
+func (p RequestPage) Resolve() (Page, error) {
+	if p.All && (p.Limit != nil || p.HitLimit != nil) {
+		return Page{}, errors.New("--all cannot combine with --limit or --hit-limit")
+	}
+	if p.Limit != nil && *p.Limit < 1 {
+		return Page{}, errors.New("--limit must be at least 1")
+	}
+	if p.HitLimit != nil && *p.HitLimit < 1 {
+		return Page{}, errors.New("--hit-limit must be at least 1")
+	}
+
+	page := Page{HitLimit: DefaultHitLimit, Limit: DefaultLimit}
+	if p.All {
+		page = Page{}
+	}
+	if p.Limit != nil {
+		page.Limit = *p.Limit
+	}
+	if p.HitLimit != nil {
+		page.HitLimit = *p.HitLimit
+	}
+	if p.Cursor != nil {
+		cursor, err := ParseCursor(*p.Cursor)
+		if err != nil {
+			return Page{}, fmt.Errorf("--cursor: %w", err)
+		}
+		page.After = cursor
+	}
+	return page, nil
+}
+
 // ResolveSearch validates a search's filter and query and converts them into
 // the filter and query Search accepts. The filter is checked first. Every
 // rule the command flags enforce applies here with the flag's own message.

@@ -211,6 +211,52 @@ func TestSessionsSearchPassesQuery(t *testing.T) {
 	}
 }
 
+func TestSessionsSearchReturnsOnePageByDefault(t *testing.T) {
+	var full session.SearchReport
+	for index := range 12 {
+		hits := make([]session.Hit, 6)
+		full.Sessions = append(full.Sessions, session.Match{
+			Session:     session.Session{Harness: session.HarnessClaude, Path: fmt.Sprintf("/claude/%02d.jsonl", index), StartedAt: time.Date(2026, 8, 20, 12-index, 0, 0, 0, time.UTC)},
+			Hits:        hits,
+			MatchedHits: len(hits),
+		})
+	}
+	full.Complete, full.MatchedSessions, full.MatchedHits = true, 12, 72
+	operations := commandOperations{
+		sessionSearch: func(context.Context, session.Roots, session.Filter, session.SearchQuery) session.SearchReport {
+			return full
+		},
+	}
+
+	code, stdout, stderr := runCommandWithOperations(t, sessionLoader(t), operations, "sessions", "search", "x", "--json")
+
+	if code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", code, stderr)
+	}
+	var page session.SearchReport
+	if err := json.Unmarshal([]byte(stdout), &page); err != nil {
+		t.Fatalf("decode page: %v\n%s", err, stdout)
+	}
+	if len(page.Sessions) != 10 || len(page.Sessions[0].Hits) != 5 || page.Sessions[0].OmittedHits != 1 {
+		t.Errorf("page = %d sessions, first with %d hits and %d omitted; want 10 sessions of 5 hits, 1 omitted", len(page.Sessions), len(page.Sessions[0].Hits), page.Sessions[0].OmittedHits)
+	}
+	if page.MatchedSessions != 12 || page.RemainingSessions != 2 || !page.HasMore || page.NextCursor == nil {
+		t.Errorf("page = matched %d, remaining %d, has_more %v, cursor %v; want 12, 2, true, set", page.MatchedSessions, page.RemainingSessions, page.HasMore, page.NextCursor)
+	}
+
+	code, stdout, stderr = runCommandWithOperations(t, sessionLoader(t), operations, "sessions", "search", "x", "--json", "--cursor", *page.NextCursor)
+
+	if code != 0 {
+		t.Fatalf("cursor exit code = %d, stderr = %q", code, stderr)
+	}
+	if err := json.Unmarshal([]byte(stdout), &page); err != nil {
+		t.Fatalf("decode next page: %v\n%s", err, stdout)
+	}
+	if len(page.Sessions) != 2 || page.Sessions[0].Path != "/claude/10.jsonl" || page.HasMore {
+		t.Errorf("next page = %d sessions starting at %q, has_more %v; want 10.jsonl and 11.jsonl, false", len(page.Sessions), page.Sessions[0].Path, page.HasMore)
+	}
+}
+
 func TestSessionsUntilDateEndsAtNextLocalMidnight(t *testing.T) {
 	var got session.Filter
 	operations := commandOperations{
@@ -250,6 +296,9 @@ func TestSessionsInvalidValuesFailBeforeConfiguration(t *testing.T) {
 		{name: "reversed period", args: []string{"sessions", "list", "--since", "2026-09-21", "--until", "2026-09-14"}},
 		{name: "bad since", args: []string{"sessions", "list", "--since", "yesterday"}},
 		{name: "bad pattern", args: []string{"sessions", "search", "(unclosed"}},
+		{name: "all with limit", args: []string{"sessions", "search", "x", "--all", "--limit", "3"}},
+		{name: "zero hit limit", args: []string{"sessions", "search", "x", "--hit-limit", "0"}},
+		{name: "malformed cursor", args: []string{"sessions", "search", "x", "--cursor", "!"}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
