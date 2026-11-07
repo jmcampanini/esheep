@@ -130,7 +130,7 @@ func writeSearchSummary(writer io.Writer, report session.SearchReport) error {
 // formatSources lists searched roots as matched-session counts per harness,
 // then every other root with its status.
 func formatSources(sources []session.Source) string {
-	var searched []string
+	var searched []session.Harness
 	counts := make(map[session.Harness]int)
 	var other []string
 	for _, source := range sources {
@@ -139,13 +139,13 @@ func formatSources(sources []session.Source) string {
 			continue
 		}
 		if _, seen := counts[source.Harness]; !seen {
-			searched = append(searched, string(source.Harness))
+			searched = append(searched, source.Harness)
 		}
 		counts[source.Harness] += source.MatchedSessions
 	}
 	parts := make([]string, 0, len(searched)+len(other))
 	for _, harness := range searched {
-		parts = append(parts, fmt.Sprintf("%s %d", harness, counts[session.Harness(harness)]))
+		parts = append(parts, fmt.Sprintf("%s %d", harness, counts[harness]))
 	}
 	parts = append(parts, other...)
 	if len(parts) == 0 {
