@@ -62,6 +62,49 @@ func TestSearchDisplaysKindsOriginsAndRelationships(t *testing.T) {
 	}
 }
 
+func TestSearchTextSummarizesThePageFirst(t *testing.T) {
+	t.Parallel()
+	cursor := "CURSOR"
+	report := session.SearchReport{
+		HasMore:           true,
+		MatchedHits:       9,
+		MatchedSessions:   4,
+		NextCursor:        &cursor,
+		RemainingSessions: 3,
+		Sessions: []session.Match{{
+			Session:     session.Session{Harness: session.HarnessClaude, Path: "/claude/a.jsonl"},
+			Hits:        []session.Hit{{Excerpt: "first", Line: 1}},
+			MatchedHits: 4,
+			OmittedHits: 3,
+		}},
+		Sources: []session.Source{
+			{Harness: session.HarnessClaude, MatchedSessions: 3, Path: "/claude", Status: session.SourceSearched},
+			{Harness: session.HarnessClaudeCowork, Status: session.SourceDisabled},
+			{Harness: session.HarnessCodex, Path: "/codex/archived", Status: session.SourceMissing},
+			{Harness: session.HarnessCodex, MatchedSessions: 1, Path: "/codex/sessions", Status: session.SourceSearched},
+		},
+	}
+	var output bytes.Buffer
+
+	if err := WriteSessionSearch(&output, report); err != nil {
+		t.Fatal(err)
+	}
+
+	lines := strings.Split(output.String(), "\n")
+	wantFirst := []string{
+		"Matched 4 sessions and 9 hits; showing 1 session and 1 hit.",
+		"Sources: claude 3, codex 1, claude-cowork disabled, codex missing /codex/archived.",
+		"3 more sessions; next page: --cursor CURSOR",
+		"",
+	}
+	if len(lines) < len(wantFirst) || !reflect.DeepEqual(lines[:len(wantFirst)], wantFirst) {
+		t.Fatalf("output begins %q, want %q", lines, wantFirst)
+	}
+	if !strings.Contains(output.String(), "  3 more hits in this session\n") {
+		t.Errorf("output lacks the omitted-hit line:\n%s", output.String())
+	}
+}
+
 func TestWriteSessionListRendersPlaceholdersAndTimes(t *testing.T) {
 	t.Parallel()
 	report := session.ListReport{
@@ -118,7 +161,7 @@ func TestJSONWritersEmitPayloadDocuments(t *testing.T) {
 		{name: "sessions list", want: `{"complete":false,"period":{"since":null,"until":null},"sessions":[]}`, write: func(output *bytes.Buffer) error {
 			return WriteSessionListJSON(output, session.ListReport{Diagnostics: sessionDiagnostics})
 		}},
-		{name: "sessions search", want: `{"complete":false,"period":{"since":null,"until":null},"sessions":[]}`, write: func(output *bytes.Buffer) error {
+		{name: "sessions search", want: `{"complete":false,"has_more":false,"matched_hits":0,"matched_sessions":0,"next_cursor":null,"period":{"since":null,"until":null},"remaining_sessions":0,"sessions":[],"sources":[]}`, write: func(output *bytes.Buffer) error {
 			return WriteSessionSearchJSON(output, session.SearchReport{Diagnostics: sessionDiagnostics})
 		}},
 	} {

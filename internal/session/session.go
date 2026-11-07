@@ -6,6 +6,7 @@
 package session
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"os"
@@ -111,10 +112,14 @@ type Hit struct {
 	Tool         string      `json:"tool,omitempty"`
 }
 
-// Match is one session together with its matching events.
+// Match is one session together with its returned matching events, in
+// transcript line order. MatchedHits counts every matching event in the
+// session; OmittedHits counts the matching events a page left out.
 type Match struct {
 	Session
-	Hits []Hit `json:"hits"`
+	Hits        []Hit `json:"hits"`
+	MatchedHits int   `json:"matched_hits"`
+	OmittedHits int   `json:"omitted_hits"`
 }
 
 // Diagnostic is a stable record of a session-reading issue.
@@ -155,13 +160,41 @@ type ListReport struct {
 }
 
 // SearchReport contains the sessions whose transcripts matched a query.
-// Its JSON form omits Diagnostics, as ListReport's does.
+// MatchedSessions, MatchedHits, and Sources describe the whole search;
+// Sessions, RemainingSessions, HasMore, and NextCursor describe the page
+// Paginate selected. Its JSON form omits Diagnostics, as ListReport's does.
 type SearchReport struct {
-	Complete    bool         `json:"complete"`
-	Diagnostics []Diagnostic `json:"-"`
-	Period      Period       `json:"period"`
-	Sessions    []Match      `json:"sessions"`
+	Complete          bool         `json:"complete"`
+	Diagnostics       []Diagnostic `json:"-"`
+	HasMore           bool         `json:"has_more"`
+	MatchedHits       int          `json:"matched_hits"`
+	MatchedSessions   int          `json:"matched_sessions"`
+	NextCursor        *string      `json:"next_cursor"`
+	Period            Period       `json:"period"`
+	RemainingSessions int          `json:"remaining_sessions"`
+	Sessions          []Match      `json:"sessions"`
+	Sources           []Source     `json:"sources"`
 }
+
+// Source is one session root a search considered and the sessions it
+// contributed. Disabled roots have no path.
+type Source struct {
+	Harness         Harness      `json:"harness"`
+	MatchedSessions int          `json:"matched_sessions"`
+	Path            string       `json:"path,omitempty"`
+	Status          SourceStatus `json:"status"`
+}
+
+// SourceStatus reports what became of one session root.
+type SourceStatus string
+
+// Source statuses.
+const (
+	SourceDisabled SourceStatus = "disabled"
+	SourceMissing  SourceStatus = "missing"
+	SourceSearched SourceStatus = "searched"
+	SourceUnusable SourceStatus = "unusable"
+)
 
 // Roots locates session storage. Codex and ChatGPT Work share active and
 // archive roots. Empty roots are omitted; an explicitly selected harness
@@ -313,12 +346,14 @@ type transcript struct {
 type located struct {
 	adapter adapter
 	session Session
+	// source indexes the Source that discovered the session.
+	source int
 }
 
 // List inventories historical sessions under the configured roots, most
 // recently started first.
 func List(ctx context.Context, roots Roots, filter Filter) ListReport {
-	sessions, diagnostics, complete := collect(ctx, roots, filter)
+	sessions, _, diagnostics, complete := collect(ctx, roots, filter)
 	report := ListReport{Complete: complete, Diagnostics: diagnostics, Period: filter.period()}
 	if !filter.hasPeriod() {
 		for _, entry := range sessions {
@@ -383,11 +418,12 @@ func qualifiesInPeriod(entry located, filter Filter) periodScan {
 	return result
 }
 
-// Search scans matching sessions' transcripts and reports the sessions with
-// at least one matching event, most recently started first.
+// Search scans matching sessions' transcripts and reports every session with
+// at least one matching event, most recently started first. Paginate selects
+// a bounded part of the report.
 func Search(ctx context.Context, roots Roots, filter Filter, query SearchQuery) SearchReport {
-	sessions, diagnostics, complete := collect(ctx, roots, filter)
-	report := SearchReport{Complete: complete, Diagnostics: diagnostics, Period: filter.period()}
+	sessions, sources, diagnostics, complete := collect(ctx, roots, filter)
+	report := SearchReport{Complete: complete, Diagnostics: diagnostics, Period: filter.period(), Sources: sources}
 
 	results := parallelMap(ctx, sessions, func(entry located) scanResult {
 		return scanSession(entry, filter, query)
@@ -410,7 +446,9 @@ func Search(ctx context.Context, roots Roots, filter Filter, query SearchQuery) 
 			})
 		}
 		if len(result.hits) != 0 {
-			report.Sessions = append(report.Sessions, Match{Session: entry, Hits: result.hits})
+			report.Sessions = append(report.Sessions, Match{Session: entry, Hits: result.hits, MatchedHits: len(result.hits)})
+			report.MatchedHits += len(result.hits)
+			report.Sources[sessions[index].source].MatchedSessions++
 		}
 		if result.undated > 0 {
 			report.Diagnostics = append(report.Diagnostics, Diagnostic{
@@ -419,6 +457,10 @@ func Search(ctx context.Context, roots Roots, filter Filter, query SearchQuery) 
 			})
 		}
 	}
+	report.MatchedSessions = len(report.Sessions)
+	slices.SortStableFunc(report.Sources, func(left, right Source) int {
+		return cmp.Or(cmp.Compare(left.Harness, right.Harness), cmp.Compare(left.Path, right.Path))
+	})
 	if ctx.Err() != nil {
 		report.Complete = false
 	}
@@ -502,8 +544,9 @@ func matchEvent(e event, query SearchQuery) (Hit, bool) {
 	}, true
 }
 
-// collect discovers, describes, filters, and orders the sessions in scope.
-func collect(ctx context.Context, roots Roots, filter Filter) ([]located, []Diagnostic, bool) {
+// collect discovers, describes, filters, and orders the sessions in scope and
+// reports the session roots it considered.
+func collect(ctx context.Context, roots Roots, filter Filter) ([]located, []Source, []Diagnostic, bool) {
 	var diagnostics []Diagnostic
 	selectedRoots := harnessRoots(roots, filter.Harnesses)
 	if len(filter.Harnesses) != 0 {
@@ -512,18 +555,29 @@ func collect(ctx context.Context, roots Roots, filter Filter) ([]located, []Diag
 
 	complete := true
 	var sessions []located
+	var sources []Source
 	seen := make(map[fileIdentity]struct{})
 	seenRoots := make(map[string]struct{})
 	for _, root := range selectedRoots {
-		if root.root == "" || (filter.ArchiveState == ArchiveArchived && root.harness != HarnessCodex && root.archiveState == ArchiveActive) {
+		if filter.ArchiveState == ArchiveArchived && root.harness != HarnessCodex && root.archiveState == ArchiveActive {
+			continue
+		}
+		if root.root == "" {
+			configured := slices.ContainsFunc(selectedRoots, func(other harnessRoot) bool { return other.harness == root.harness && other.root != "" })
+			listed := slices.ContainsFunc(sources, func(source Source) bool { return source.Harness == root.harness })
+			if !configured && !listed {
+				sources = append(sources, Source{Harness: root.harness, Status: SourceDisabled})
+			}
 			continue
 		}
 		if _, duplicate := seenRoots[root.root]; duplicate {
 			continue
 		}
 		seenRoots[root.root] = struct{}{}
-		transcripts, rootDiagnostics := discoverRoot(root, filter.IncludeSubagents)
+		transcripts, status, rootDiagnostics := discoverRoot(root, filter.IncludeSubagents)
 		diagnostics = append(diagnostics, rootDiagnostics...)
+		source := len(sources)
+		sources = append(sources, Source{Harness: root.harness, Path: root.root, Status: status})
 
 		kept := transcripts[:0]
 		for _, t := range transcripts {
@@ -562,7 +616,7 @@ func collect(ctx context.Context, roots Roots, filter Filter) ([]located, []Diag
 				continue
 			}
 			if filter.matchesSession(meta.session) {
-				sessions = append(sessions, located{adapter: root.adapter, session: meta.session})
+				sessions = append(sessions, located{adapter: root.adapter, session: meta.session, source: source})
 			}
 		}
 	}
@@ -585,7 +639,7 @@ func collect(ctx context.Context, roots Roots, filter Filter) ([]located, []Diag
 	sort.SliceStable(diagnostics, func(left, right int) bool {
 		return diagnostics[left].Path < diagnostics[right].Path
 	})
-	return sessions, diagnostics, complete
+	return sessions, sources, diagnostics, complete
 }
 
 type describedSession struct {
@@ -650,25 +704,29 @@ func disabledHarnessDiagnostics(roots []harnessRoot) []Diagnostic {
 	return diagnostics
 }
 
-func discoverRoot(root harnessRoot, includeSubagents bool) ([]transcript, []Diagnostic) {
+func discoverRoot(root harnessRoot, includeSubagents bool) ([]transcript, SourceStatus, []Diagnostic) {
 	info, err := os.Stat(root.root)
 	switch {
 	case err != nil && os.IsNotExist(err):
-		return nil, []Diagnostic{{
+		return nil, SourceMissing, []Diagnostic{{
 			Code: codeRootMissing, Harness: root.harness, Message: "session root does not exist; location skipped", Path: root.root,
 		}}
 	case err != nil:
-		return nil, []Diagnostic{{Code: codeRootUnusable, Harness: root.harness, Message: err.Error(), Path: root.root}}
+		return nil, SourceUnusable, []Diagnostic{{Code: codeRootUnusable, Harness: root.harness, Message: err.Error(), Path: root.root}}
 	case !info.IsDir():
-		return nil, []Diagnostic{{
+		return nil, SourceUnusable, []Diagnostic{{
 			Code: codeRootUnusable, Harness: root.harness, Message: "session root is not a directory", Path: root.root,
 		}}
 	}
 	transcripts, diagnostics := root.adapter.discover(root.root, includeSubagents)
+	status := SourceSearched
 	for index := range diagnostics {
 		diagnostics[index].Harness = root.harness
+		if diagnostics[index].Code == codeWalk && diagnostics[index].Path == root.root {
+			status = SourceUnusable
+		}
 	}
-	return transcripts, diagnostics
+	return transcripts, status, diagnostics
 }
 
 func (f Filter) matchesSession(s Session) bool {

@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -313,6 +314,52 @@ func TestSearchDecodedTextAcrossGrammars(t *testing.T) {
 	}
 	if hits[1].Line != 4 || hits[1].Tool != "Bash" {
 		t.Errorf("hits[1] = %+v, want Bash tool call on line 4", hits[1])
+	}
+}
+
+func TestSearchCountsMatchesAndReportsSources(t *testing.T) {
+	roots := fixtureRoots(t)
+	roots.CodexArchivedSessions = filepath.Join(filepath.Dir(roots.CodexSessions), "archived")
+
+	report := Search(context.Background(), roots, Filter{}, SearchQuery{Pattern: regexp.MustCompile("(?i)gomodcache|make test")})
+
+	if report.MatchedSessions != 2 || report.MatchedHits != 3 {
+		t.Errorf("matched = %d sessions, %d hits; want 2 sessions (Claude prompt and call, Pi call), 3 hits", report.MatchedSessions, report.MatchedHits)
+	}
+	for _, match := range report.Sessions {
+		if match.MatchedHits != len(match.Hits) || match.OmittedHits != 0 {
+			t.Errorf("%s matched_hits = %d, omitted %d, with %d hits; want every hit returned", match.Path, match.MatchedHits, match.OmittedHits, len(match.Hits))
+		}
+	}
+	want := []Source{
+		{Harness: HarnessClaude, MatchedSessions: 1, Path: roots.Claude, Status: SourceSearched},
+		{Harness: HarnessClaudeCowork, Status: SourceDisabled},
+		{Harness: HarnessCodex, Path: roots.CodexArchivedSessions, Status: SourceMissing},
+		{Harness: HarnessCodex, Path: roots.CodexSessions, Status: SourceSearched},
+		{Harness: HarnessPi, MatchedSessions: 1, Path: roots.Pi, Status: SourceSearched},
+	}
+	if !slices.Equal(report.Sources, want) {
+		t.Errorf("sources = %+v, want %+v", report.Sources, want)
+	}
+}
+
+func TestSearchReportsUnreadableRootAsUnusable(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads directories regardless of permissions")
+	}
+	root := filepath.Join(t.TempDir(), "claude")
+	if err := os.Mkdir(root, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(root, 0o755) })
+
+	report := Search(context.Background(), Roots{Claude: root}, Filter{Harnesses: []Harness{HarnessClaude}}, SearchQuery{Pattern: regexp.MustCompile("x")})
+
+	if want := []Source{{Harness: HarnessClaude, Path: root, Status: SourceUnusable}}; !slices.Equal(report.Sources, want) {
+		t.Errorf("sources = %+v, want %+v", report.Sources, want)
+	}
+	if report.Complete {
+		t.Error("complete = true, want false for an unreadable root")
 	}
 }
 

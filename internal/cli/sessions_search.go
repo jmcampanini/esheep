@@ -11,9 +11,13 @@ import (
 )
 
 func newSessionsSearchCommand(load configLoader, operations commandOperations) *cobra.Command {
+	var all bool
+	var cursor string
 	var errorsOnly bool
 	var filterFlags sessionFilterFlags
+	var hitLimit int
 	var jsonOutput bool
+	var limit int
 	var raw bool
 	var role string
 	var tool string
@@ -35,6 +39,19 @@ with their line numbers.
 --id limits which sessions are searched; it does not select events. A pattern,
 --tool, or --errors is still required. 'sessions list' with --id locates a
 session without searching its content.
+
+Search always scans every selected transcript, then returns one page of the
+results. Sessions follow the documented session order below; hits within a
+session follow transcript line order. A page holds at most --limit sessions
+(default 10), each with its first --hit-limit hits (default 5). --all returns
+every matching session with every hit and cannot combine with --limit or
+--hit-limit; both limits must be at least 1. When more sessions remain, the
+report carries a cursor: pass it to --cursor with the same search to return
+the sessions after that page. A cursor marks a position in the session order,
+so sessions that start after it was issued appear only on a new first page,
+and a cursor that names no remaining position returns an empty page. To see
+more hits from one session, select it with --id and raise --hit-limit.
+Stopping at a limit exits 0.
 
 --role limits matching to user, assistant, or tool events. --tool limits to
 calls of and results from one tool. --errors keeps only tool results whose
@@ -74,7 +91,24 @@ started earlier contributes its qualifying events.
 
 ` + sessionJSONHelp + `
 
-Search sessions also contain "hits", an array of matching events. Each hit
+Search JSON also contains "matched_sessions" and "matched_hits", counting every
+match in the whole search whatever the page; "remaining_sessions", the matching
+sessions after this page; "has_more", true when that count is positive; and
+"next_cursor", the --cursor value for the next page, or null when has_more is
+false. "sources" lists each session root the search considered, ordered by
+harness and path, with "harness", "path" (omitted for a disabled harness),
+"status" (searched, missing, unusable, or disabled), and "matched_sessions"
+from that root. Roots excluded by --harness or --archive-state are not listed.
+Counts cover only readable history: "complete" still reports whether the scan
+read every selected file.
+
+Text output begins with the same summary: matched and returned counts, the
+sources, and the next cursor when more sessions remain. A session whose hits
+were cut ends with a line counting the omitted hits.
+
+Search sessions also contain "hits", the returned matching events;
+"matched_hits", every matching event in the session; and "omitted_hits", the
+matching events this page left out. Each hit
 contains "line", the 1-based transcript line number; "role", the event role;
 "kind", one of message, tool_call, tool_result, or raw; and "excerpt", a
 window of up to 160 bytes starting up to 40 bytes before
@@ -110,7 +144,8 @@ may return only one side of a relationship. Text output labels calls as
 call:<tool> and results as result:<tool>, using ? for an unknown tool name,
 and shows origin and recorded call IDs.`,
 		Example: `  esheep sessions search timeout --harness codex --since 7d
-  esheep sessions search . --id SESSION_ID
+  esheep sessions search timeout --since 7d --cursor CURSOR
+  esheep sessions search . --id SESSION_ID --hit-limit 50
   esheep sessions search --errors --since 7d --json`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
@@ -123,12 +158,16 @@ and shows origin and recorded call IDs.`,
 			if err != nil {
 				return err
 			}
+			page, err := pageFlags(command, all, cursor, hitLimit, limit).Resolve()
+			if err != nil {
+				return err
+			}
 
 			loaded, err := loadConfiguration(command, load)
 			if err != nil {
 				return err
 			}
-			report := operations.sessionSearch(command.Context(), sessionRoots(loaded), filter, query)
+			report := operations.sessionSearch(command.Context(), sessionRoots(loaded), filter, query).Paginate(page)
 
 			if jsonOutput {
 				if err := ui.WriteSessionSearchJSON(command.OutOrStdout(), report); err != nil {
@@ -147,10 +186,30 @@ and shows origin and recorded call IDs.`,
 		},
 	}
 	registerSessionFilterFlags(command, &filterFlags)
+	command.Flags().BoolVar(&all, "all", false, "return every matching session and hit")
+	command.Flags().StringVar(&cursor, "cursor", "", "return the sessions after the page that printed this cursor")
 	command.Flags().BoolVar(&errorsOnly, "errors", false, "keep only tool results flagged as failures")
+	command.Flags().IntVar(&hitLimit, "hit-limit", session.DefaultHitLimit, "return at most this many hits per session")
 	command.Flags().BoolVar(&jsonOutput, "json", false, "emit one JSON document")
+	command.Flags().IntVar(&limit, "limit", session.DefaultLimit, "return at most this many sessions")
 	command.Flags().BoolVar(&raw, "raw", false, "match the pattern against undecoded transcript lines")
 	command.Flags().StringVar(&role, "role", "", "limit to events by role (user, assistant, tool)")
 	command.Flags().StringVar(&tool, "tool", "", "limit to calls of and results from one tool")
 	return command
+}
+
+// pageFlags converts the page flag values into the request form, leaving
+// unset flags nil so defaults and conflicts resolve in one place.
+func pageFlags(command *cobra.Command, all bool, cursor string, hitLimit, limit int) session.RequestPage {
+	page := session.RequestPage{All: all}
+	if command.Flags().Changed("cursor") {
+		page.Cursor = &cursor
+	}
+	if command.Flags().Changed("hit-limit") {
+		page.HitLimit = &hitLimit
+	}
+	if command.Flags().Changed("limit") {
+		page.Limit = &limit
+	}
+	return page
 }

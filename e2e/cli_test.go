@@ -463,6 +463,34 @@ func TestSessionsWorkflow(t *testing.T) {
 		t.Fatalf("error search hits = %d, want 2\n%s", got, failures.stdout)
 	}
 
+	var page struct {
+		HasMore         bool    `json:"has_more"`
+		MatchedSessions int     `json:"matched_sessions"`
+		NextCursor      *string `json:"next_cursor"`
+		Sessions        []struct {
+			Path string `json:"path"`
+		} `json:"sessions"`
+	}
+	var paged []string
+	args := []string{"sessions", "search", "--json", "--errors", "--limit", "1"}
+	for range 3 {
+		result := runEsheep(t, environment, args...)
+		assertSuccessWithDiagnostics(t, result, "root-missing")
+		if err := json.Unmarshal([]byte(result.stdout), &page); err != nil {
+			t.Fatalf("decode page: %v\n%s", err, result.stdout)
+		}
+		for _, entry := range page.Sessions {
+			paged = append(paged, entry.Path)
+		}
+		if page.NextCursor == nil {
+			break
+		}
+		args = []string{"sessions", "search", "--json", "--errors", "--limit", "1", "--cursor", *page.NextCursor}
+	}
+	if len(paged) != 2 || paged[0] == paged[1] || page.MatchedSessions != 2 || page.HasMore {
+		t.Fatalf("paged error sessions = %v, matched %d, has_more %v; want both sessions once", paged, page.MatchedSessions, page.HasMore)
+	}
+
 	if got := snapshotTree(t, home); got != storesBefore {
 		t.Fatal("sessions commands modified a session store")
 	}
