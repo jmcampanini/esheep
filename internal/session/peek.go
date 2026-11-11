@@ -78,8 +78,8 @@ func (r LineRange) String() string {
 // PeekQuery selects events from the one session ID names. Lines selects the
 // events on those transcript lines and Context adds that many returned events
 // before and after them. MaxBytes caps the returned events' total size as
-// compact JSON; zero removes the cap. IncludeSubagents returns embedded child activity, which is
-// otherwise counted but left out.
+// compact JSON; zero removes the cap. IncludeSubagents returns embedded child
+// activity, which is otherwise counted but left out.
 type PeekQuery struct {
 	Context          int
 	ID               string

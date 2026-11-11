@@ -98,11 +98,6 @@ type fileIdentity struct {
 	inode  uint64
 }
 
-func identityOf(info fs.FileInfo) fileIdentity {
-	stat := info.Sys().(*syscall.Stat_t)
-	return fileIdentity{device: uint64(stat.Dev), inode: stat.Ino}
-}
-
 // walkRules parameterizes JSONL transcript discovery for one harness grammar.
 type walkRules struct {
 	// accept reports whether a JSONL file is a session transcript.
@@ -147,8 +142,9 @@ func walkJSONLTranscripts(root string, rules walkRules) ([]transcript, []Diagnos
 			diagnostics = append(diagnostics, Diagnostic{Code: codeWalk, Message: infoErr.Error(), Path: path})
 			return nil
 		}
+		stat := info.Sys().(*syscall.Stat_t)
 		transcripts = append(transcripts, transcript{
-			identity: identityOf(info),
+			identity: fileIdentity{device: uint64(stat.Dev), inode: stat.Ino},
 			modTime:  info.ModTime(), path: path, subagent: subagent,
 		})
 		return nil

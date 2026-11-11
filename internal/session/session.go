@@ -597,7 +597,14 @@ func collect(ctx context.Context, roots Roots, filter Filter) ([]located, []Sour
 		}
 
 		metas := parallelMap(ctx, kept, func(t transcript) describedSession {
-			return root.describe(t, filter.IDs)
+			meta := root.adapter.meta(t, filter.IDs)
+			if root.archiveState != ArchiveAll {
+				meta.session.Archived = root.archiveState == ArchiveArchived
+			}
+			if meta.session.Projects == nil {
+				meta.session.Projects = []string{}
+			}
+			return meta
 		})
 		for _, meta := range metas {
 			diagnostics = append(diagnostics, meta.diagnostics...)
@@ -651,19 +658,6 @@ type harnessRoot struct {
 	harness      Harness
 	root         string
 	setting      string
-}
-
-// describe reads one discovered transcript's metadata, settling the archive
-// state its root fixes.
-func (r harnessRoot) describe(t transcript, ids idFilter) describedSession {
-	meta := r.adapter.meta(t, ids)
-	if r.archiveState != ArchiveAll {
-		meta.session.Archived = r.archiveState == ArchiveArchived
-	}
-	if meta.session.Projects == nil {
-		meta.session.Projects = []string{}
-	}
-	return meta
 }
 
 func harnessRoots(roots Roots, harnesses []Harness) []harnessRoot {
