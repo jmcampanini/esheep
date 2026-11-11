@@ -91,3 +91,45 @@ func TestRequestResolveRejectsInvalidRequests(t *testing.T) {
 		})
 	}
 }
+
+func TestRequestPeekResolve(t *testing.T) {
+	maxBytes := 900
+	base := RequestPeek{ID: "abc", Lines: []string{"4", "9-12"}}
+
+	query, err := RequestPeek{Context: 2, ID: "abc", Lines: base.Lines, MaxBytes: &maxBytes, Subagents: true}.Resolve()
+
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if query.Context != 2 || !query.IncludeSubagents || query.ID != "abc" || query.MaxBytes != 900 || len(query.Lines) != 2 || query.Lines[0] != (LineRange{4, 4}) || query.Lines[1] != (LineRange{9, 12}) {
+		t.Errorf("query = %+v", query)
+	}
+	if capped, err := base.Resolve(); err != nil || capped.MaxBytes != DefaultPeekBytes {
+		t.Errorf("default cap = %d, error %v; want %d", capped.MaxBytes, err, DefaultPeekBytes)
+	}
+	if uncapped, err := (RequestPeek{All: true, ID: "abc", Lines: base.Lines}).Resolve(); err != nil || uncapped.MaxBytes != 0 {
+		t.Errorf("--all cap = %d, error %v; want none", uncapped.MaxBytes, err)
+	}
+
+	zero := 0
+	for _, test := range []struct {
+		name    string
+		request RequestPeek
+		want    string
+	}{
+		{name: "no ID", request: RequestPeek{Lines: []string{"4"}}, want: "peek requires --id"},
+		{name: "no lines", request: RequestPeek{ID: "abc"}, want: "peek requires --line"},
+		{name: "negative context", request: RequestPeek{Context: -1, ID: "abc", Lines: []string{"4"}}, want: "--context must not be negative"},
+		{name: "all with a cap", request: RequestPeek{All: true, ID: "abc", Lines: []string{"4"}, MaxBytes: &maxBytes}, want: "--all cannot combine with --max-bytes"},
+		{name: "zero cap", request: RequestPeek{ID: "abc", Lines: []string{"4"}, MaxBytes: &zero}, want: "--max-bytes must be at least 1"},
+		{name: "descending range", request: RequestPeek{ID: "abc", Lines: []string{"9-4"}}, want: `--line: session: line "9-4"`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := test.request.Resolve()
+
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("Resolve() error = %v, want containing %q", err, test.want)
+			}
+		})
+	}
+}

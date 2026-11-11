@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -152,28 +153,41 @@ func walkJSONLTranscripts(root string, rules walkRules) ([]transcript, []Diagnos
 }
 
 // flattenText extracts human-readable text from a value that is either a
-// JSON string or an array of content blocks carrying "text" fields.
-func flattenText(raw json.RawMessage) string {
+// JSON string or an array of content blocks carrying "text" fields. It also
+// returns the distinct types of the blocks that carry no text field.
+func flattenText(raw json.RawMessage) (string, []string) {
 	if len(raw) == 0 {
-		return ""
+		return "", nil
 	}
 	var text string
 	if json.Unmarshal(raw, &text) == nil {
-		return text
+		return text, nil
 	}
 	var blocks []struct {
-		Text string `json:"text"`
+		Text *string `json:"text"`
+		Type string  `json:"type"`
 	}
 	if json.Unmarshal(raw, &blocks) != nil {
-		return ""
+		return "", nil
 	}
 	parts := make([]string, 0, len(blocks))
+	var textless []string
 	for _, block := range blocks {
-		if block.Text != "" {
-			parts = append(parts, block.Text)
+		switch {
+		case block.Text == nil:
+			textless = appendDistinctType(textless, block.Type)
+		case *block.Text != "":
+			parts = append(parts, *block.Text)
 		}
 	}
-	return strings.Join(parts, "\n")
+	return strings.Join(parts, "\n"), textless
+}
+
+func appendDistinctType(types []string, name string) []string {
+	if name == "" || slices.Contains(types, name) {
+		return types
+	}
+	return append(types, name)
 }
 
 // compactJSON renders raw JSON on one line for matching and excerpts.

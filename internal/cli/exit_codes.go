@@ -9,7 +9,11 @@ func newExitCodesTopic() *cobra.Command {
   1  Application failure: a value rejected by the command after parsing,
      invalid configuration, transcript input, or output prevented the
      command from succeeding. 'sessions list' and 'sessions search' exit 1
-     when the scan is incomplete.
+     when the scan is incomplete. 'sessions peek' exits 1, printing no
+     events, when its ID names no session or several, the transcript
+     cannot be read to its end, or a --line value returns no event. It
+     exits 1 after printing its events when a root or another transcript
+     that could carry the ID cannot be read.
   2  Usage error: an unknown command, flag, or operand; operands that
      fail a command's positional grammar; or a flag value the command
      library cannot parse.
@@ -31,6 +35,10 @@ Every output mode reports them as diagnostics on stderr.
   session root, malformed transcript lines, undated events, and invalid or
   mismatched Cowork companion metadata while the scan is complete.
 
+  'sessions peek' reports a missing session root, malformed transcript
+  lines, and invalid or mismatched Cowork companion metadata.
+
 'sessions search' also keeps status 0 when it stops at a page limit; its
-report says how many sessions remain.`)
+report says how many sessions remain. 'sessions peek' keeps status 0 when
+its size cap cuts text or leaves events out; its report says so.`)
 }

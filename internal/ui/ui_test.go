@@ -62,6 +62,56 @@ func TestSearchDisplaysKindsOriginsAndRelationships(t *testing.T) {
 	}
 }
 
+func TestPeekTextKeepsEventLinesAndReportsWhatIsNotShown(t *testing.T) {
+	t.Parallel()
+	at := time.Date(2026, 8, 20, 10, 0, 5, 0, time.Local)
+	nextLine := 31
+	report := session.PeekReport{
+		Session:       session.Session{Harness: session.HarnessClaude, Path: "/roots/claude/p/abc.jsonl", Projects: []string{"/proj"}, StartedAt: at, Origin: session.Origin{Kind: session.OriginUnknown}},
+		TotalEvents:   9,
+		OmittedEvents: 1,
+		NextLine:      &nextLine,
+		Events: []session.Event{
+			{Kind: session.KindToolCall, Line: 12, Position: 3, Role: session.RoleTool, Tool: "Bash", CallID: "toolu_1", Origin: session.EventOrigin{Kind: session.EventOriginAgent}, Timestamp: at, Text: `{"command":"make"}`},
+			{Kind: session.KindToolResult, Line: 13, Position: 4, Role: session.RoleTool, Tool: "Bash", CallID: "toolu_1", Origin: session.EventOrigin{Kind: session.EventOriginTool}, Error: true, Text: "func main() {\n\treturn\x1b[31m\r\n}\n"},
+			{Kind: session.KindToolResult, Line: 20, Position: 7, Role: session.RoleTool, Origin: session.EventOrigin{Kind: session.EventOriginTool}, OmittedContent: []string{"image", "tool_reference"}},
+			{Kind: session.KindMessage, Line: 21, Position: 8, Role: session.RoleUser, Origin: session.EventOrigin{Kind: session.EventOriginUnknown}, Text: "long", TextCut: true, TextBytes: 4000},
+		},
+	}
+	var output bytes.Buffer
+
+	if err := WriteSessionPeek(&output, report); err != nil {
+		t.Fatal(err)
+	}
+
+	want := strings.Join([]string{
+		"claude  2026-08-20 10:00  /proj  active  origin=unknown",
+		"/roots/claude/p/abc.jsonl",
+		"Showing 4 of 9 events.",
+		"",
+		"  (2 events not shown)",
+		":12  call:Bash  2026-08-20 10:00:05  origin=agent call_id=toolu_1",
+		`    {"command":"make"}`,
+		":13  result:Bash  -  origin=tool call_id=toolu_1  error",
+		"    func main() {",
+		"    \treturn [31m",
+		"    }",
+		"",
+		"  (2 events not shown)",
+		":20  result:?  -  origin=tool omitted_content=image,tool_reference",
+		":21  user  -  origin=unknown",
+		"    long",
+		"    (text cut: 4 of 4000 bytes shown)",
+		"  (1 event not shown)",
+		"",
+		"1 selected event left out by the size cap; raise --max-bytes, resume at --line 31, or pass --all.",
+		"",
+	}, "\n")
+	if output.String() != want {
+		t.Errorf("WriteSessionPeek() =\n%s\nwant\n%s", output.String(), want)
+	}
+}
+
 func TestSearchTextSummarizesThePageFirst(t *testing.T) {
 	t.Parallel()
 	cursor := "CURSOR"
@@ -163,6 +213,9 @@ func TestJSONWritersEmitPayloadDocuments(t *testing.T) {
 		}},
 		{name: "sessions search", want: `{"complete":false,"has_more":false,"matched_hits":0,"matched_sessions":0,"next_cursor":null,"period":{"since":null,"until":null},"remaining_sessions":0,"sessions":[],"sources":[]}`, write: func(output *bytes.Buffer) error {
 			return WriteSessionSearchJSON(output, session.SearchReport{Diagnostics: sessionDiagnostics})
+		}},
+		{name: "sessions peek", want: `{"complete":false,"events":[],"next_line":null,"omitted_events":0,"session":{"archived":false,"harness":"pi","id":"abc","modified_at":"0001-01-01T00:00:00Z","origin":{"kind":""},"path":"/t.jsonl","projects":null,"subagent":false},"total_events":0}`, write: func(output *bytes.Buffer) error {
+			return WriteSessionPeekJSON(output, session.PeekReport{Diagnostics: sessionDiagnostics, Session: session.Session{Harness: session.HarnessPi, ID: "abc", Path: "/t.jsonl"}})
 		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {

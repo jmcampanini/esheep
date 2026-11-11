@@ -64,7 +64,8 @@ func ParseRole(value string) (Role, error) {
 	}
 }
 
-// event is one interpreted transcript record component.
+// event is one interpreted transcript record component. textless names the
+// types of a tool result's recorded content blocks that text does not carry.
 type event struct {
 	callID       string
 	failed       bool
@@ -75,6 +76,7 @@ type event struct {
 	role         Role
 	subagent     bool
 	text         string
+	textless     []string
 	timestamp    time.Time
 	tool         string
 }

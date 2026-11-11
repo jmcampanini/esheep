@@ -39,6 +39,53 @@ type RequestPage struct {
 	Limit    *int
 }
 
+// RequestPeek is the unvalidated form of PeekQuery, mirroring the command
+// flags. A nil MaxBytes was not given.
+type RequestPeek struct {
+	All       bool
+	Context   int
+	ID        string
+	Lines     []string
+	MaxBytes  *int
+	Subagents bool
+}
+
+// Resolve validates the request and converts it into the query Peek accepts,
+// applying the default cap unless All is set.
+func (r RequestPeek) Resolve() (PeekQuery, error) {
+	if r.ID == "" {
+		return PeekQuery{}, errors.New("peek requires --id")
+	}
+	if len(r.Lines) == 0 {
+		return PeekQuery{}, errors.New("peek requires --line")
+	}
+	if r.Context < 0 {
+		return PeekQuery{}, errors.New("--context must not be negative")
+	}
+	if r.All && r.MaxBytes != nil {
+		return PeekQuery{}, errors.New("--all cannot combine with --max-bytes")
+	}
+	if r.MaxBytes != nil && *r.MaxBytes < 1 {
+		return PeekQuery{}, errors.New("--max-bytes must be at least 1")
+	}
+
+	query := PeekQuery{Context: r.Context, ID: r.ID, IncludeSubagents: r.Subagents, MaxBytes: DefaultPeekBytes}
+	if r.All {
+		query.MaxBytes = 0
+	}
+	if r.MaxBytes != nil {
+		query.MaxBytes = *r.MaxBytes
+	}
+	for _, value := range r.Lines {
+		lines, err := ParseLineRange(value)
+		if err != nil {
+			return PeekQuery{}, fmt.Errorf("--line: %w", err)
+		}
+		query.Lines = append(query.Lines, lines)
+	}
+	return query, nil
+}
+
 // Resolve validates the page flags and converts them into the Page
 // SearchReport.Paginate accepts, applying the default limits unless All is
 // set.

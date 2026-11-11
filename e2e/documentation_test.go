@@ -24,6 +24,7 @@ func TestDocumentedCommandsMatchBinaryHelp(t *testing.T) {
 	}{
 		{documentation: "esheep config", help: rootHelp.stdout, name: "config"},
 		{documentation: "esheep sessions list", help: sessionsHelp.stdout, name: "list"},
+		{documentation: "esheep sessions peek", help: sessionsHelp.stdout, name: "peek"},
 		{documentation: "esheep sessions search", help: sessionsHelp.stdout, name: "search"},
 	}
 	for _, command := range commands {
