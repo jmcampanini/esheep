@@ -163,10 +163,11 @@ instants, each null when open.`
 func newSessionsCommand(load configLoader, operations commandOperations) *cobra.Command {
 	command := &cobra.Command{
 		Use:   "sessions",
-		Short: "Find historical harness sessions",
-		Long: `Find historical session transcripts recorded by Claude Code, Pi,
+		Short: "Find and read historical harness sessions",
+		Long: `Find and read historical session transcripts recorded by Claude Code, Pi,
 Codex, local ChatGPT Work tasks, and local Claude Cowork conversations,
-reading the harness-owned files in place.
+reading the harness-owned files in place. 'list' inventories sessions,
+'search' locates matching events, and 'peek' reads events in full.
 
 Transcripts are read-only inputs: esheep never creates, updates, or deletes
 anything under a session root and keeps no copies or indexes. Every result
@@ -190,6 +191,7 @@ the report as one JSON document, and never prompts.
 	}
 	command.AddCommand(
 		newSessionsListCommand(load, operations),
+		newSessionsPeekCommand(load, operations),
 		newSessionsSearchCommand(load, operations),
 	)
 	return command

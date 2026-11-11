@@ -9,6 +9,7 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"time"
 	"unicode"
 
 	"charm.land/lipgloss/v2"
@@ -54,42 +55,20 @@ func WriteSessionSearch(writer io.Writer, report session.SearchReport) error {
 		if _, err := fmt.Fprintln(writer); err != nil {
 			return err
 		}
-		header := []string{string(entry.Harness), sessionTime(entry.Session)}
-		if len(entry.Projects) != 0 {
-			header = append(header, clean(strings.Join(entry.Projects, ", ")))
-		}
-		if entry.Title != "" {
-			header = append(header, clean(entry.Title))
-		}
-		header = append(header, sessionArchiveState(entry.Session))
-		header = append(header, "origin="+formatOrigin(string(entry.Origin.Kind), entry.Origin.Evidence))
-		if _, err := fmt.Fprintln(writer, strings.Join(header, "  ")); err != nil {
-			return err
-		}
-		if _, err := fmt.Fprintln(writer, clean(entry.Path)); err != nil {
+		if err := writeSessionHeader(writer, entry.Session); err != nil {
 			return err
 		}
 		width := 0
 		for _, hit := range entry.Hits {
-			width = max(width, len(hitRole(hit)))
+			width = max(width, len(eventLabel(hit.Kind, hit.Role, hit.Tool)))
 		}
 		for _, hit := range entry.Hits {
 			marker := ""
 			if hit.Error {
 				marker = "error  "
 			}
-			metadata := "origin=" + formatOrigin(string(hit.Origin.Kind), hit.Origin.Evidence)
-			if hit.CallID != "" {
-				metadata += " call_id=" + clean(hit.CallID)
-			}
-			if hit.ParentCallID != "" {
-				metadata += " parent_call_id=" + clean(hit.ParentCallID)
-			}
-			timestamp := "-"
-			if !hit.Timestamp.IsZero() {
-				timestamp = hit.Timestamp.Local().Format("2006-01-02 15:04:05")
-			}
-			if _, err := fmt.Fprintf(writer, "  :%-6d %-*s  %s  %s  %s%s\n", hit.Line, width, hitRole(hit), timestamp, metadata, marker, clean(hit.Excerpt)); err != nil {
+			if _, err := fmt.Fprintf(writer, "  :%-6d %-*s  %s  %s  %s%s\n", hit.Line, width, eventLabel(hit.Kind, hit.Role, hit.Tool),
+				eventTime(hit.Timestamp), eventMetadata(hit.Origin, hit.CallID, hit.ParentCallID), marker, clean(hit.Excerpt)); err != nil {
 				return err
 			}
 		}
@@ -100,6 +79,100 @@ func WriteSessionSearch(writer io.Writer, report session.SearchReport) error {
 		}
 	}
 	return nil
+}
+
+// WriteSessionPeek writes one session's selected events with their text,
+// each addressed as a line number within the canonical transcript path. A
+// count stands in wherever the session's other events are not shown, and the
+// last line reports what the size cap left out.
+func WriteSessionPeek(writer io.Writer, report session.PeekReport) error {
+	if err := writeSessionHeader(writer, report.Session); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(writer, "Showing %d of %d %s.\n\n", len(report.Events), report.TotalEvents, plural(report.TotalEvents, "event", "events")); err != nil {
+		return err
+	}
+
+	shown := 0
+	for _, event := range report.Events {
+		if err := writeEventsNotShown(writer, event.Position-shown-1); err != nil {
+			return err
+		}
+		shown = event.Position
+		if err := writePeekEvent(writer, event); err != nil {
+			return err
+		}
+	}
+	if err := writeEventsNotShown(writer, report.TotalEvents-shown); err != nil {
+		return err
+	}
+
+	if report.OmittedEvents == 0 {
+		return nil
+	}
+	resume := ""
+	if report.NextLine != nil {
+		resume = fmt.Sprintf(", resume at --line %d", *report.NextLine)
+	}
+	_, err := fmt.Fprintf(writer, "\n%d selected %s left out by the size cap; raise --max-bytes%s, or pass --all.\n",
+		report.OmittedEvents, plural(report.OmittedEvents, "event", "events"), resume)
+	return err
+}
+
+func writePeekEvent(writer io.Writer, event session.Event) error {
+	markers := ""
+	if len(event.OmittedContent) != 0 {
+		markers += " omitted_content=" + clean(strings.Join(event.OmittedContent, ","))
+	}
+	if event.Error {
+		markers += "  error"
+	}
+	if _, err := fmt.Fprintf(writer, ":%d  %s  %s  %s%s\n", event.Line, eventLabel(event.Kind, event.Role, event.Tool),
+		eventTime(event.Timestamp), eventMetadata(event.Origin, event.CallID, event.ParentCallID), markers); err != nil {
+		return err
+	}
+	if event.Text != "" {
+		for _, line := range strings.Split(event.Text, "\n") {
+			if _, err := fmt.Fprintln(writer, strings.TrimRight("    "+strings.Map(printableKeepingTabs, line), " ")); err != nil {
+				return err
+			}
+		}
+	}
+	if !event.TextCut {
+		return nil
+	}
+	_, err := fmt.Fprintf(writer, "    (text cut: %d of %d bytes shown)\n", len(event.Text), event.TextBytes)
+	return err
+}
+
+func writeEventsNotShown(writer io.Writer, count int) error {
+	if count == 0 {
+		return nil
+	}
+	_, err := fmt.Fprintf(writer, "  (%d %s not shown)\n", count, plural(count, "event", "events"))
+	return err
+}
+
+// WriteSessionPeekJSON writes one complete session events JSON document.
+func WriteSessionPeekJSON(writer io.Writer, report session.PeekReport) error {
+	if report.Events == nil {
+		report.Events = []session.Event{}
+	}
+	return writeJSON(writer, report)
+}
+
+func writeSessionHeader(writer io.Writer, entry session.Session) error {
+	header := []string{string(entry.Harness), sessionTime(entry)}
+	if len(entry.Projects) != 0 {
+		header = append(header, clean(strings.Join(entry.Projects, ", ")))
+	}
+	if entry.Title != "" {
+		header = append(header, clean(entry.Title))
+	}
+	header = append(header, sessionArchiveState(entry))
+	header = append(header, "origin="+formatOrigin(string(entry.Origin.Kind), entry.Origin.Evidence))
+	_, err := fmt.Fprintf(writer, "%s\n%s\n", strings.Join(header, "  "), clean(entry.Path))
+	return err
 }
 
 func writeSearchSummary(writer io.Writer, report session.SearchReport) error {
@@ -204,18 +277,35 @@ func sessionArchiveState(entry session.Session) string {
 	return "active"
 }
 
-func hitRole(hit session.Hit) string {
-	tool := "?"
-	if hit.Tool != "" {
-		tool = clean(hit.Tool)
+func eventLabel(kind session.EventKind, role session.Role, tool string) string {
+	if tool == "" {
+		tool = "?"
 	}
-	switch hit.Kind {
+	switch kind {
 	case session.KindToolCall:
-		return "call:" + tool
+		return "call:" + clean(tool)
 	case session.KindToolResult:
-		return "result:" + tool
+		return "result:" + clean(tool)
 	}
-	return clean(string(hit.Role))
+	return clean(string(role))
+}
+
+func eventTime(timestamp time.Time) string {
+	if timestamp.IsZero() {
+		return "-"
+	}
+	return timestamp.Local().Format("2006-01-02 15:04:05")
+}
+
+func eventMetadata(origin session.EventOrigin, callID, parentCallID string) string {
+	metadata := "origin=" + formatOrigin(string(origin.Kind), origin.Evidence)
+	if callID != "" {
+		metadata += " call_id=" + clean(callID)
+	}
+	if parentCallID != "" {
+		metadata += " parent_call_id=" + clean(parentCallID)
+	}
+	return metadata
 }
 
 func formatOrigin(kind string, evidence map[string]string) string {
@@ -264,11 +354,20 @@ func writeJSON(writer io.Writer, value any) error {
 }
 
 func clean(value string) string {
-	value = strings.Map(func(character rune) rune {
-		if unicode.IsControl(character) || unicode.Is(unicode.Cf, character) {
-			return ' '
-		}
+	return strings.Join(strings.Fields(strings.Map(printable, value)), " ")
+}
+
+func printableKeepingTabs(character rune) rune {
+	if character == '\t' {
 		return character
-	}, value)
-	return strings.Join(strings.Fields(value), " ")
+	}
+	return printable(character)
+}
+
+// printable replaces terminal control and format characters with a space.
+func printable(character rune) rune {
+	if unicode.IsControl(character) || unicode.Is(unicode.Cf, character) {
+		return ' '
+	}
+	return character
 }

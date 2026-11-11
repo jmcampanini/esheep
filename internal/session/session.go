@@ -64,7 +64,8 @@ func ParseRole(value string) (Role, error) {
 	}
 }
 
-// event is one interpreted transcript record component.
+// event is one interpreted transcript record component. textless names the
+// types of a tool result's recorded content blocks that text does not carry.
 type event struct {
 	callID       string
 	failed       bool
@@ -75,6 +76,7 @@ type event struct {
 	role         Role
 	subagent     bool
 	text         string
+	textless     []string
 	timestamp    time.Time
 	tool         string
 }
@@ -595,14 +597,7 @@ func collect(ctx context.Context, roots Roots, filter Filter) ([]located, []Sour
 		}
 
 		metas := parallelMap(ctx, kept, func(t transcript) describedSession {
-			meta := root.adapter.meta(t, filter.IDs)
-			if root.archiveState != ArchiveAll {
-				meta.session.Archived = root.archiveState == ArchiveArchived
-			}
-			if meta.session.Projects == nil {
-				meta.session.Projects = []string{}
-			}
-			return meta
+			return root.describe(t, filter.IDs)
 		})
 		for _, meta := range metas {
 			diagnostics = append(diagnostics, meta.diagnostics...)
@@ -656,6 +651,19 @@ type harnessRoot struct {
 	harness      Harness
 	root         string
 	setting      string
+}
+
+// describe reads one discovered transcript's metadata, settling the archive
+// state its root fixes.
+func (r harnessRoot) describe(t transcript, ids idFilter) describedSession {
+	meta := r.adapter.meta(t, ids)
+	if r.archiveState != ArchiveAll {
+		meta.session.Archived = r.archiveState == ArchiveArchived
+	}
+	if meta.session.Projects == nil {
+		meta.session.Projects = []string{}
+	}
+	return meta
 }
 
 func harnessRoots(roots Roots, harnesses []Harness) []harnessRoot {

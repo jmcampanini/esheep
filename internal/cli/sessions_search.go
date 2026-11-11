@@ -33,8 +33,9 @@ against what was actually said or done, not escaped JSON: user text,
 assistant text, and tool calls and results (tool arguments and output). The
 pattern is a case-insensitive Go regular expression and is optional when
 --tool or --errors already select events. An empty pattern fails with exit 1;
-use '.' to select every event, which with --id prints one session's events
-with their line numbers.
+use '.' to select every event that has text. A hit carries an excerpt, not
+the whole event: 'sessions peek' prints a hit's complete text and the
+events around it.
 
 --id limits which sessions are searched; it does not select events. A pattern,
 --tool, or --errors is still required. 'sessions list' with --id locates a

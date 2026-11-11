@@ -1,6 +1,6 @@
 # esheep
 
-esheep finds historical sessions from Claude Code, Pi, Codex, local ChatGPT Work tasks, and local Claude Cowork conversations by reading their transcripts in place and read-only. It writes nothing and never contacts another machine.
+esheep finds and reads historical sessions from Claude Code, Pi, Codex, local ChatGPT Work tasks, and local Claude Cowork conversations by reading their transcripts in place and read-only. It writes nothing and never contacts another machine.
 
 
 ## Install
@@ -56,6 +56,7 @@ mise run build
 |---|---|
 | `esheep sessions list [--json]` | List historical harness sessions with their canonical transcript paths. |
 | `esheep sessions search [pattern] [--json]` | Search session transcripts in place; hits address transcript lines. |
+| `esheep sessions peek --id <id> --line <lines> [--json]` | Read the events on a session's transcript lines, and the events around them, with their complete text. |
 
 The canonical reference is `esheep --help`, each command's `--help`, and the help topic `esheep help exit-codes`.
 

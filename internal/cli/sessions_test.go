@@ -299,6 +299,11 @@ func TestSessionsInvalidValuesFailBeforeConfiguration(t *testing.T) {
 		{name: "all with limit", args: []string{"sessions", "search", "x", "--all", "--limit", "3"}},
 		{name: "zero hit limit", args: []string{"sessions", "search", "x", "--hit-limit", "0"}},
 		{name: "malformed cursor", args: []string{"sessions", "search", "x", "--cursor", "!"}},
+		{name: "peek without ID", args: []string{"sessions", "peek", "--line", "4"}},
+		{name: "peek without line", args: []string{"sessions", "peek", "--id", "session"}},
+		{name: "peek descending line range", args: []string{"sessions", "peek", "--id", "session", "--line", "9-4"}},
+		{name: "peek all with a cap", args: []string{"sessions", "peek", "--id", "session", "--line", "4", "--all", "--max-bytes", "9"}},
+		{name: "peek zero cap", args: []string{"sessions", "peek", "--id", "session", "--line", "4", "--max-bytes", "0"}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -386,6 +391,101 @@ func TestSessionsSearchWritesHitsGroupedBySession(t *testing.T) {
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("stdout missing %q:\n%s", want, stdout)
+		}
+	}
+}
+
+func TestSessionsPeekPassesQueryAndWritesEvents(t *testing.T) {
+	var gotQuery session.PeekQuery
+	var gotRoots session.Roots
+	nextLine := 12
+	operations := commandOperations{
+		sessionPeek: func(_ context.Context, roots session.Roots, query session.PeekQuery) (session.PeekReport, error) {
+			gotQuery = query
+			gotRoots = roots
+			return session.PeekReport{
+				Complete:      true,
+				Diagnostics:   []session.Diagnostic{{Code: "malformed-lines", Message: "skipped 1 unparseable lines", Path: "/roots/claude/p/abc.jsonl"}},
+				Events:        []session.Event{{Kind: session.KindToolResult, Line: 9, Position: 4, Role: session.RoleTool, Text: "permission denied", Tool: "Bash"}},
+				NextLine:      &nextLine,
+				OmittedEvents: 2,
+				Session:       session.Session{Harness: session.HarnessClaude, ID: "abc", Path: "/roots/claude/p/abc.jsonl"},
+				TotalEvents:   7,
+			}, nil
+		},
+	}
+
+	code, stdout, stderr := runCommandWithOperations(t, sessionLoader(t), operations,
+		"sessions", "peek", "--id", "abc", "--line", "4,9-12", "--line", "20", "--context", "2", "--max-bytes", "900", "--subagents")
+
+	if code != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", code, stderr)
+	}
+	wantLines := []session.LineRange{{First: 4, Last: 4}, {First: 9, Last: 12}, {First: 20, Last: 20}}
+	if gotQuery.ID != "abc" || gotQuery.Context != 2 || gotQuery.MaxBytes != 900 || !gotQuery.IncludeSubagents || !slices.Equal(gotQuery.Lines, wantLines) {
+		t.Errorf("query = %+v", gotQuery)
+	}
+	if gotRoots.Claude != "/roots/claude" || gotRoots.Pi != "/roots/pi" {
+		t.Errorf("roots = %+v", gotRoots)
+	}
+	for _, want := range []string{":9  result:Bash", "    permission denied", "2 selected events left out by the size cap", "resume at --line 12"} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("stdout missing %q:\n%s", want, stdout)
+		}
+	}
+	if want := "/roots/claude/p/abc.jsonl: malformed-lines: skipped 1 unparseable lines\n"; stderr != want {
+		t.Errorf("stderr = %q, want %q", stderr, want)
+	}
+
+	code, stdout, _ = runCommandWithOperations(t, sessionLoader(t), operations, "sessions", "peek", "--id", "abc", "--line", "9", "--json")
+
+	var document session.PeekReport
+	if err := json.Unmarshal([]byte(stdout), &document); code != 0 || err != nil {
+		t.Fatalf("json exit code = %d, decode error = %v\n%s", code, err, stdout)
+	}
+	if gotQuery.MaxBytes != session.DefaultPeekBytes {
+		t.Errorf("default cap = %d, want %d", gotQuery.MaxBytes, session.DefaultPeekBytes)
+	}
+	if document.TotalEvents != 7 || document.OmittedEvents != 2 || document.NextLine == nil || *document.NextLine != 12 || len(document.Events) != 1 || document.Events[0].Text != "permission denied" {
+		t.Errorf("document = %+v", document)
+	}
+}
+
+func TestSessionsPeekIncompleteKeepsEventsAndExitsNonzero(t *testing.T) {
+	operations := commandOperations{
+		sessionPeek: func(context.Context, session.Roots, session.PeekQuery) (session.PeekReport, error) {
+			return session.PeekReport{Events: []session.Event{{Line: 1, Position: 1, Role: session.RoleUser, Text: "readable"}}, TotalEvents: 1}, nil
+		},
+	}
+
+	code, stdout, stderr := runCommandWithOperations(t, sessionLoader(t), operations, "sessions", "peek", "--id", "abc", "--line", "1", "--json")
+
+	if code != 1 || !strings.Contains(stdout, `"complete": false`) || !strings.Contains(stdout, `"text": "readable"`) {
+		t.Errorf("exit = %d, stdout = %q; want exit 1 with the incomplete report's events", code, stdout)
+	}
+	if want := "esheep: session peek is incomplete\n"; stderr != want {
+		t.Errorf("stderr = %q, want %q", stderr, want)
+	}
+}
+
+func TestSessionsPeekFailureKeepsDiagnosticsAndPrintsNoEvents(t *testing.T) {
+	operations := commandOperations{
+		sessionPeek: func(context.Context, session.Roots, session.PeekQuery) (session.PeekReport, error) {
+			return session.PeekReport{
+				Diagnostics: []session.Diagnostic{{Code: "walk", Message: "permission denied", Path: "/roots/claude"}},
+				Events:      []session.Event{{Line: 1, Text: "partial"}},
+			}, errors.New("no session has that ID")
+		},
+	}
+
+	for _, mode := range [][]string{nil, {"--json"}} {
+		code, stdout, stderr := runCommandWithOperations(t, sessionLoader(t), operations, append([]string{"sessions", "peek", "--id", "abc", "--line", "1"}, mode...)...)
+
+		if code != 1 || stdout != "" {
+			t.Errorf("peek %v: exit = %d, stdout = %q, want exit 1 and no payload", mode, code, stdout)
+		}
+		if want := "/roots/claude: walk: permission denied\nesheep: no session has that ID\n"; stderr != want {
+			t.Errorf("peek %v: stderr = %q, want %q", mode, stderr, want)
 		}
 	}
 }

@@ -32,6 +32,7 @@ type configLoader func(config.LoadOptions) (config.LoadResult, error)
 
 type commandOperations struct {
 	sessionList   func(context.Context, session.Roots, session.Filter) session.ListReport
+	sessionPeek   func(context.Context, session.Roots, session.PeekQuery) (session.PeekReport, error)
 	sessionSearch func(context.Context, session.Roots, session.Filter, session.SearchQuery) session.SearchReport
 }
 
@@ -84,6 +85,7 @@ func execute(root *cobra.Command, args []string) int {
 func newRootCommand(load configLoader) *cobra.Command {
 	return newRootCommandWithOperations(load, commandOperations{
 		sessionList:   session.List,
+		sessionPeek:   session.Peek,
 		sessionSearch: session.Search,
 	})
 }
@@ -110,6 +112,7 @@ help exit-codes' for exit statuses and the failure format.
 Common tasks:
   List recent sessions:          esheep sessions list
   Find a session by content:     esheep sessions search 'budget review'
+  Read a search hit in full:     esheep sessions peek --id ID --line 120
 
 Command groups:
   sessions  Historical session transcripts:  esheep sessions --help`,

@@ -130,6 +130,8 @@ func piMessageEvents(raw json.RawMessage, base event, visit func(event) bool) bo
 		for _, block := range message.Content {
 			if block.Text != "" {
 				parts = append(parts, block.Text)
+			} else if block.Type != "text" {
+				base.textless = appendDistinctType(base.textless, block.Type)
 			}
 		}
 		base.role, base.tool, base.text = RoleTool, message.ToolName, strings.Join(parts, "\n")

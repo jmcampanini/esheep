@@ -491,6 +491,43 @@ func TestSessionsWorkflow(t *testing.T) {
 		t.Fatalf("paged error sessions = %v, matched %d, has_more %v; want both sessions once", paged, page.MatchedSessions, page.HasMore)
 	}
 
+	const compressedID = "11111111-1111-4111-8111-111111111111"
+	peeked := runEsheep(t, environment, "sessions", "peek", "--id", compressedID, "--line", "2", "--context", "1", "--json")
+	assertSuccessWithDiagnostics(t, peeked, "root-missing")
+	var events struct {
+		Events []struct {
+			Kind     string `json:"kind"`
+			Line     int    `json:"line"`
+			Position int    `json:"position"`
+			Text     string `json:"text"`
+		} `json:"events"`
+		OmittedEvents int `json:"omitted_events"`
+		Session       struct {
+			Path string `json:"path"`
+		} `json:"session"`
+		TotalEvents int `json:"total_events"`
+	}
+	if err := json.Unmarshal([]byte(peeked.stdout), &events); err != nil {
+		t.Fatalf("decode peek: %v\n%s", err, peeked.stdout)
+	}
+	if events.Session.Path != matches.Sessions[0].Path || events.TotalEvents != 1 || events.OmittedEvents != 0 || len(events.Events) != 1 {
+		t.Fatalf("peek = %#v, want the compressed rollout's one event", events)
+	}
+	if event := events.Events[0]; event.Line != 2 || event.Position != 1 || event.Kind != "message" || event.Text != "compressed-session-probe" {
+		t.Fatalf("peeked event = %#v", event)
+	}
+
+	capped := runEsheep(t, environment, "sessions", "peek", "--id", "11111111-aaaa-bbbb-cccc-222222222222", "--line", "1-3", "--max-bytes", "1")
+	if capped.exitCode != 0 || !strings.Contains(capped.stdout, "    find the GOMODCACHE bug\n") ||
+		!strings.Contains(capped.stdout, "2 selected events left out by the size cap; raise --max-bytes, resume at --line 2, or pass --all.") {
+		t.Fatalf("capped peek = %#v, want the first line's event and a resume line for the other two", capped)
+	}
+
+	unmatched := runEsheep(t, environment, "sessions", "peek", "--id", compressedID, "--line", "1")
+	if unmatched.exitCode != 1 || unmatched.stdout != "" || !strings.Contains(unmatched.stderr, "esheep: no event to return on line 1;") {
+		t.Fatalf("peek of an undecoded line = %#v, want exit 1 without events", unmatched)
+	}
+
 	if got := snapshotTree(t, home); got != storesBefore {
 		t.Fatal("sessions commands modified a session store")
 	}
