@@ -5,20 +5,13 @@ esheep finds and reads historical sessions from Claude Code, Pi, Codex, local Ch
 
 ## Install
 
-esheep ships versioned releases for macOS and Linux on amd64 and arm64 as prebuilt archives and a Homebrew cask, with a HEAD formula and source builds also available.
+esheep ships versioned releases for macOS and Linux on amd64 and arm64 as prebuilt archives, with source builds also available.
 
 Install and upgrade with [mise](https://mise.jdx.dev):
 
 ```sh
 mise use -g github:jmcampanini/esheep
 mise upgrade github:jmcampanini/esheep
-```
-
-Install and upgrade the shared cask with Homebrew, which removes macOS quarantine before generating shell completions:
-
-```sh
-brew install --cask jmcampanini/tap/esheep
-brew upgrade --cask jmcampanini/tap/esheep
 ```
 
 Download your OS and architecture's archive from [releases](https://github.com/jmcampanini/esheep/releases), which include SHA-256 checksums and build provenance attestations, then extract it with `tar` and install or replace the binary:
@@ -28,14 +21,6 @@ tar -xzf <downloaded-archive>.tar.gz # Contains esheep, README.md, and LICENSE.
 # macOS only: remove quarantine from a browser-downloaded binary before running it.
 xattr -d com.apple.quarantine esheep
 # Copy ./esheep to a directory on your PATH, replacing it when upgrading.
-```
-
-Install the HEAD formula with Homebrew and upgrade to the latest source commit:
-
-```sh
-brew tap jmcampanini/esheep https://github.com/jmcampanini/esheep
-brew install --HEAD jmcampanini/esheep/esheep
-brew upgrade --fetch-HEAD jmcampanini/esheep/esheep
 ```
 
 Build from source with Git and mise, then copy the binary onto your `PATH`:

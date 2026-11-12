@@ -36,6 +36,7 @@ checksum:
   algorithm: sha256
 
 changelog:
+  # GitHub generates the notes from merged pull requests, shaped by .github/release.yml.
   use: github-native
 
 release:
@@ -44,39 +45,3 @@ release:
     name: esheep
   draft: false
   prerelease: auto
-
-homebrew_casks:
-  - name: esheep
-    homepage: https://github.com/jmcampanini/esheep
-    description: Find historical harness sessions
-    binaries:
-      - esheep
-    directory: Casks
-    commit_msg_template: "Update esheep to {{ .Tag }}"
-    commit_author:
-      name: github-actions[bot]
-      email: 41898282+github-actions[bot]@users.noreply.github.com
-    skip_upload: auto
-    # Pushed over SSH with a deploy key on homebrew-tap, since the workflow token cannot write to another repository.
-    repository:
-      owner: jmcampanini
-      name: homebrew-tap
-      branch: main
-      git:
-        url: ssh://git@github.com/jmcampanini/homebrew-tap.git
-        private_key: "{{ envOrDefault \"HOMEBREW_TAP_DEPLOY_KEY\" \"\" }}"
-    hooks:
-      pre:
-        # The binary is not notarized. Homebrew quarantines cask downloads, so remove the attribute before Homebrew runs completion generation, which happens before any postflight hook.
-        install_steps: |
-          on_macos do
-            run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{ .StagedPath }}/esheep"]
-          end
-    generate_completions_from_executable:
-      executable: esheep
-      args:
-        - completion
-      shells:
-        - bash
-        - zsh
-        - fish
