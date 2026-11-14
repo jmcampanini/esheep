@@ -68,10 +68,10 @@ matching against the undecoded lines and cannot combine with --role, --tool,
 Codex and ChatGPT Work limitations: decoded search omits web-search events.
 Where a transcript records each command and MCP call that a tool call ran,
 decoded search omits the ones that did not fail, and their output is decoded
-only where that tool call returned it. A failed one can match twice, in its
-own events and in that tool call's, and other transcripts may report one MCP
-call twice, in each case under different tool names. Use --raw to inspect
-those records in qualifying transcripts.
+only where that tool call returned it. A failed one can match twice under
+different tool names, once in its own events and once in that tool call's.
+Other transcripts may report one MCP call twice under different tool names.
+Use --raw to inspect those records in qualifying transcripts.
 
 Cowork decoded search supports user and assistant text, tool_use inputs,
 and tool_result text. Thinking, images, documents, system events, rate-limit
