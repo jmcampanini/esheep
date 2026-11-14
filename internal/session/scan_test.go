@@ -28,6 +28,7 @@ func TestAdaptersStopAtRequestedEvent(t *testing.T) {
 		{name: "codex result", adapter: codexAdapter{}, record: `{"type":"response_item","payload":{"type":"function_call_output","output":"one"}}`},
 		{name: "codex event", adapter: codexAdapter{}, record: `{"type":"event_msg","payload":{"type":"user_message","message":"one"}}`},
 		{name: "codex error", adapter: codexAdapter{}, record: `{"type":"event_msg","payload":{"type":"mcp_tool_call_end","result":{"Err":"one"}}}`},
+		{name: "codex failed item", adapter: codexAdapter{}, record: `{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"CommandExecution","status":"failed","aggregated_output":"one"}}}`},
 		{name: "cowork", adapter: coworkAdapter{}, record: `{"type":"assistant","message":{"content":[{"type":"text","text":"one"},{"type":"text","text":"two"}]}}`},
 	} {
 		t.Run(test.name, func(t *testing.T) {

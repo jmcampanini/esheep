@@ -4,13 +4,15 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // codexAdapter reads Codex and ChatGPT Work rollouts: JSONL files, plain or
 // Zstandard-compressed, whose first line is a session_meta header. Subagents
-// are identified by the header's source marker. The grammar has no tool error
-// flag except the Ok/Err union on MCP call results, so only MCP Err results
-// are marked failed.
+// are identified by the header's source marker. The grammar records tool
+// failure in two places: the status of an item_completed command or MCP call
+// in paginated history, and the Ok/Err union on mcp_tool_call_end results in
+// legacy history. Script results carry no failure flag.
 type codexAdapter struct{}
 
 type codexEnvelope struct {
@@ -216,17 +218,20 @@ func codexResponseEvents(raw json.RawMessage, base event, toolNames map[string]s
 	return false, true
 }
 
-// codexEventMessage emits legacy user messages and extracts the one tool error
-// signal the grammar has: the Ok/Err union on mcp_tool_call_end results.
+// codexEventMessage emits legacy user messages and the tool failures the
+// grammar records: failed item_completed commands and MCP calls, and the
+// Ok/Err union on mcp_tool_call_end results.
 func codexEventMessage(raw json.RawMessage, base event, provenanceUserMessages bool, visit func(event) bool) bool {
 	var payload struct {
 		CallID     string `json:"call_id"`
 		Invocation struct {
 			Tool string `json:"tool"`
 		} `json:"invocation"`
-		Message string          `json:"message"`
-		Result  json.RawMessage `json:"result"`
-		Type    string          `json:"type"`
+		Item        codexItem       `json:"item"`
+		Message     string          `json:"message"`
+		Result      json.RawMessage `json:"result"`
+		StartedAtMS int64           `json:"started_at_ms"`
+		Type        string          `json:"type"`
 	}
 	if json.Unmarshal(raw, &payload) != nil {
 		return true
@@ -237,6 +242,8 @@ func codexEventMessage(raw json.RawMessage, base event, provenanceUserMessages b
 			base.role, base.text = RoleUser, payload.Message
 			return visit(base)
 		}
+	case "item_completed":
+		return codexFailedItemEvents(payload.Item, payload.StartedAtMS, base, visit)
 	case "mcp_tool_call_end":
 		var result map[string]json.RawMessage
 		if json.Unmarshal(payload.Result, &result) != nil {
@@ -248,6 +255,59 @@ func codexEventMessage(raw json.RawMessage, base event, provenanceUserMessages b
 		return visit(base)
 	}
 	return true
+}
+
+// codexItem is the completed command or MCP call of an item_completed record.
+type codexItem struct {
+	AggregatedOutput string          `json:"aggregated_output"`
+	Arguments        json.RawMessage `json:"arguments"`
+	Command          json.RawMessage `json:"command"`
+	Error            *struct {
+		Message string `json:"message"`
+	} `json:"error"`
+	ID     string `json:"id"`
+	Result struct {
+		Content json.RawMessage `json:"content"`
+	} `json:"result"`
+	Status string `json:"status"`
+	Tool   string `json:"tool"`
+	Type   string `json:"type"`
+}
+
+// codexFailedItemEvents emits the call and the failed result of a command or
+// MCP call whose recorded status is failed. Other items repeat output the
+// script result already carries and record no failure, so they emit nothing.
+// The item names no script call, so its own id links the two events.
+func codexFailedItemEvents(item codexItem, startedAtMS int64, base event, visit func(event) bool) bool {
+	if item.Status != "failed" {
+		return true
+	}
+	call, result := base, base
+	switch item.Type {
+	case "CommandExecution":
+		call.text, result.text = compactJSON(item.Command), item.AggregatedOutput
+	case "McpToolCall":
+		call.text = compactJSON(item.Arguments)
+		result.text, result.textless = flattenText(item.Result.Content)
+		if item.Error != nil {
+			result.text = item.Error.Message
+		}
+	default:
+		return true
+	}
+
+	call.callID, call.kind, call.origin = item.ID, KindToolCall, EventOrigin{Kind: EventOriginAgent}
+	call.role, call.tool = RoleTool, item.Tool
+	if startedAtMS > 0 {
+		call.timestamp = time.UnixMilli(startedAtMS).UTC()
+	}
+	if !visit(call) {
+		return false
+	}
+
+	result.callID, result.kind, result.origin = item.ID, KindToolResult, EventOrigin{Kind: EventOriginTool}
+	result.role, result.tool, result.failed = RoleTool, item.Tool, true
+	return visit(result)
 }
 
 type codexOriginMetadata struct {
