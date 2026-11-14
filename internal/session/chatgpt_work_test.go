@@ -125,6 +125,8 @@ func TestWorkInventoryRequiresSavedConversationEvents(t *testing.T) {
 		{name: "custom tool call only", want: 1, body: `{"type":"response_item","payload":{"type":"custom_tool_call","call_id":"a","name":"apply_patch","input":"migration"}}`},
 		{name: "custom tool result only", want: 1, body: `{"type":"response_item","payload":{"type":"custom_tool_call_output","call_id":"a","output":"migration"}}`},
 		{name: "MCP result only", want: 1, body: `{"type":"event_msg","payload":{"type":"mcp_tool_call_end","invocation":{"tool":"query"},"result":{"Err":"migration"}}}`},
+		{name: "failed item only", history: "paginated", want: 1, body: `{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"CommandExecution","status":"failed","aggregated_output":"migration"}}}`},
+		{name: "completed item only", history: "paginated", body: `{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"CommandExecution","status":"completed","aggregated_output":"migration"}}}`},
 		{name: "late event after malformed line", want: 1, body: strings.Repeat("{\"type\":\"turn_context\"}\n", 600) + "malformed\n" + `{"type":"event_msg","payload":{"type":"user_message","message":"migration"}}`},
 	} {
 		t.Run(test.name, func(t *testing.T) {

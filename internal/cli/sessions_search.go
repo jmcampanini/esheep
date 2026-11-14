@@ -56,15 +56,22 @@ Stopping at a limit exits 0.
 
 --role limits matching to user, assistant, or tool events. --tool limits to
 calls of and results from one tool. --errors keeps only tool results whose
-grammar flags a failure; Codex and ChatGPT Work transcripts flag errors only
-on MCP calls, so other failing tool calls in those transcripts cannot match.
+grammar flags a failure. Codex and ChatGPT Work transcripts flag a failure on
+the command or MCP call a tool call ran, not on that tool call's own result,
+which cannot match. A failed command or MCP call is a call and a result on
+one transcript line with a shared "call_id"; a failed command has no tool
+name. Transcripts without those records flag failures only on MCP calls.
 --raw drops to byte-level
 matching against the undecoded lines and cannot combine with --role, --tool,
 --errors, --since, or --until.
 
-Codex and ChatGPT Work limitations: decoded search omits web-search events
-and may report one MCP call twice under different tool names. Use --raw to
-inspect those records in qualifying transcripts.
+Codex and ChatGPT Work limitations: decoded search omits web-search events.
+Where a transcript records each command and MCP call that a tool call ran,
+decoded search omits the ones that did not fail, and their output is decoded
+only where that tool call returned it. A failed one can match twice under
+different tool names, once in its own events and once in that tool call's.
+Other transcripts may report one MCP call twice under different tool names.
+Use --raw to inspect those records in qualifying transcripts.
 
 Cowork decoded search supports user and assistant text, tool_use inputs,
 and tool_result text. Thinking, images, documents, system events, rate-limit

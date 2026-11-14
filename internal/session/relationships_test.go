@@ -88,6 +88,65 @@ func TestCodexMCPResultsAndRawHits(t *testing.T) {
 	}
 }
 
+func TestCodexFailedItemsBecomeACallAndAFailedResult(t *testing.T) {
+	root := t.TempDir()
+	writeTranscript(t, filepath.Join(root, "items.jsonl"), time.Now(),
+		`{"type":"session_meta","payload":{"id":"items","history_mode":"paginated"}}`,
+		`{"type":"response_item","payload":{"type":"custom_tool_call","call_id":"script","name":"exec","input":"run the checks"}}`,
+		`{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"CommandExecution","id":"exec-1","command":["bash","-lc","go test"],"status":"completed","exit_code":0,"aggregated_output":"ok"}}}`,
+		`{"timestamp":"2026-11-08T06:35:43Z","type":"event_msg","payload":{"type":"item_completed","started_at_ms":1794119739000,"item":{"type":"CommandExecution","id":"exec-2","command":["bash","-lc","go vet"],"status":"failed","exit_code":1,"aggregated_output":"vet: unreachable code"}}}`,
+		`{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"McpToolCall","id":"exec-3","server":"db","tool":"query","arguments":{"sql":"drop"},"status":"failed","error":{"message":"rejected by review"}}}}`,
+		`{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"McpToolCall","id":"exec-4","server":"db","tool":"query","arguments":{"sql":"select"},"status":"failed","result":{"content":[{"type":"text","text":"connection refused"}],"isError":true}}}}`,
+		`{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"McpToolCall","id":"exec-5","server":"db","tool":"query","arguments":{"sql":"select"},"status":"completed","result":{"content":[{"type":"text","text":"one row"}],"isError":false}}}}`,
+		`{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"FileChange","id":"exec-6","status":"failed","stderr":"patch rejected"}}}`,
+		`{"type":"response_item","payload":{"type":"custom_tool_call_output","call_id":"script","output":"Script completed\nvet: unreachable code"}}`)
+	roots := Roots{CodexSessions: root}
+
+	report, err := Peek(context.Background(), roots, PeekQuery{ID: "items", Lines: []LineRange{{1, 9}}})
+	failures := Search(context.Background(), roots, Filter{}, SearchQuery{ErrorsOnly: true})
+
+	if err != nil {
+		t.Fatalf("Peek() error = %v", err)
+	}
+	want := []Event{
+		{Kind: KindToolCall, Line: 2, Text: "run the checks", CallID: "script", Tool: "exec"},
+		{Kind: KindToolCall, Line: 4, Text: `["bash","-lc","go vet"]`, CallID: "exec-2"},
+		{Kind: KindToolResult, Line: 4, Text: "vet: unreachable code", CallID: "exec-2", Error: true},
+		{Kind: KindToolCall, Line: 5, Text: `{"sql":"drop"}`, CallID: "exec-3", Tool: "query"},
+		{Kind: KindToolResult, Line: 5, Text: "rejected by review", CallID: "exec-3", Tool: "query", Error: true},
+		{Kind: KindToolCall, Line: 6, Text: `{"sql":"select"}`, CallID: "exec-4", Tool: "query"},
+		{Kind: KindToolResult, Line: 6, Text: "connection refused", CallID: "exec-4", Tool: "query", Error: true},
+		{Kind: KindToolResult, Line: 9, Text: "Script completed\nvet: unreachable code", CallID: "script", Tool: "exec"},
+	}
+	if len(report.Events) != len(want) {
+		t.Fatalf("Peek() = %+v, want %d events", report.Events, len(want))
+	}
+	for index, got := range report.Events {
+		expected := want[index]
+		if got.Kind != expected.Kind || got.Line != expected.Line || got.Text != expected.Text || got.CallID != expected.CallID ||
+			got.Tool != expected.Tool || got.Error != expected.Error || got.Role != RoleTool {
+			t.Errorf("event %d = %+v, want %+v", index, got, expected)
+		}
+	}
+	call, result := report.Events[1], report.Events[2]
+	if call.Origin.Kind != EventOriginAgent || result.Origin.Kind != EventOriginTool {
+		t.Errorf("origins = %q and %q, want agent call and tool result", call.Origin.Kind, result.Origin.Kind)
+	}
+	started, completed := time.Date(2026, 11, 8, 6, 35, 39, 0, time.UTC), time.Date(2026, 11, 8, 6, 35, 43, 0, time.UTC)
+	if !call.Timestamp.Equal(started) || !result.Timestamp.Equal(completed) {
+		t.Errorf("timestamps = %v and %v, want the recorded start %v and completion %v", call.Timestamp, result.Timestamp, started, completed)
+	}
+
+	if len(failures.Sessions) != 1 || len(failures.Sessions[0].Hits) != 3 {
+		t.Fatalf("Search(errors) = %+v, want one session with three hits", failures.Sessions)
+	}
+	for index, hit := range failures.Sessions[0].Hits {
+		if hit.Kind != KindToolResult || !hit.Error || hit.Line != index+4 {
+			t.Errorf("error hit %d = %+v, want the failed result on line %d", index, hit, index+4)
+		}
+	}
+}
+
 func TestInjectedContentDoesNotQualifySessionsOrPeriods(t *testing.T) {
 	for _, harness := range []Harness{HarnessChatGPTWork, HarnessClaudeCowork} {
 		t.Run(string(harness), func(t *testing.T) {
