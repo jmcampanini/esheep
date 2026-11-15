@@ -2,7 +2,6 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["config:best-practices", ":disableDependencyDashboard"],
   "enabledManagers": ["mise", "gomod", "github-actions"],
-  "timezone": "America/New_York",
   "prConcurrentLimit": 0,
   "prHourlyLimit": 0,
   "labels": ["dependencies"],
