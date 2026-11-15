@@ -8,9 +8,6 @@
   "prHourlyLimit": 0,
   "labels": ["dependencies"],
   "postUpdateOptions": ["gomodTidy", "gomodUpdateImportPaths"],
-  "lockFileMaintenance": {
-    "schedule": ["* 16-23 * * 5"]
-  },
   "packageRules": [
     {
       "matchManagers": ["gomod"],
@@ -51,6 +48,10 @@
       "rangeStrategy": "bump",
       "addLabels": ["go"],
       "schedule": ["* * * * *"]
+    },
+    {
+      "matchUpdateTypes": ["lockFileMaintenance"],
+      "schedule": ["* 16-23 * * 5"]
     }
   ]
 }
