@@ -1,0 +1,58 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:best-practices"],
+  "enabledManagers": ["mise", "gomod", "github-actions"],
+  "timezone": "America/New_York",
+  "schedule": ["* 16-23 * * 5"],
+  "prConcurrentLimit": 0,
+  "prHourlyLimit": 0,
+  "labels": ["dependencies"],
+  "postUpdateOptions": ["gomodTidy", "gomodUpdateImportPaths"],
+  "packageRules": [
+    {
+      "matchManagers": ["gomod"],
+      "addLabels": ["go"],
+      "constraintsFiltering": "strict"
+    },
+    {
+      "matchManagers": ["gomod"],
+      "matchUpdateTypes": ["minor", "patch", "digest"],
+      "groupName": "go minor and patch"
+    },
+    {
+      "matchManagers": ["github-actions"],
+      "addLabels": ["github-actions"],
+      "groupName": "actions"
+    },
+    {
+      "matchManagers": ["mise"],
+      "addLabels": ["mise"]
+    },
+    {
+      "matchManagers": ["mise"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "mise minor and patch"
+    },
+    {
+      "description": "Look up the go pin in mise.toml where the go directive in go.mod is looked up, so both see a new release in the same run.",
+      "matchManagers": ["mise"],
+      "matchDepNames": ["go"],
+      "overrideDatasource": "golang-version",
+      "overridePackageName": "go",
+      "extractVersion": "^(?<version>.+)$"
+    },
+    {
+      "matchManagers": ["mise", "gomod"],
+      "matchDepNames": ["go"],
+      "groupName": "go toolchain",
+      "rangeStrategy": "bump",
+      "addLabels": ["go"],
+      "schedule": ["* * * * *"]
+    },
+    {
+      "description": "Move lock file maintenance into the Friday window. config:best-practices gives it its own Monday schedule, which the top-level schedule does not replace.",
+      "matchUpdateTypes": ["lockFileMaintenance"],
+      "schedule": ["* 16-23 * * 5"]
+    }
+  ]
+}
