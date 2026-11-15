@@ -3,7 +3,6 @@
   "extends": ["config:best-practices", ":disableDependencyDashboard"],
   "enabledManagers": ["mise", "gomod", "github-actions"],
   "timezone": "America/New_York",
-  "schedule": ["* 16-23 * * 5"],
   "prConcurrentLimit": 0,
   "prHourlyLimit": 0,
   "labels": ["dependencies"],
@@ -46,13 +45,7 @@
       "matchDepNames": ["go"],
       "groupName": "go toolchain",
       "rangeStrategy": "bump",
-      "addLabels": ["go"],
-      "schedule": ["* * * * *"]
-    },
-    {
-      "description": "Move lock file maintenance into the Friday window. config:best-practices gives it its own Monday schedule, which the top-level schedule does not replace.",
-      "matchUpdateTypes": ["lockFileMaintenance"],
-      "schedule": ["* 16-23 * * 5"]
+      "addLabels": ["go"]
     }
   ]
 }
