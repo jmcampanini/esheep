@@ -32,6 +32,12 @@
       "groupName": "mise minor and patch"
     },
     {
+      "description": "govulncheck versions are looked up with a leading v and the pin in mise.toml has none.",
+      "matchManagers": ["mise"],
+      "matchDepNames": ["go:golang.org/x/vuln/cmd/govulncheck"],
+      "extractVersion": "^v(?<version>.+)$"
+    },
+    {
       "description": "Look up the go pin in mise.toml where the go directive in go.mod is looked up, so both see a new release in the same run.",
       "matchManagers": ["mise"],
       "matchDepNames": ["go"],
