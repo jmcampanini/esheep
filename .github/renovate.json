@@ -1,6 +1,6 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:best-practices"],
+  "extends": ["config:best-practices", ":disableDependencyDashboard"],
   "enabledManagers": ["mise", "gomod", "github-actions"],
   "timezone": "America/New_York",
   "schedule": ["* 16-23 * * 5"],
