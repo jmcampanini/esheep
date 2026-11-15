@@ -50,6 +50,7 @@
       "schedule": ["* * * * *"]
     },
     {
+      "description": "Move lock file maintenance into the Friday window. config:best-practices gives it its own Monday schedule, which the top-level schedule does not replace.",
       "matchUpdateTypes": ["lockFileMaintenance"],
       "schedule": ["* 16-23 * * 5"]
     }
