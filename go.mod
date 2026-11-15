@@ -3,7 +3,7 @@ module github.com/jmcampanini/esheep
 go 1.27.4
 
 require (
-	charm.land/lipgloss/v2 v2.1.0
+	charm.land/lipgloss/v2 v2.1.1
 	github.com/BurntSushi/toml v1.6.0
 	github.com/charmbracelet/x/term v0.2.2
 	github.com/jmcampanini/go-config-loader v0.3.0
