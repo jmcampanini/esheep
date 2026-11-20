@@ -8,7 +8,7 @@ lockfile_platforms = ["linux-x64", "macos-arm64"]
 [tools]
 go = "1.27.4"
 golangci-lint = "2.15.0"
-goreleaser = "2.20.2"
+goreleaser = "2.20.3"
 "go:golang.org/x/vuln/cmd/govulncheck" = "1.10.0"
 node = "26.13.1"
 "npm:markdownlint-cli2" = "0.24.1"
