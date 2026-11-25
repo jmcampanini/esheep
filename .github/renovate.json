@@ -64,13 +64,13 @@
       "automerge": true
     },
     {
-      "description": "Action updates below a major only change CI, so a bad one fails the required checks. Majors get their own branch, so everything else is matched and the actions branch never holds a manual update.",
+      "description": "Action updates below a major only change CI, so a bad one fails the required checks. Majors get their own branch, so the actions branch never holds a manual update.",
       "matchManagers": ["github-actions"],
       "matchUpdateTypes": ["!major"],
       "automerge": true
     },
     {
-      "description": "actions/attest-build-provenance runs only in the tag-triggered release workflow, where no required check exercises it. Its own group keeps it off the actions branch and manual.",
+      "description": "actions/attest-build-provenance runs only in the tag-triggered release workflow, where no required check exercises it. Its own group keeps it off the actions branch.",
       "matchManagers": ["github-actions"],
       "matchDepNames": ["actions/attest-build-provenance"],
       "groupName": "release actions",
