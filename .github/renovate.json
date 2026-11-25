@@ -31,8 +31,8 @@
     },
     {
       "matchManagers": ["mise"],
-      "matchUpdateTypes": ["minor", "patch"],
-      "groupName": "mise minor and patch"
+      "matchUpdateTypes": ["minor"],
+      "groupName": "mise minor"
     },
     {
       "description": "govulncheck versions are looked up with a leading v and the pin in mise.toml has none.",
@@ -56,18 +56,25 @@
       "addLabels": ["go"]
     },
     {
-      "description": "Action updates below a major only change CI, so a bad one fails the required checks. actions/attest-build-provenance stays manual because it runs only in the tag-triggered release workflow, where no required check exercises it.",
-      "matchManagers": ["github-actions"],
-      "matchDepNames": ["!actions/attest-build-provenance"],
-      "matchUpdateTypes": ["minor", "patch", "digest", "pin", "pinDigest"],
-      "automerge": true
-    },
-    {
-      "description": "mise pins the development tools, so their patch updates merge once the required checks pass. The go pin stays manual because the Go toolchain compiles the released binaries and moves together with the go directive in go.mod.",
+      "description": "mise pins the development tools, so their patch updates get a group of their own that merges once the required checks pass. The go pin is left out because the Go toolchain compiles the released binaries and stays in the go toolchain group.",
       "matchManagers": ["mise"],
       "matchDepNames": ["!go"],
       "matchUpdateTypes": ["patch"],
+      "groupName": "mise patch",
       "automerge": true
+    },
+    {
+      "description": "Action updates below a major only change CI, so a bad one fails the required checks. Majors get their own branch, so everything else is matched and the actions branch never holds a manual update.",
+      "matchManagers": ["github-actions"],
+      "matchUpdateTypes": ["!major"],
+      "automerge": true
+    },
+    {
+      "description": "actions/attest-build-provenance runs only in the tag-triggered release workflow, where no required check exercises it. Its own group keeps it off the actions branch and manual.",
+      "matchManagers": ["github-actions"],
+      "matchDepNames": ["actions/attest-build-provenance"],
+      "groupName": "release actions",
+      "automerge": false
     }
   ]
 }
