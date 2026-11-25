@@ -56,7 +56,7 @@
       "addLabels": ["go"]
     },
     {
-      "description": "Action updates below a major only change CI, so a bad one fails the required checks. They merge once those checks pass. actions/attest-build-provenance stays manual because it runs only in the tag-triggered release workflow, where no required check exercises it.",
+      "description": "Action updates below a major only change CI, so a bad one fails the required checks. actions/attest-build-provenance stays manual because it runs only in the tag-triggered release workflow, where no required check exercises it.",
       "matchManagers": ["github-actions"],
       "matchDepNames": ["!actions/attest-build-provenance"],
       "matchUpdateTypes": ["minor", "patch", "digest", "pin", "pinDigest"],
